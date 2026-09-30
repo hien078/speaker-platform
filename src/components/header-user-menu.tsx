@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   Heart,
+  Wallet,
 } from "lucide-react";
 
 export function HeaderUserMenu({ user }: { user: SessionUser }) {
@@ -64,7 +65,9 @@ export function HeaderUserMenu({ user }: { user: SessionUser }) {
           <div className="p-1">
             <MenuItem href="/sell/new" icon={<Package className="size-4" />} label="Đăng bán loa" />
             <MenuItem href="/sell/my" icon={<ShoppingBag className="size-4" />} label="Tin của tôi" />
+            <MenuItem href="/wallet" icon={<Wallet className="size-4" />} label="Ví & rút tiền" />
             <MenuItem href="/wishlist" icon={<Heart className="size-4" />} label="Tin đã lưu" />
+            <MenuItem href="/profile" icon={<UserRound className="size-4" />} label="Hồ sơ" />
             <MenuItem href="/orders" icon={<Package className="size-4" />} label="Đơn đã mua" />
             <MenuItem href="/orders/sales" icon={<ShoppingBag className="size-4" />} label="Đơn bán được" />
             <MenuItem href="/chat" icon={<MessageCircle className="size-4" />} label="Tin nhắn" />

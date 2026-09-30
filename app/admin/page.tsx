@@ -31,6 +31,7 @@ export default async function AdminDashboardPage() {
     gmvAgg,
     recentOrders,
     pendingListingsList,
+    pendingWithdraws,
   ] = await Promise.all([
     db.orm.public.Listing.where({ status: "pending" }).aggregate((a) => ({ c: a.count() })),
     db.orm.public.Dispute.where({ status: "open" }).aggregate((a) => ({ c: a.count() })),
@@ -53,6 +54,9 @@ export default async function AdminDashboardPage() {
       .orderBy((l) => l.createdAt.asc())
       .limit(5)
       .all(),
+    db.orm.public.WithdrawRequest
+      .where({ status: "requested" })
+      .aggregate((a) => ({ c: a.count(), total: a.sum("amount") })),
   ]);
 
   // tổng hoa hồng = tổng tiền đơn - tổng payout... chính xác hơn: sum commissionAmount của đơn completed
@@ -99,15 +103,15 @@ export default async function AdminDashboardPage() {
       urgent: openDisputes.c > 0,
     },
     {
-      label: "Người dùng",
-      value: totalUsers.c,
-      href: "/admin/users",
-      icon: <Users className="size-4" />,
-      urgent: false,
+      label: `Rút tiền chờ duyệt (${formatVND(pendingWithdraws.total ?? 0)})`,
+      value: pendingWithdraws.c,
+      href: "/admin/withdraws",
+      icon: <Banknote className="size-4" />,
+      urgent: pendingWithdraws.c > 0,
     },
     {
-      label: "Người bán",
-      value: sellers.c,
+      label: "Người dùng",
+      value: totalUsers.c,
       href: "/admin/users",
       icon: <Users className="size-4" />,
       urgent: false,

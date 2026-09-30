@@ -233,12 +233,12 @@ export default async function ListingDetailPage({
             <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
               Người bán
             </p>
-            <div className="mt-3 flex items-center gap-3">
-              <span className="grid size-12 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-600 text-sm font-bold text-zinc-950">
+            <Link href={`/seller/${listing.seller!.id}`} className="mt-3 flex items-center gap-3 transition hover:opacity-90">
+              <span className="grid size-12 place-items-center rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 text-sm font-bold text-zinc-950">
                 {listing.seller!.name.split(" ").map((w) => w[0]).slice(-2).join("").toUpperCase()}
               </span>
               <div className="min-w-0">
-                <p className="flex items-center gap-1.5 truncate text-sm font-bold">
+                <p className="flex items-center gap-1.5 truncate text-sm font-bold hover:text-amber-200">
                   {listing.seller!.name}
                   {listing.seller!.isVerifiedSeller && (
                     <BadgeCheck className="size-4 shrink-0 text-emerald-400" />
@@ -249,13 +249,16 @@ export default async function ListingDetailPage({
                   {formatDate(listing.seller!.createdAt).split(" ")[0]}
                 </p>
               </div>
-            </div>
+            </Link>
             {listing.seller!.city && (
               <p className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500">
                 <MapPin className="size-3.5" />
                 {listing.seller!.city}
               </p>
             )}
+            <Link href={`/seller/${listing.seller!.id}`} className="btn-secondary mt-3 w-full text-xs">
+              Xem gian hàng
+            </Link>
           </div>
         </aside>
       </div>

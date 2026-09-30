@@ -83,6 +83,10 @@
     "WishlistItem": {
       "model": "WishlistItem",
       "namespace": "public"
+    },
+    "WithdrawRequest": {
+      "model": "WithdrawRequest",
+      "namespace": "public"
     }
   },
   "domain": {
@@ -298,6 +302,27 @@
               {
                 "name": "admin",
                 "value": "admin"
+              }
+            ]
+          },
+          "withdraw_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "requested",
+                "value": "requested"
+              },
+              {
+                "name": "processing",
+                "value": "processing"
+              },
+              {
+                "name": "paid",
+                "value": "paid"
+              },
+              {
+                "name": "rejected",
+                "value": "rejected"
               }
             ]
           }
@@ -2910,6 +2935,21 @@
                   "namespace": "public"
                 }
               },
+              "processedWithdraws": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "processedById"
+                  ]
+                },
+                "to": {
+                  "model": "WithdrawRequest",
+                  "namespace": "public"
+                }
+              },
               "reviewsGiven": {
                 "cardinality": "1:N",
                 "on": {
@@ -2997,6 +3037,21 @@
                 },
                 "to": {
                   "model": "WishlistItem",
+                  "namespace": "public"
+                }
+              },
+              "withdrawRequests": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "sellerId"
+                  ]
+                },
+                "to": {
+                  "model": "WithdrawRequest",
                   "namespace": "public"
                 }
               }
@@ -3126,6 +3181,176 @@
               },
               "namespaceId": "public",
               "table": "WishlistItem"
+            }
+          },
+          "WithdrawRequest": {
+            "fields": {
+              "accountHolder": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "adminNote": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "amount": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "bankAccount": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "bankName": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "processedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "processedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sellerId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "withdraw_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              }
+            },
+            "relations": {
+              "processedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "processedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "seller": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "sellerId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "accountHolder": {
+                  "column": "accountHolder"
+                },
+                "adminNote": {
+                  "column": "adminNote"
+                },
+                "amount": {
+                  "column": "amount"
+                },
+                "bankAccount": {
+                  "column": "bankAccount"
+                },
+                "bankName": {
+                  "column": "bankName"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "processedAt": {
+                  "column": "processedAt"
+                },
+                "processedById": {
+                  "column": "processedById"
+                },
+                "sellerId": {
+                  "column": "sellerId"
+                },
+                "status": {
+                  "column": "status"
+                }
+              },
+              "namespaceId": "public",
+              "table": "WithdrawRequest"
             }
           }
         }
@@ -5417,6 +5642,166 @@
                   ]
                 }
               ]
+            },
+            "WithdrawRequest": {
+              "checks": [
+                {
+                  "expression": "\"status\" IN ('requested', 'processing', 'paid', 'rejected')",
+                  "name": "WithdrawRequest_status_check_0fc56bb9",
+                  "prefix": "WithdrawRequest_status_check"
+                }
+              ],
+              "columns": {
+                "accountHolder": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "adminNote": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "amount": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "bankAccount": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "bankName": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "processedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "processedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sellerId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "requested"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "withdraw_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "sellerId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "WithdrawRequest"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "source": {
+                    "columns": [
+                      "processedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "WithdrawRequest"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "processedById"
+                  ],
+                  "name": "WithdrawRequest_processedById_idx_92dfd8d4",
+                  "prefix": "WithdrawRequest_processedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "sellerId",
+                    "createdAt"
+                  ],
+                  "name": "WithdrawRequest_sellerId_createdAt_idx_a21eaac1",
+                  "prefix": "WithdrawRequest_sellerId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "sellerId"
+                  ],
+                  "name": "WithdrawRequest_sellerId_idx_d71255f2",
+                  "prefix": "WithdrawRequest_sellerId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status"
+                  ],
+                  "name": "WithdrawRequest_status_idx_e98638ab",
+                  "prefix": "WithdrawRequest_status_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
             }
           },
           "valueSet": {
@@ -5502,6 +5887,15 @@
                 "seller",
                 "admin"
               ]
+            },
+            "withdraw_status": {
+              "kind": "valueSet",
+              "values": [
+                "requested",
+                "processing",
+                "paid",
+                "rejected"
+              ]
             }
           }
         },
@@ -5509,10 +5903,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "5659a9315b5bcc242271cc3f8ac4fcba0877cc0416247374d504651e053df9ac"
+    "storageHash": "599d014869a7f38c978752f28d4fa60e9db217575ea73ae79323495f5355def1"
   },
   "execution": {
-    "executionHash": "f680f6437fa2114e2ce35b8c58efa3035066be354895a81d1e770b645c2a3b5b",
+    "executionHash": "a8b049ee7d89b6f56ef70063888f2f18ae1ecfc3bf5d83880d125f5a0624f054",
     "mutations": {
       "defaults": [
         {
@@ -5795,6 +6189,17 @@
           },
           "ref": {
             "entry": "WishlistItem",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "WithdrawRequest",
             "field": "id",
             "namespace": "public"
           }

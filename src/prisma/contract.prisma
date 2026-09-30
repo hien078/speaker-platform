@@ -111,6 +111,8 @@ model User {
   disputesOpened      Dispute[]      @relation("dispute_opener")
   auditLogs           AdminAuditLog[] @relation("audit_admin")
   wishlist            WishlistItem[] @relation("wishlist_owner")
+  withdrawRequests     WithdrawRequest[] @relation("withdraw_seller")
+  processedWithdraws  WithdrawRequest[] @relation("withdraw_admin")
 
   @@index([role])
 }
@@ -434,4 +436,34 @@ model OrderStatusHistory {
   createdAt TimestamptzString @default(now())
 
   @@index([orderId, createdAt])
+}
+
+// ─── Rút tiền của người bán (§120 Seller Payout) ───
+
+enum withdraw_status {
+  @@type("pg/text@1")
+  requested  = "requested"  // seller gửi yêu cầu
+  processing  = "processing"  // admin đang chuyển khoản
+  paid        = "paid"        // đã chuyển khoản thành công
+  rejected    = "rejected"    // từ chối (thiếu thông tin, sai stk…)
+}
+
+model WithdrawRequest {
+  id            String @id @default(uuid())
+  sellerId      String
+  seller        User   @relation("withdraw_seller", fields: [sellerId], references: [id])
+  amount        Int // VND
+  status        withdraw_status @default(requested)
+  bankName      String
+  bankAccount   String // số tài khoản
+  accountHolder String // tên chủ khoản
+  note          String? // ghi chú từ seller
+  adminNote     String? // phản hồi của admin
+  processedById String? // admin xử lý
+  processedBy   User?  @relation("withdraw_admin", fields: [processedById], references: [id])
+  processedAt   TimestamptzString?
+  createdAt     TimestamptzString @default(now())
+
+  @@index([sellerId, createdAt])
+  @@index([status])
 }

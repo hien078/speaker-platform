@@ -10,6 +10,7 @@ import {
   Users,
   Settings,
   AudioLines,
+  Banknote,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ const NAV = [
   { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch },
   { href: "/admin/orders", label: "Đơn hàng", icon: Package },
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle },
+  { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote },
   { href: "/admin/users", label: "Người dùng", icon: Users },
   { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings },
 ];
