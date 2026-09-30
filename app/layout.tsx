@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Header } from "@/src/components/header";
@@ -29,7 +29,6 @@ export const metadata: Metadata = {
   description:
     "Nền tảng trung gian mua bán, trao đổi loa và thiết bị âm thanh. Escrow bảo vệ người mua, hoa hồng minh bạch cho người bán.",
   manifest: "/manifest.webmanifest",
-  themeColor: "#07070e",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -39,6 +38,12 @@ export const metadata: Metadata = {
     icon: [{ url: "/icons/favicon-64.png", type: "image/png" }],
     apple: [{ url: "/icons/icon-192.png" }],
   },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#07070e",
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

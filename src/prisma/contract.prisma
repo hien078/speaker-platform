@@ -113,6 +113,7 @@ model User {
   wishlist            WishlistItem[] @relation("wishlist_owner")
   withdrawRequests     WithdrawRequest[] @relation("withdraw_seller")
   processedWithdraws  WithdrawRequest[] @relation("withdraw_admin")
+  offersMade          Offer[] @relation("offer_buyer")
 
   @@index([role])
 }
@@ -174,6 +175,7 @@ model Listing {
   offeredIn      ExchangeOffer[] @relation("exchange_mine")
   conversations Conversation[]
   wishlistedBy   WishlistItem[]
+  priceOffers    Offer[] @relation("offer_listing")
 
   @@index([status, createdAt])
   @@index([categoryId])
@@ -466,4 +468,35 @@ model WithdrawRequest {
 
   @@index([sellerId, createdAt])
   @@index([status])
+}
+
+// ─── Trả giá / Offer (§13 Offer & Negotiation) ───
+
+enum offer_status {
+  @@type("pg/text@1")
+  proposed  = "proposed"   // buyer đề nghị
+  countered = "countered"   // seller phản đề nghị
+  accepted  = "accepted"    // seller chấp nhận → tạo đơn
+  rejected  = "rejected"    // seller từ chối
+  cancelled = "cancelled"   // buyer rút đề nghị
+  expired   = "expired"     // quá hạn không phản hồi
+}
+
+model Offer {
+  id            String @id @default(uuid())
+  listingId     String
+  listing       Listing @relation("offer_listing", fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId       String
+  buyer         User    @relation("offer_buyer", fields: [buyerId], references: [id])
+  amount        Int // giá buyer đề nghị (VND)
+  counterAmount Int? // giá seller phản đề nghị
+  message       String?
+  status        offer_status @default(proposed)
+  orderId       String? // đơn tạo ra khi chấp nhận
+  expiresAt     TimestamptzString // hạn phản hồi (mặc định 3 ngày)
+  respondedAt   TimestamptzString?
+  createdAt     TimestamptzString @default(now())
+
+  @@index([listingId, status])
+  @@index([buyerId, createdAt])
 }

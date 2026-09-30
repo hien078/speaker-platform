@@ -9,6 +9,7 @@ import { CONDITION_LABELS } from "@/src/lib/constants";
 import { addToCartAction } from "@/src/lib/actions/cart";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
+import { OfferForm } from "@/src/components/offer-form";
 import {
   MapPin,
   Eye,
@@ -199,6 +200,9 @@ export default async function ListingDetailPage({
                       Chat với người bán
                     </button>
                   </form>
+                  {listing.negotiable && (
+                    <OfferForm listingId={listing.id} listingPrice={listing.price} />
+                  )}
                 </>
               ) : listing.status === "sold" ? (
                 <p className="rounded-lg bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-400">
