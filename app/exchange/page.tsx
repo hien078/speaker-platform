@@ -10,6 +10,8 @@ import {
   completeExchangeAction,
   cancelExchangeOfferAction,
 } from "@/src/lib/actions/exchange";
+import { ExchangeTopupButton } from "@/src/components/exchange-topup-button";
+import { isMomoConfigured } from "@/src/lib/momo";
 import { Handshake, ArrowLeftRight, CheckCircle2, XCircle, Ban, Banknote } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -165,13 +167,16 @@ export default async function ExchangePage({
           )}
 
           {!isSeller && offer.status === "accepted" && offer.cashTopup > 0 && (
-            <form action={payExchangeTopupAction} className="w-full">
-              <input type="hidden" name="offerId" value={offer.id} />
-              <button type="submit" className="btn-primary h-9 w-full text-sm">
-                <Banknote className="size-4" />
-                Nạp {formatVND(offer.cashTopup)} tiền bù qua escrow
-              </button>
-            </form>
+            <div className="w-full space-y-2">
+              <ExchangeTopupButton offerId={offer.id} amount={offer.cashTopup} momoEnabled={isMomoConfigured()} />
+              <form action={payExchangeTopupAction} className="w-full">
+                <input type="hidden" name="offerId" value={offer.id} />
+                <button type="submit" className="btn-secondary h-9 w-full text-sm">
+                  <Banknote className="size-4" />
+                  Nạp {formatVND(offer.cashTopup)} qua escrow (mock)
+                </button>
+              </form>
+            </div>
           )}
 
           {offer.status === "paid" && (

@@ -19,6 +19,7 @@ import {
 } from "@/src/lib/actions/orders";
 import { submitReviewAction } from "@/src/lib/actions/reviews";
 import { EscrowPayModal } from "@/src/components/escrow-pay-modal";
+import { isMomoConfigured } from "@/src/lib/momo";
 import {
   Package,
   Truck,
@@ -334,7 +335,7 @@ export default async function OrderDetailPage({
 
             {/* Buyer thanh toán escrow */}
             {isBuyer && order.status === "awaiting_payment" && order.paymentMethod === "escrow" && (
-              <EscrowPayModal orderId={order.id} amount={order.totalAmount} code={order.code} />
+              <EscrowPayModal orderId={order.id} amount={order.totalAmount} code={order.code} momoEnabled={isMomoConfigured()} />
             )}
 
             {/* Buyer chờ direct/cod */}
