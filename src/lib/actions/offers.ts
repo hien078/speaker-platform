@@ -6,6 +6,7 @@ import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode, computeCommission } from "@/src/lib/utils";
 import { recordStatusChange } from "@/src/lib/actions/orders";
+import { notify } from "@/src/lib/notify";
 
 const OFFER_EXPIRY_DAYS = 3;
 
@@ -47,6 +48,7 @@ export async function createOfferAction(
     expiresAt: new Date(Date.now() + OFFER_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString(),
   });
 
+  await notify(listing.sellerId, "offer", `Trả giá ${amount.toLocaleString("vi-VN")}₫ trên "${listing.title.slice(0, 40)}"`, message ?? undefined, "/offers");
   revalidatePath("/offers");
   revalidatePath(`/listings/${listing.slug}`);
   redirect("/offers?sent=1");
@@ -75,6 +77,7 @@ export async function respondOfferAction(formData: FormData): Promise<void> {
     await db.orm.public.Offer
       .where({ id: offerId })
       .update({ status: "rejected", respondedAt: now });
+    await notify(offer.buyerId, "offer", `Đề nghị ${offer.amount.toLocaleString("vi-VN")}₫ bị từ chối`, listing.title.slice(0, 50), "/offers");
     revalidatePath("/offers");
     return;
   }
@@ -86,6 +89,7 @@ export async function respondOfferAction(formData: FormData): Promise<void> {
     await db.orm.public.Offer
       .where({ id: offerId })
       .update({ status: "countered", counterAmount, respondedAt: now });
+    await notify(offer.buyerId, "counter", `Seller phản đề nghị ${counterAmount.toLocaleString("vi-VN")}₫`, listing.title.slice(0, 50), "/offers");
     revalidatePath("/offers");
     return;
   }

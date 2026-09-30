@@ -8,14 +8,17 @@ import {
   LogIn,
   UserRound,
   MessageCircle,
+  Bell,
 } from "lucide-react";
 import { HeaderUserMenu } from "@/src/components/header-user-menu";
+import { unreadCount } from "@/src/lib/notify";
 
 export async function Header() {
   const user = await getCurrentUser();
 
   let cartCount = 0;
   let unreadChat = 0;
+  let unreadNoti = 0;
   if (user) {
     const cart = await db.orm.public.Cart.first({ userId: user.id });
     if (cart) {
@@ -27,6 +30,7 @@ export async function Header() {
       .include("sender", (s) => s.select("id"))
       .all();
     unreadChat = unread.filter((m) => m.sender!.id !== user.id).length;
+    unreadNoti = await unreadCount(user.id);
   }
 
   return (
@@ -77,6 +81,18 @@ export async function Header() {
         <div className="flex shrink-0 items-center gap-1.5">
           {user ? (
             <>
+              <Link
+                href="/notifications"
+                className="relative grid size-10 place-items-center rounded-full text-zinc-400 transition hover:bg-white/5 hover:text-white"
+                title="Thông báo"
+              >
+                <Bell className="size-5" />
+                {unreadNoti > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 grid min-w-4.5 place-items-center rounded-full bg-gradient-to-b from-amber-300 to-orange-500 px-1 text-[10px] font-bold text-zinc-950 ring-2 ring-[#07070e]">
+                    {unreadNoti > 9 ? "9+" : unreadNoti}
+                  </span>
+                )}
+              </Link>
               <Link
                 href="/chat"
                 className="relative grid size-10 place-items-center rounded-full text-zinc-400 transition hover:bg-white/5 hover:text-white"

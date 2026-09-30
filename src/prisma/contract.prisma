@@ -114,6 +114,7 @@ model User {
   withdrawRequests     WithdrawRequest[] @relation("withdraw_seller")
   processedWithdraws  WithdrawRequest[] @relation("withdraw_admin")
   offersMade          Offer[] @relation("offer_buyer")
+  notifications       Notification[] @relation("notification_user")
 
   @@index([role])
 }
@@ -130,6 +131,7 @@ model Category {
   createdAt      TimestamptzString @default(now())
 
   listings Listing[]
+  models   ProductModel[] @relation("model_category")
 
   @@index([sortOrder])
 }
@@ -142,6 +144,7 @@ model Brand {
   createdAt TimestamptzString @default(now())
 
   listings Listing[]
+  models   ProductModel[] @relation("model_brand")
 }
 
 // ─── Tin đăng ───
@@ -176,6 +179,8 @@ model Listing {
   conversations Conversation[]
   wishlistedBy   WishlistItem[]
   priceOffers    Offer[] @relation("offer_listing")
+  productModelId String?
+  productModel   ProductModel? @relation(fields: [productModelId], references: [id])
 
   @@index([status, createdAt])
   @@index([categoryId])
@@ -499,4 +504,90 @@ model Offer {
 
   @@index([listingId, status])
   @@index([buyerId, createdAt])
+}
+
+// ─── Canonical Product Model (§5 — tách model khỏi listing) ───
+
+enum model_status {
+  @@type("pg/text@1")
+  approved = "approved" // hiển thị trong catalog
+  pending  = "pending"  // chờ admin duyệt
+  merged   = "merged"    // đã gộp vào model khác
+}
+
+model ProductModel {
+  id          String @id @default(uuid())
+  brandId     String
+  brand       Brand @relation("model_brand", fields: [brandId], references: [id])
+  categoryId  String
+  category    Category @relation("model_category", fields: [categoryId], references: [id])
+  name        String // "Charge 5"
+  slug        String @unique // "jbl-charge-5"
+  releaseYear Int?
+  description String?
+  specs       Json? // specs chuẩn hóa
+  image       String?
+  status      model_status @default(pending)
+  mergedIntoId String? // khi merged → trỏ model gốc
+  createdAt   TimestamptzString @default(now())
+  updatedAt   temporal.updatedAtString()
+
+  listings     Listing[]
+  priceHistory PriceHistory[]
+
+  @@index([brandId])
+  @@index([categoryId])
+  @@index([status])
+  @@fullTextIndex([name], name: "model_name_search")
+}
+
+enum price_kind {
+  @@type("pg/text@1")
+  listed  = "listed"    // giá niêm yết khi đăng tin
+  sold    = "sold"      // giá bán thành công thực tế
+  reprice = "reprice"   // thay đổi giá
+}
+
+model PriceHistory {
+  id        String @id @default(uuid())
+  modelId   String
+  model     ProductModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  listingId String? // tin đăng gây ra record giá
+  price     Int
+  kind      price_kind
+  createdAt TimestamptzString @default(now())
+
+  @@index([modelId, createdAt])
+}
+
+// ─── Double-entry ledger (§17 — immutable, mọi dòng tiền ghi vết) ───
+
+model LedgerEntry {
+  id        String @id @default(uuid())
+  txId      String // các entry đối xứng thuộc cùng giao dịch
+  account   String // escrow | platform_revenue | seller:<id> | withdraw
+  amount    Int // dương = credit (ghi có), âm = debit (ghi nợ)
+  refType   String // order | payment | payout | withdraw | exchange | refund
+  refId      String?
+  note      String?
+  createdAt TimestamptzString @default(now())
+
+  @@index([txId])
+  @@index([account, createdAt])
+}
+
+// ─── Notifications (§42) ───
+
+model Notification {
+  id        String @id @default(uuid())
+  userId    String
+  user      User @relation("notification_user", fields: [userId], references: [id], onDelete: Cascade)
+  kind      String // offer | counter | order | dispute | chat | price_drop
+  title     String
+  body      String?
+  link      String?
+  readAt    TimestamptzString?
+  createdAt TimestamptzString @default(now())
+
+  @@index([userId, createdAt])
 }

@@ -17,12 +17,14 @@ export function ListingForm({
   brands,
   cities,
   conditions,
+  models,
   edit,
 }: {
   categories: { id: string; name: string; commissionRate: number }[];
   brands: { id: string; name: string }[];
   cities: string[];
   conditions: { value: string; label: string }[];
+  models: { id: string; name: string; brandId: string }[];
   edit?: {
     listingId: string;
     title: string;
@@ -35,6 +37,7 @@ export function ListingForm({
     negotiable: boolean;
     acceptExchange: boolean;
     imageUrls: string[];
+    productModelId?: string | null;
   };
 }) {
   const [state, formAction, pending] = useActionState<ListingFormState, FormData>(
@@ -97,6 +100,26 @@ export function ListingForm({
             ))}
           </select>
         </div>
+      </div>
+
+      {/* Model sản phẩm (§5 — catalog chuẩn hóa) */}
+      <div>
+        <label className="label" htmlFor="productModelId">
+          Model sản phẩm <span className="font-normal text-zinc-600">(tùy chọn — dùng specs &amp; giá tham chiếu từ catalog)</span>
+        </label>
+        <select
+          id="productModelId"
+          name="productModelId"
+          className="input"
+          defaultValue={edit?.productModelId ?? ""}
+        >
+          <option value="">— Không chọn model cụ thể —</option>
+          {models.map((m) => (
+            <option key={m.id} value={m.id}>
+              {brands.find((b) => b.id === m.brandId)?.name ?? ""} {m.name}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Giá + tình trạng */}

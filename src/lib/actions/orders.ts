@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode, computeCommission } from "@/src/lib/utils";
+import { recordLedgerTx, escrowIn, escrowRelease, escrowRefund } from "@/src/lib/ledger";
+import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
 
@@ -191,7 +193,9 @@ export async function payEscrowAction(formData: FormData): Promise<void> {
         autoReleaseAt: new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
       });
     await recordStatusChange(tx, orderId, "paid_escrow", "Buyer thanh toán qua escrow — tiền được giữ", user.id);
+    await recordLedgerTx(tx, "payment", orderId, escrowIn(user.id, order.totalAmount, `Escrow đơn ${order.code}`));
   });
+  await notify(order.sellerId, "order", `Đơn ${order.code} đã thanh toán`, `${order.buyerId === user.id ? "" : ""}Tiền đã vào escrow — bạn có thể gửi hàng`, `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
   redirect(`/orders/${orderId}?paid=1`);
@@ -217,6 +221,7 @@ export async function sellerConfirmPaymentAction(formData: FormData): Promise<vo
     });
     await recordStatusChange(tx, orderId, "processing", "Seller xác nhận đã nhận tiền", user.id);
   });
+  await notify(order.buyerId, "order", `Đơn ${order.code} đang được chuẩn bị`, "Seller đã xác nhận và chuẩn bị gửi hàng", `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
 }
@@ -239,7 +244,26 @@ export async function shipOrderAction(formData: FormData): Promise<void> {
       .update({ status: "shipped", note: tracking ? `Mã vận đơn: ${tracking}` : order.note });
     await recordStatusChange(tx, orderId, "shipped", tracking ? `Mã vận đơn: ${tracking}` : "Seller đã gửi hàng", user.id);
   });
+  await notify(order.buyerId, "order", `Đơn ${order.code} đã gửi hàng`, tracking ? `Mã vận đơn: ${tracking}` : "Seller đã gửi hàng cho bạn", `/orders/${orderId}`);
   revalidatePath(`/orders/${orderId}`);
+}
+
+/** Ghi giá bán thành công vào PriceHistory cho các item có ProductModel (§12) */
+async function recordSoldPrices(orderId: string): Promise<void> {
+  const items = await db.orm.public.OrderItem
+    .where({ orderId })
+    .include("listing", (l) => l.select("productModelId"))
+    .all();
+  for (const item of items) {
+    if (item.listing!.productModelId) {
+      await db.orm.public.PriceHistory.create({
+        modelId: item.listing!.productModelId,
+        listingId: item.listingId,
+        price: item.price * item.quantity,
+        kind: "sold",
+      });
+    }
+  }
 }
 
 /** Buyer xác nhận đã nhận hàng → giải ngân cho seller (trừ hoa hồng) */
@@ -268,7 +292,10 @@ export async function confirmReceiptAction(formData: FormData): Promise<void> {
       status: "released",
     });
     await recordStatusChange(tx, orderId, "completed", `Buyer xác nhận nhận hàng — giải ngân ${order.sellerPayout}₫ cho seller`, user.id);
+    await recordLedgerTx(tx, "payout", orderId, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Giải ngân đơn ${order.code}`));
   });
+  await recordSoldPrices(orderId);
+  await notify(order.sellerId, "order", `Đã giải ngân ${order.sellerPayout.toLocaleString("vi-VN")}₫`, `Đơn ${order.code} hoàn tất — tiền vào ví sau hoa hồng`, `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/orders");
@@ -296,6 +323,9 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     }
     await tx.orm.public.Order.where({ id: orderId }).update({ status: "cancelled" });
     await recordStatusChange(tx, orderId, "cancelled", wasHeld ? "Hủy đơn — hoàn tiền escrow cho buyer" : "Hủy đơn", user.id);
+    if (wasHeld) {
+      await recordLedgerTx(tx, "refund", orderId, escrowRefund(order.buyerId, order.totalAmount, `Hoàn escrow đơn ${order.code}`));
+    }
     // trả tin đăng về đang bán
     const items = await tx.orm.public.OrderItem.where({ orderId }).all();
     for (const item of items) {
@@ -332,6 +362,7 @@ export async function openDisputeAction(formData: FormData): Promise<void> {
     await tx.orm.public.Order.where({ id: orderId }).update({ status: "disputed" });
     await recordStatusChange(tx, orderId, "disputed", `Khiếu nại mở: ${reason.slice(0, 100)}`, user.id);
   });
+  await notify(order.sellerId, "dispute", `Khiếu nại trên đơn ${order.code}`, reason.slice(0, 120), `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
 }
@@ -362,7 +393,9 @@ export async function processAutoReleases(): Promise<number> {
         status: "released",
       });
       await recordStatusChange(tx, order.id, "completed", "Tự giải ngân sau thời gian khiếu nại (không có khiếu nại)", null);
+      await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Tự giải ngân đơn ${order.code}`));
     });
+    await recordSoldPrices(order.id);
   }
   return overdue.length;
 }

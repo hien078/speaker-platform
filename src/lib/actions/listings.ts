@@ -24,6 +24,7 @@ export async function createListingAction(
   const negotiable = formData.get("negotiable") === "on";
   const acceptExchange = formData.get("acceptExchange") === "on";
   const images = formData.getAll("images").map(String).filter(Boolean);
+  const productModelId = String(formData.get("productModelId") ?? "") || null;
 
   // ─── Validate ───
   if (title.length < 8 || title.length > 120) {
@@ -51,6 +52,11 @@ export async function createListingAction(
   const slugTaken = await db.orm.public.Listing.where({ slug }).first();
   if (slugTaken) slug = `${slug}-${Date.now().toString(36)}`;
 
+  if (productModelId) {
+    const model = await db.orm.public.ProductModel.first({ id: productModelId });
+    if (!model || model.status !== "approved") return { error: "Model sản phẩm không hợp lệ" };
+  }
+
   const listing = await db.orm.public.Listing.create({
     sellerId: user.id,
     categoryId: category.id,
@@ -64,7 +70,16 @@ export async function createListingAction(
     acceptExchange,
     status: "pending", // chờ admin duyệt
     city,
+    productModelId,
   });
+  if (productModelId) {
+    await db.orm.public.PriceHistory.create({
+      modelId: productModelId,
+      listingId: listing.id,
+      price: Math.round(price),
+      kind: "listed",
+    });
+  }
 
   for (let i = 0; i < images.length; i++) {
     await db.orm.public.ListingImage.create({
@@ -114,6 +129,7 @@ export async function updateListingAction(
   const negotiable = formData.get("negotiable") === "on";
   const acceptExchange = formData.get("acceptExchange") === "on";
   const images = formData.getAll("images").map(String).filter(Boolean);
+  const productModelId = String(formData.get("productModelId") ?? "") || null;
 
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.sellerId !== user.id) {
@@ -173,8 +189,18 @@ export async function updateListingAction(
     description,
     negotiable,
     acceptExchange,
+    productModelId,
     status: contentChanged && listing.status === "approved" ? "pending" : listing.status,
   });
+  const finalModelId = productModelId ?? listing.productModelId;
+  if (finalModelId && listing.price !== Math.round(price)) {
+    await db.orm.public.PriceHistory.create({
+      modelId: finalModelId,
+      listingId: listing.id,
+      price: Math.round(price),
+      kind: "reprice",
+    });
+  }
 
   revalidatePath("/sell/my");
   revalidatePath(`/listings/${listing.slug}`);

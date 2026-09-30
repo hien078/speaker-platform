@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db";
 import { requireAdmin } from "@/src/lib/auth";
 import { recordStatusChange } from "@/src/lib/actions/orders";
+import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
+import { notify } from "@/src/lib/notify";
 
 /** Ghi log quản trị */
 export async function audit(
@@ -87,6 +89,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
         .where({ id: order.id })
         .update({ status: "refunded" });
       await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — hoàn tiền cho buyer: ${resolution}`, admin.id);
+      await recordLedgerTx(tx, "refund", order.id, escrowRefund(order.buyerId, order.totalAmount, `Admin hoàn escrow đơn ${order.code}`));
       // trả tin về đang bán
       const items = await tx.orm.public.OrderItem.where({ orderId: order.id }).all();
       for (const item of items) {
@@ -110,6 +113,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
         });
       }
       await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân cho seller: ${resolution}`, admin.id);
+      await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Admin giải ngân đơn ${order.code}`));
     } else {
       // đóng băng tiếp tục → trả đơn về shipped để chờ tự giải ngân
       await tx.orm.public.Order
@@ -120,6 +124,8 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
   });
 
   await audit(admin.id, "resolve_dispute", "Dispute", disputeId, `Đơn ${order.code}: ${resolution}`);
+  await notify(order.buyerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
+  await notify(order.sellerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
   revalidatePath("/admin/disputes");
   revalidatePath(`/orders/${order.id}`);
 }

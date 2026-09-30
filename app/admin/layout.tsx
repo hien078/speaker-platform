@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 const NAV = [
   { href: "/admin", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch },
+  { href: "/admin/catalog", label: "Catalog model", icon: AudioLines },
   { href: "/admin/orders", label: "Đơn hàng", icon: Package },
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle },
   { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote },

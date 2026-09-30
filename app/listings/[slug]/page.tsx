@@ -61,6 +61,19 @@ export default async function ListingDetailPage({
         .first()
     : null;
 
+  // Product Model link (§5) — specs + giá tham chiếu
+  const model = listing.productModelId
+    ? await db.orm.public.ProductModel
+        .where({ id: listing.productModelId })
+        .include("brand", (b) => b.select("name"))
+        .first()
+    : null;
+  const modelStats = model
+    ? await db.orm.public.PriceHistory
+        .where({ modelId: model.id })
+        .aggregate((a) => ({ avg: a.avg("price"), c: a.count() }))
+    : null;
+
   // tin liên quan cùng danh mục
   const related = await db.orm.public.Listing
     .where({ status: "approved", categoryId: listing.category!.id })
@@ -127,6 +140,41 @@ export default async function ListingDetailPage({
                 {listing.description}
               </p>
             </div>
+
+            {/* Model catalog (§5) */}
+            {model && (
+              <div className="mt-6 rounded-xl border border-violet-400/20 bg-violet-400/[.05] p-4">
+                <p className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
+                    Catalog model
+                  </span>
+                  <Link href={`/models/${model.slug}`} className="font-bold hover:text-violet-200">
+                    {model.brand!.name} {model.name}
+                  </Link>
+                  {model.releaseYear && <span className="text-xs text-zinc-500">· {model.releaseYear}</span>}
+                </p>
+                {Object.keys((model.specs ?? {}) as Record<string, string>).length > 0 && (
+                  <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
+                    {Object.entries((model.specs ?? {}) as Record<string, string>).slice(0, 6).map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between gap-2">
+                        <dt className="text-zinc-500">{k}</dt>
+                        <dd className="font-medium text-zinc-300">{v}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {modelStats && modelStats.c > 0 && (
+                  <p className="mt-3 text-xs text-zinc-500">
+                    Giá tham chiếu thị trường:{" "}
+                    <b className="text-violet-200">{formatVND(Math.round(modelStats.avg ?? 0))}</b>{" "}
+                    ({modelStats.c} mẫu giá) —{" "}
+                    <Link href={`/models/${model.slug}`} className="text-violet-300 hover:text-violet-200">
+                      xem chi tiết model →
+                    </Link>
+                  </p>
+                )}
+              </div>
+            )}
 
             <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
               <p className="flex items-start gap-2.5 text-sm leading-relaxed text-zinc-300">

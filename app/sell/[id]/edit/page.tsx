@@ -31,9 +31,15 @@ export default async function EditListingPage({
     );
   }
 
-  const [categories, brands] = await Promise.all([
+  const [categories, brands, models] = await Promise.all([
     db.orm.public.Category.where({ isActive: true }).orderBy((c) => c.sortOrder.asc()).all(),
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
+    db.orm.public.ProductModel
+      .where({ status: "approved" })
+      .select("id", "name", "brandId")
+      .orderBy((m) => m.name.asc())
+      .limit(200)
+      .all(),
   ]);
 
   return (
@@ -56,6 +62,7 @@ export default async function EditListingPage({
           categories={categories.map((c) => ({ id: c.id, name: c.name, commissionRate: c.commissionRate }))}
           brands={brands.map((b) => ({ id: b.id, name: b.name }))}
           cities={CITIES}
+          models={models.map((m) => ({ id: m.id, name: m.name, brandId: m.brandId }))}
           conditions={Object.entries(CONDITION_LABELS).map(([value, label]) => ({ value, label }))}
           edit={{
             listingId: listing.id,
@@ -69,6 +76,7 @@ export default async function EditListingPage({
             negotiable: listing.negotiable,
             acceptExchange: listing.acceptExchange,
             imageUrls: listing.images.map((i) => i.url),
+            productModelId: listing.productModelId,
           }}
         />
       </div>

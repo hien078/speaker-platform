@@ -12,9 +12,15 @@ export default async function SellNewPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const [categories, brands] = await Promise.all([
+  const [categories, brands, models] = await Promise.all([
     db.orm.public.Category.where({ isActive: true }).orderBy((c) => c.sortOrder.asc()).all(),
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
+    db.orm.public.ProductModel
+      .where({ status: "approved" })
+      .select("id", "name", "brandId")
+      .orderBy((m) => m.name.asc())
+      .limit(200)
+      .all(),
   ]);
 
   return (
@@ -31,6 +37,7 @@ export default async function SellNewPage() {
         <ListingForm
           categories={categories.map((c) => ({ id: c.id, name: c.name, commissionRate: c.commissionRate }))}
           brands={brands.map((b) => ({ id: b.id, name: b.name }))}
+          models={models.map((m) => ({ id: m.id, name: m.name, brandId: m.brandId }))}
           cities={CITIES}
           conditions={Object.entries(CONDITION_LABELS).map(([value, label]) => ({ value, label }))}
         />

@@ -5,6 +5,8 @@ import { db } from "@/src/prisma/db";
 import { requireUser, requireAdmin } from "@/src/lib/auth";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { audit } from "@/src/lib/actions/admin";
+import { recordLedgerTx, withdrawPaid } from "@/src/lib/ledger";
+import { notify } from "@/src/lib/notify";
 
 export type WithdrawFormState = { error?: string };
 
@@ -88,6 +90,14 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
       processedAt: new Date().toISOString(),
     });
 
+  if (next === "paid") {
+    await recordLedgerTx(
+      db,
+      "withdraw",
+      withdrawId,
+      withdrawPaid(request.sellerId, request.amount, `Rút tiền ${request.bankAccount} (${request.bankName})`),
+    );
+  }
   await audit(
     admin.id,
     `withdraw_${action}`,
@@ -95,6 +105,11 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
     withdrawId,
     `${request.amount.toLocaleString("vi-VN")}₫ → ${request.bankAccount} (${request.bankName})`,
   );
+  if (next === "paid") {
+    await notify(request.sellerId, "withdraw", `Đã rút ${request.amount.toLocaleString("vi-VN")}₫`, `Chuyển khoản tới ${request.bankAccount} (${request.bankName})`, "/wallet");
+  } else if (next === "rejected") {
+    await notify(request.sellerId, "withdraw", `Yêu cầu rút bị từ chối`, adminNote ?? undefined, "/wallet");
+  }
 
   revalidatePath("/admin/withdraws");
   revalidatePath("/wallet");
