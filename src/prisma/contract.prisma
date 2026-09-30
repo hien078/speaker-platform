@@ -1,0 +1,437 @@
+// use prisma-8
+
+// ═══════════════════════════════════════════════════════════════════
+// Speaker Platform — nền tảng trung gian mua bán & trao đổi loa
+// Tiền tệ: VND (số nguyên, không có phần thập phân)
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Enums ───
+
+enum user_role {
+  @@type("pg/text@1")
+  buyer  = "buyer"
+  seller = "seller"
+  admin  = "admin"
+}
+
+enum listing_status {
+  @@type("pg/text@1")
+  draft    = "draft"    // nháp
+  pending  = "pending"  // chờ admin duyệt
+  approved = "approved" // đã duyệt, đang hiển thị
+  rejected = "rejected" // bị từ chối
+  hidden   = "hidden"   // người bán tự ẩn
+  sold     = "sold"     // đã bán
+}
+
+enum product_condition {
+  @@type("pg/text@1")
+  new        = "new"         // mới nguyên seal
+  open_box   = "open_box"    // mở hộp chưa dùng
+  like_new   = "like_new"    // gần mới
+  excellent  = "excellent"    // rất tốt
+  good       = "good"        // còn tốt
+  fair       = "fair"        // cũ, còn dùng tốt
+  refurbished = "refurbished" // đã tái chế / sửa chữa chính hãng
+  for_parts  = "for_parts"   // lấy linh kiện
+}
+
+enum order_status {
+  @@type("pg/text@1")
+  awaiting_payment = "awaiting_payment" // chờ buyer thanh toán
+  paid_escrow      = "paid_escrow"      // tiền đã vào escrow, chờ seller gửi hàng
+  processing       = "processing"      // seller xác nhận, chuẩn bị hàng
+  shipped          = "shipped"          // đã gửi hàng
+  completed        = "completed"        // hoàn tất — đã giải ngân cho seller
+  cancelled        = "cancelled"        // đã hủy
+  refunded         = "refunded"        // đã hoàn tiền cho buyer
+  disputed         = "disputed"         // có khiếu nại
+}
+
+enum payment_method {
+  @@type("pg/text@1")
+  escrow = "escrow" // thanh toán qua nền tảng (giữ tiền hộ)
+  direct = "direct" // chuyển khoản trực tiếp cho seller
+  cod    = "cod"    // trả tiền khi nhận hàng
+}
+
+enum payment_status {
+  @@type("pg/text@1")
+  pending   = "pending"    // đang chờ
+  held      = "held"       // escrow đang giữ tiền
+  released  = "released"   // đã giải ngân cho seller
+  refunded  = "refunded"   // đã hoàn cho buyer
+  failed    = "failed"
+}
+
+enum exchange_status {
+  @@type("pg/text@1")
+  proposed  = "proposed"  // buyer gửi đề nghị
+  accepted  = "accepted"  // seller đồng ý, chờ tiền bù vào escrow
+  paid      = "paid"      // tiền bù đã vào escrow
+  completed = "completed" // hoàn tất trao đổi
+  rejected  = "rejected"
+  cancelled = "cancelled"
+}
+
+enum dispute_status {
+  @@type("pg/text@1")
+  open            = "open"
+  resolved_buyer  = "resolved_buyer"  // xử lý nghiêng về buyer (hoàn tiền)
+  resolved_seller = "resolved_seller" // xử lý nghiêng về seller (giải ngân)
+  closed          = "closed"
+}
+
+// ─── Người dùng & danh mục ───
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  phone        String?
+  role         user_role @default(buyer)
+  avatarUrl    String?
+  city         String?
+  bio          String?
+  isVerifiedSeller Boolean @default(false) // đã xác minh để nhận giải ngân
+  createdAt    TimestamptzString @default(now())
+  updatedAt    temporal.updatedAtString()
+
+  listings           Listing[]
+  buyerOrders         Order[]         @relation("buyer_orders")
+  sellerOrders        Order[]         @relation("seller_orders")
+  payouts            Payout[]        @relation("payout_seller")
+  exchangeOffersMade ExchangeOffer[] @relation("exchange_buyer")
+  buyerConversations Conversation[]  @relation("convo_buyer")
+  sellerConversations Conversation[] @relation("convo_seller")
+  sentMessages        Message[]      @relation("message_sender")
+  reviewsGiven        Review[]       @relation("review_author")
+  reviewsReceived     Review[]       @relation("review_target")
+  disputesOpened      Dispute[]      @relation("dispute_opener")
+  auditLogs           AdminAuditLog[] @relation("audit_admin")
+  wishlist            WishlistItem[] @relation("wishlist_owner")
+
+  @@index([role])
+}
+
+model Category {
+  id             String  @id @default(uuid())
+  name           String
+  slug           String  @unique
+  description    String?
+  icon           String?
+  commissionRate Int     @default(5) // % hoa hồng nền tảng thu trên giao dịch
+  sortOrder      Int     @default(0)
+  isActive       Boolean @default(true)
+  createdAt      TimestamptzString @default(now())
+
+  listings Listing[]
+
+  @@index([sortOrder])
+}
+
+model Brand {
+  id        String  @id @default(uuid())
+  name      String
+  slug      String  @unique
+  logoUrl   String?
+  createdAt TimestamptzString @default(now())
+
+  listings Listing[]
+}
+
+// ─── Tin đăng ───
+
+model Listing {
+  id          String   @id @default(uuid())
+  sellerId    String
+  seller      User     @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  categoryId  String
+  category    Category @relation(fields: [categoryId], references: [id])
+  brandId     String?
+  brand       Brand?   @relation(fields: [brandId], references: [id])
+  title       String
+  slug        String   @unique
+  description String
+  condition   product_condition
+  price       Int // VND
+  negotiable  Boolean @default(false) // có thương lượng giá
+  acceptExchange Boolean @default(false) // sẵn sàng trao đổi
+  status      listing_status @default(pending)
+  rejectionReason String?
+  city        String
+  viewCount   Int @default(0)
+  createdAt   TimestamptzString @default(now())
+  updatedAt    temporal.updatedAtString()
+
+  images         ListingImage[]
+  cartItems      CartItem[]
+  orderItems     OrderItem[]
+  targetOffers   ExchangeOffer[] @relation("exchange_target")
+  offeredIn      ExchangeOffer[] @relation("exchange_mine")
+  conversations Conversation[]
+  wishlistedBy   WishlistItem[]
+
+  @@index([status, createdAt])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([sellerId])
+  @@index([price])
+  @@fullTextIndex([title], name: "listing_title_search")
+  @@fullTextIndex([description], name: "listing_desc_search")
+}
+
+model ListingImage {
+  id        String  @id @default(uuid())
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  url       String
+  sortOrder Int @default(0)
+
+  @@index([listingId])
+}
+
+// ─── Giỏ hàng ───
+
+model Cart {
+  id        String @id @default(uuid())
+  userId    String @unique
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt TimestamptzString @default(now())
+
+  items CartItem[]
+}
+
+model CartItem {
+  id        String  @id @default(uuid())
+  cartId    String
+  cart      Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  quantity  Int @default(1)
+
+  @@unique([cartId, listingId])
+}
+
+// ─── Đơn hàng & thanh toán ───
+
+model Order {
+  id               String @id @default(uuid())
+  code             String @unique // mã đơn hiển thị, vd SP-240930-0001
+  buyerId          String
+  buyer            User   @relation("buyer_orders", fields: [buyerId], references: [id])
+  sellerId         String
+  seller           User   @relation("seller_orders", fields: [sellerId], references: [id])
+  status           order_status @default(awaiting_payment)
+  totalAmount      Int // tổng tiền hàng
+  commissionRate   Int // % hoa hồng snapshot tại thời điểm đặt
+  commissionAmount Int // tiền hoa hồng nền tảng thu
+  sellerPayout     Int // tiền thực nhận của seller sau trừ hoa hồng
+  paymentMethod    payment_method
+  shippingAddress  String
+  shippingPhone    String
+  note             String?
+  escrowReleasedAt TimestamptzString? // thời điểm giải ngân
+  autoReleaseAt    TimestamptzString? // tự giải ngân sau N ngày nếu không khiếu nại
+  createdAt        TimestamptzString @default(now())
+  updatedAt        temporal.updatedAtString()
+
+  items    OrderItem[]
+  payments Payment[]
+  payout   Payout?
+  review   Review?
+  disputes Dispute[]
+  statusHistory OrderStatusHistory[]
+
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String  @id @default(uuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id])
+  title     String // snapshot tiêu đề
+  price     Int // snapshot giá
+  imageUrl  String? // snapshot ảnh đầu
+  quantity  Int @default(1)
+
+  @@index([orderId])
+}
+
+model Payment {
+  id              String @id @default(uuid())
+  orderId         String?
+  order           Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  exchangeOfferId String? @unique
+  exchangeOffer   ExchangeOffer? @relation("exchange_payment", fields: [exchangeOfferId], references: [id])
+  method          payment_method
+  status          payment_status @default(pending)
+  amount          Int
+  provider        String @default("mock") // vnpay / momo / bank_qr / manual
+  providerTxnId   String? // mã giao dịch từ cổng
+  createdAt       TimestamptzString @default(now())
+  paidAt          TimestamptzString?
+  releasedAt      TimestamptzString? // thời điểm giải ngân cho seller
+
+  @@index([orderId])
+  @@index([status])
+}
+
+model Payout {
+  id        String @id @default(uuid())
+  orderId   String? @unique
+  order     Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sellerId  String
+  seller    User   @relation("payout_seller", fields: [sellerId], references: [id])
+  amount    Int // tiền seller nhận được
+  status    payment_status @default(released)
+  createdAt TimestamptzString @default(now())
+
+  @@index([sellerId])
+}
+
+// ─── Trao đổi (đổi loa + tiền bù) ───
+
+model ExchangeOffer {
+  id                 String @id @default(uuid())
+  listingId          String // tin đăng người bán — mục tiêu trao đổi
+  listing            Listing @relation("exchange_target", fields: [listingId], references: [id], onDelete: Cascade)
+  buyerId            String
+  buyer              User    @relation("exchange_buyer", fields: [buyerId], references: [id])
+  myListingId        String? // tin đăng của buyer đưa ra đổi (nếu có)
+  myListing          Listing? @relation("exchange_mine", fields: [myListingId], references: [id])
+  myItemDescription String? // mô tả sản phẩm đưa ra đổi nếu không có tin đăng
+  cashTopup          Int @default(0) // tiền bù (VND)
+  message            String?
+  status             exchange_status @default(proposed)
+  commissionRate     Int @default(5) // hoa hồng tính trên tiền bù
+  createdAt          TimestamptzString @default(now())
+  updatedAt          temporal.updatedAtString()
+
+  payment Payment? @relation("exchange_payment")
+
+  @@index([listingId])
+  @@index([buyerId])
+  @@index([status])
+}
+
+// ─── Chat ───
+
+model Conversation {
+  id            String @id @default(uuid())
+  listingId     String?
+  listing       Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+  buyerId       String
+  buyer         User @relation("convo_buyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId      String
+  seller        User @relation("convo_seller", fields: [sellerId], references: [id], onDelete: Cascade)
+  createdAt     TimestamptzString @default(now())
+  lastMessageAt TimestamptzString?
+
+  messages Message[]
+
+  @@unique([listingId, buyerId])
+  @@index([buyerId])
+  @@index([sellerId])
+}
+
+model Message {
+  id             String @id @default(uuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  sender         User @relation("message_sender", fields: [senderId], references: [id], onDelete: Cascade)
+  body           String
+  imageUrl       String?
+  readAt         TimestamptzString?
+  createdAt      TimestamptzString @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+// ─── Đánh giá & khiếu nại ───
+
+model Review {
+  id           String @id @default(uuid())
+  orderId      String @unique
+  order        Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User @relation("review_author", fields: [authorId], references: [id], onDelete: Cascade)
+  targetUserId String
+  targetUser   User @relation("review_target", fields: [targetUserId], references: [id], onDelete: Cascade)
+  rating       Int // 1–5 sao
+  comment      String?
+  createdAt     TimestamptzString @default(now())
+
+  @@index([targetUserId])
+}
+
+model Dispute {
+  id          String @id @default(uuid())
+  orderId     String
+  order       Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  openedById   String
+  openedBy     User @relation("dispute_opener", fields: [openedById], references: [id], onDelete: Cascade)
+  status      dispute_status @default(open)
+  reason      String
+  resolution  String?
+  createdAt    TimestamptzString @default(now())
+  resolvedAt   TimestamptzString?
+
+  @@index([orderId])
+  @@index([status])
+}
+
+// ─── Cấu hình nền tảng ───
+
+model PlatformSetting {
+  key       String @id
+  value     String
+  updatedAt temporal.updatedAtString()
+}
+
+model AdminAuditLog {
+  id        String @id @default(uuid())
+  adminId   String
+  admin     User @relation("audit_admin", fields: [adminId], references: [id], onDelete: Cascade)
+  action    String // approve_listing / reject_listing / resolve_dispute / ...
+  entity    String
+  entityId   String?
+  detail     String?
+  createdAt  TimestamptzString @default(now())
+
+  @@index([createdAt])
+}
+
+// ─── Wishlist / tin đã lưu (§28) ───
+
+model WishlistItem {
+  id        String @id @default(uuid())
+  userId    String
+  user      User @relation("wishlist_owner", fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt TimestamptzString @default(now())
+
+  @@unique([userId, listingId])
+  @@index([userId])
+}
+
+// ─── Lịch sử trạng thái đơn (§48 — audit trail chuyển trạng thái) ───
+
+model OrderStatusHistory {
+  id        String @id @default(uuid())
+  orderId   String
+  order     Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    order_status
+  note      String?
+  actorId   String? // người thực hiện chuyển (buyer/seller/system)
+  createdAt TimestamptzString @default(now())
+
+  @@index([orderId, createdAt])
+}
