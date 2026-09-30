@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/src/prisma/db";
 import { formatVND, cn } from "@/src/lib/utils";
 import { CONDITION_LABELS, LISTING_STATUS_BADGE, LISTING_STATUS_LABELS } from "@/src/lib/constants";
-import { Handshake, Eye, MapPin } from "lucide-react";
+import { Handshake } from "lucide-react";
 
 export type ListingCardData = {
   id: string;
@@ -28,78 +28,75 @@ export function ListingCard({ listing, className }: { listing: ListingCardData; 
     <Link
       href={`/listings/${listing.slug}`}
       className={cn(
-        "card card-hover group relative flex flex-col overflow-hidden",
-        isSold && "opacity-55",
+        "card card-hover group flex flex-col overflow-hidden",
+        isSold && "opacity-70",
         className,
       )}
     >
-      {/* Ảnh */}
-      <div className="img-frame relative aspect-[4/3]">
+      {/* Ảnh — tỉ lệ chuẩn tin đăng */}
+      <div className="relative aspect-[4/3] bg-[var(--paper-deep)]">
         {image ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={image}
             alt={listing.title}
-            className="size-full object-cover transition-transform duration-500 group-hover:scale-[1.06]"
+            className="size-full object-cover"
             loading="lazy"
           />
         ) : (
-          <div className="grid size-full place-items-center text-4xl text-zinc-700">🔇</div>
+          <div className="grid size-full place-items-center text-[var(--muted)]">
+            <span className="text-xs">chưa có ảnh</span>
+          </div>
         )}
 
-        {/* badge */}
-        <div className="absolute left-2.5 top-2.5 flex flex-wrap gap-1.5">
+        {/* góc: nhãn trạng thái */}
+        <div className="absolute left-1.5 top-1.5 flex gap-1">
           {listing.status !== "approved" && (
-            <span className={cn("badge bg-black/50", LISTING_STATUS_BADGE[listing.status])}>
+            <span className={cn("badge bg-white backdrop-blur", LISTING_STATUS_BADGE[listing.status])}>
               {LISTING_STATUS_LABELS[listing.status]}
             </span>
           )}
           {listing.acceptExchange && (
-            <span className="badge border-violet-400/30 bg-violet-500/25 text-violet-200">
+            <span className="badge bg-white text-[var(--violet)] backdrop-blur">
               <Handshake className="size-3" />
-              Trao đổi
+              đổi được
             </span>
           )}
         </div>
 
         {isSold && (
-          <div className="absolute inset-0 grid place-items-center bg-black/55 backdrop-blur-[1px]">
-            <span className="rotate-[-7deg] rounded-lg border-2 border-rose-400 px-4 py-1.5 font-[family-name:var(--font-space-grotesk)] text-base font-bold uppercase tracking-widest text-rose-400">
-              Đã bán
+          <div className="absolute inset-0 grid place-items-center bg-white/70">
+            <span className="rounded-sm border border-[var(--red)] bg-white px-3 py-1 text-xs font-bold uppercase tracking-widest text-[var(--red)]">
+              đã bán
             </span>
           </div>
         )}
       </div>
 
-      {/* Nội dung */}
-      <div className="flex flex-1 flex-col gap-1.5 p-4">
-        <div className="flex items-center gap-1.5 text-[11px] font-medium text-zinc-500">
-          {listing.brand && <span className="text-zinc-400">{listing.brand.name}</span>}
-          {listing.category && <span>· {listing.category.name}</span>}
-        </div>
-
-        <h3 className="line-clamp-2 text-sm font-semibold leading-snug text-zinc-100 transition group-hover:text-amber-200">
+      {/* Nội dung — dày, thực dụng */}
+      <div className="flex flex-1 flex-col gap-1 p-3">
+        <h3 className="line-clamp-2 text-[13px] font-medium leading-snug text-[var(--ink)] transition-colors group-hover:text-[var(--accent)]">
           {listing.title}
         </h3>
 
-        <div className="mt-auto space-y-2 pt-2">
-          <p className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold tracking-tight">
-            <span className="text-spotlight">{formatVND(listing.price)}</span>
+        <div className="mt-auto space-y-1 pt-1.5">
+          <p className="price text-[17px] leading-none">
+            {formatVND(listing.price)}
             {listing.negotiable && (
-              <span className="ml-1.5 align-middle text-[11px] font-medium text-zinc-500">mặc cả</span>
+              <span className="ml-1 text-[11px] font-medium text-[var(--muted)]">mặc cả</span>
             )}
           </p>
-          <div className="flex items-center justify-between text-[11px] text-zinc-500">
-            <span className="inline-flex min-w-0 items-center gap-1">
-              <MapPin className="size-3 shrink-0" />
-              <span className="truncate">{listing.city}</span>
-            </span>
-            <span className="inline-flex items-center gap-1">
-              <Eye className="size-3" />
-              {listing.viewCount}
-            </span>
+          <div className="flex items-center justify-between text-[11px] text-[var(--muted)]">
+            <span className="truncate">{CONDITION_LABELS[listing.condition]}</span>
+            <span className="shrink-0 truncate">{listing.city}</span>
           </div>
-          <p className="text-[11px] text-zinc-600">{CONDITION_LABELS[listing.condition]}</p>
+          {(listing.brand || listing.category) && (
+            <p className="truncate text-[11px] text-[var(--muted)]">
+              {listing.brand?.name}
+              {listing.brand && listing.category ? " · " : ""}
+              {listing.category?.name}
+            </p>
+          )}
         </div>
       </div>
     </Link>

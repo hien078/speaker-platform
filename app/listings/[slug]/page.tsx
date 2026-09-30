@@ -89,12 +89,12 @@ export default async function ListingDetailPage({
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
       {/* breadcrumb */}
-      <nav className="mb-5 flex items-center gap-1.5 text-xs text-zinc-500">
-        <Link href="/" className="hover:text-amber-400">Trang chủ</Link>
+      <nav className="mb-5 flex items-center gap-1.5 text-xs text-[var(--muted)]">
+        <Link href="/" className="hover:text-[var(--accent)]">Trang chủ</Link>
         <span>/</span>
-        <Link href="/listings" className="hover:text-amber-400">Chợ loa</Link>
+        <Link href="/listings" className="hover:text-[var(--accent)]">Chợ loa</Link>
         <span>/</span>
-        <Link href={`/listings?category=${listing.category!.slug}`} className="hover:text-amber-400">
+        <Link href={`/listings?category=${listing.category!.slug}`} className="hover:text-[var(--accent)]">
           {listing.category!.name}
         </Link>
       </nav>
@@ -109,7 +109,7 @@ export default async function ListingDetailPage({
               {listing.title}
             </h1>
 
-            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-zinc-400">
+            <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-[var(--ink-2)]">
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="size-4 text-amber-500/80" />
                 {listing.city}
@@ -118,25 +118,25 @@ export default async function ListingDetailPage({
                 <Eye className="size-4" />
                 {listing.viewCount} lượt xem
               </span>
-              <span className="badge bg-zinc-800 text-zinc-300">
+              <span className="badge bg-[var(--paper)] text-[var(--ink-2)]">
                 {CONDITION_LABELS[listing.condition]}
               </span>
               {listing.negotiable && (
-                <span className="badge bg-amber-500/15 text-amber-400">Mặc cả</span>
+                <span className="badge bg-[var(--accent-soft)] text-[var(--accent)]">Mặc cả</span>
               )}
               {listing.acceptExchange && (
-                <span className="badge bg-sky-500/15 text-sky-400">
+                <span className="badge bg-[#eaf2fb] text-[#2563a8]">
                   <Handshake className="size-3" />
                   Nhận trao đổi
                 </span>
               )}
             </div>
 
-            <div className="mt-6 border-t border-[var(--border)] pt-5">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+            <div className="mt-6 border-t border-[var(--line)] pt-5">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
                 Mô tả sản phẩm
               </h2>
-              <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed text-zinc-300">
+              <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--ink-2)]">
                 {listing.description}
               </p>
             </div>
@@ -145,30 +145,30 @@ export default async function ListingDetailPage({
             {model && (
               <div className="mt-6 rounded-xl border border-violet-400/20 bg-violet-400/[.05] p-4">
                 <p className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="text-xs font-bold uppercase tracking-wider text-violet-300">
+                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--violet)]">
                     Catalog model
                   </span>
-                  <Link href={`/models/${model.slug}`} className="font-bold hover:text-violet-200">
+                  <Link href={`/models/${model.slug}`} className="font-bold hover:text-[var(--violet)]">
                     {model.brand!.name} {model.name}
                   </Link>
-                  {model.releaseYear && <span className="text-xs text-zinc-500">· {model.releaseYear}</span>}
+                  {model.releaseYear && <span className="text-xs text-[var(--muted)]">· {model.releaseYear}</span>}
                 </p>
                 {Object.keys((model.specs ?? {}) as Record<string, string>).length > 0 && (
                   <dl className="mt-3 grid gap-x-6 gap-y-1.5 text-xs sm:grid-cols-2">
                     {Object.entries((model.specs ?? {}) as Record<string, string>).slice(0, 6).map(([k, v]) => (
                       <div key={k} className="flex items-center justify-between gap-2">
-                        <dt className="text-zinc-500">{k}</dt>
-                        <dd className="font-medium text-zinc-300">{v}</dd>
+                        <dt className="text-[var(--muted)]">{k}</dt>
+                        <dd className="font-medium text-[var(--ink-2)]">{v}</dd>
                       </div>
                     ))}
                   </dl>
                 )}
                 {modelStats && modelStats.c > 0 && (
-                  <p className="mt-3 text-xs text-zinc-500">
+                  <p className="mt-3 text-xs text-[var(--muted)]">
                     Giá tham chiếu thị trường:{" "}
-                    <b className="text-violet-200">{formatVND(Math.round(modelStats.avg ?? 0))}</b>{" "}
+                    <b className="text-[var(--violet)]">{formatVND(Math.round(modelStats.avg ?? 0))}</b>{" "}
                     ({modelStats.c} mẫu giá) —{" "}
-                    <Link href={`/models/${model.slug}`} className="text-violet-300 hover:text-violet-200">
+                    <Link href={`/models/${model.slug}`} className="text-[var(--violet)] hover:text-[var(--violet)]">
                       xem chi tiết model →
                     </Link>
                   </p>
@@ -176,9 +176,9 @@ export default async function ListingDetailPage({
               </div>
             )}
 
-            <div className="mt-6 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
-              <p className="flex items-start gap-2.5 text-sm leading-relaxed text-zinc-300">
-                <ShieldCheck className="mt-0.5 size-5 shrink-0 text-amber-400" />
+            <div className="mt-6 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] p-4">
+              <p className="flex items-start gap-2.5 text-sm leading-relaxed text-[var(--ink-2)]">
+                <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[var(--accent)]" />
                 <span>
                   Giao dịch qua LoaViet: bạn trả tiền vào nền tảng, người bán gửi hàng, bạn xác nhận
                   nhận được loa rồi nền tảng mới giải ngân. Nếu có vấn đề, mở khiếu nại trong{" "}
@@ -193,7 +193,7 @@ export default async function ListingDetailPage({
         <aside className="space-y-4 lg:sticky lg:top-20 lg:h-fit">
           <div className="card p-5">
             <div className="flex items-start justify-between gap-3">
-              <p className="text-3xl font-extrabold tracking-tight text-amber-400">
+              <p className="text-3xl font-extrabold tracking-tight text-[var(--accent)]">
                 {formatVND(listing.price)}
               </p>
               {user && !isOwner && (
@@ -205,8 +205,8 @@ export default async function ListingDetailPage({
                     className={cn(
                       "grid size-10 shrink-0 place-items-center rounded-full border transition",
                       saved
-                        ? "border-red-500/50 bg-red-500/15 text-red-400 hover:bg-red-500/25"
-                        : "border-[var(--border)] text-zinc-400 hover:border-red-500/40 hover:text-red-400",
+                        ? "border-red-500/50 bg-[var(--red-soft)] text-[var(--red)] hover:bg-[var(--red-soft)]"
+                        : "border-[var(--line)] text-[var(--ink-2)] hover:border-red-500/40 hover:text-[var(--red)]",
                     )}
                   >
                     <Heart className={cn("size-5", saved && "fill-red-400")} />
@@ -215,7 +215,7 @@ export default async function ListingDetailPage({
               )}
             </div>
             {listing.negotiable && (
-              <p className="mt-1 text-xs text-zinc-500">Người bán mở đón thương lượng</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">Người bán mở đón thương lượng</p>
             )}
 
             <div className="mt-4 space-y-2.5">
@@ -235,7 +235,7 @@ export default async function ListingDetailPage({
                   {listing.acceptExchange && (
                     <Link
                       href={`/listings/${listing.slug}/exchange`}
-                      className="btn w-full border border-sky-500/40 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20"
+                      className="btn w-full border border-sky-500/40 bg-[#2563a8]/10 text-[#2563a8] hover:bg-[#2563a8]/20"
                     >
                       <Handshake className="size-4" />
                       Đề nghị trao đổi + tiền bù
@@ -253,7 +253,7 @@ export default async function ListingDetailPage({
                   )}
                 </>
               ) : listing.status === "sold" ? (
-                <p className="rounded-lg bg-zinc-800 py-3 text-center text-sm font-semibold text-zinc-400">
+                <p className="rounded-lg bg-[var(--paper)] py-3 text-center text-sm font-semibold text-[var(--ink-2)]">
                   Sản phẩm đã được bán
                 </p>
               ) : isOwner ? (
@@ -262,15 +262,15 @@ export default async function ListingDetailPage({
                   Quản lý tin đăng của bạn
                 </Link>
               ) : (
-                <p className="rounded-lg bg-zinc-800 py-3 text-center text-sm text-zinc-400">
+                <p className="rounded-lg bg-[var(--paper)] py-3 text-center text-sm text-[var(--ink-2)]">
                   {listing.status === "pending" ? "Tin đang chờ quản trị duyệt" : "Tin không còn hiển thị"}
                 </p>
               )}
             </div>
 
-            <div className="mt-4 rounded-lg bg-zinc-800/50 p-3 text-xs leading-relaxed text-zinc-400">
-              <p className="flex items-center gap-1.5 font-semibold text-zinc-300">
-                <Banknote className="size-3.5 text-amber-400" />
+            <div className="mt-4 rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+              <p className="flex items-center gap-1.5 font-semibold text-[var(--ink-2)]">
+                <Banknote className="size-3.5 text-[var(--accent)]" />
                 Hoa hồng nền tảng: {listing.category!.commissionRate}%
               </p>
               <p className="mt-1">
@@ -282,28 +282,28 @@ export default async function ListingDetailPage({
 
           {/* Thẻ người bán */}
           <div className="card p-5">
-            <p className="text-xs font-bold uppercase tracking-wider text-zinc-500">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
               Người bán
             </p>
             <Link href={`/seller/${listing.seller!.id}`} className="mt-3 flex items-center gap-3 transition hover:opacity-90">
-              <span className="grid size-12 place-items-center rounded-full bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 text-sm font-bold text-zinc-950">
+              <span className="grid size-12 place-items-center rounded-full bg-[var(--accent)] text-sm font-bold text-white">
                 {listing.seller!.name.split(" ").map((w) => w[0]).slice(-2).join("").toUpperCase()}
               </span>
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 truncate text-sm font-bold hover:text-amber-200">
                   {listing.seller!.name}
                   {listing.seller!.isVerifiedSeller && (
-                    <BadgeCheck className="size-4 shrink-0 text-emerald-400" />
+                    <BadgeCheck className="size-4 shrink-0 text-[var(--green)]" />
                   )}
                 </p>
-                <p className="text-xs text-zinc-500">
+                <p className="text-xs text-[var(--muted)]">
                   {listing.seller!.isVerifiedSeller ? "Đã xác minh" : "Chưa xác minh"} · từ{" "}
                   {formatDate(listing.seller!.createdAt).split(" ")[0]}
                 </p>
               </div>
             </Link>
             {listing.seller!.city && (
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-zinc-500">
+              <p className="mt-2 flex items-center gap-1.5 text-xs text-[var(--muted)]">
                 <MapPin className="size-3.5" />
                 {listing.seller!.city}
               </p>

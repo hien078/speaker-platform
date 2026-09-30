@@ -68,22 +68,22 @@ export default async function AdminDashboardPage() {
     {
       label: "GMV — tổng giá trị đơn",
       value: formatVND(gmvAgg.total ?? 0),
-      icon: <TrendingUp className="size-5 text-amber-400" />,
+      icon: <TrendingUp className="size-5 text-[var(--accent)]" />,
     },
     {
       label: "Hoa hồng đã thu",
       value: formatVND(commissionTotal.total ?? 0),
-      icon: <Banknote className="size-5 text-emerald-400" />,
+      icon: <Banknote className="size-5 text-[var(--green)]" />,
     },
     {
       label: "Escrow đang giữ",
       value: formatVND(escrowHeldAgg.total ?? 0),
-      icon: <ShieldCheck className="size-5 text-violet-400" />,
+      icon: <ShieldCheck className="size-5 text-[var(--violet)]" />,
     },
     {
       label: "Đơn hoàn tất",
       value: String(completedAgg.c),
-      icon: <Package className="size-5 text-sky-400" />,
+      icon: <Package className="size-5 text-[#2563a8]" />,
     },
   ];
 
@@ -121,9 +121,9 @@ export default async function AdminDashboardPage() {
   return (
     <div>
       <h1 className="text-2xl font-extrabold tracking-tight">Tổng quan nền tảng</h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         {autoReleased > 0 && (
-          <span className="mr-2 rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+          <span className="mr-2 rounded-full bg-[var(--green-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--green)]">
             ✓ Đã tự giải ngân {autoReleased} đơn quá hạn
           </span>
         )}
@@ -135,7 +135,7 @@ export default async function AdminDashboardPage() {
         {stats.map((s) => (
           <div key={s.label} className="card p-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-zinc-500">{s.label}</p>
+              <p className="text-xs text-[var(--muted)]">{s.label}</p>
               {s.icon}
             </div>
             <p className="mt-2 text-xl font-extrabold tracking-tight sm:text-2xl">{s.value}</p>
@@ -151,15 +151,15 @@ export default async function AdminDashboardPage() {
             href={q.href}
             className={cn(
               "card flex items-center gap-3 p-4 transition hover:-translate-y-0.5",
-              q.urgent && "border-amber-500/40 bg-amber-500/5",
+              q.urgent && "border-[var(--accent)]/45 bg-[var(--accent-soft)]",
             )}
           >
-            <span className={cn("grid size-9 place-items-center rounded-lg", q.urgent ? "bg-amber-500/15 text-amber-400" : "bg-zinc-800 text-zinc-400")}>
+            <span className={cn("grid size-9 place-items-center rounded-lg", q.urgent ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "bg-[var(--paper)] text-[var(--ink-2)]")}>
               {q.icon}
             </span>
             <div>
               <p className="text-lg font-extrabold leading-none">{q.value}</p>
-              <p className="mt-1 text-xs text-zinc-500">{q.label}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">{q.label}</p>
             </div>
           </Link>
         ))}
@@ -169,34 +169,34 @@ export default async function AdminDashboardPage() {
         {/* Tin chờ duyệt */}
         <section className="card p-5">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
               Tin chờ duyệt gần đây
             </h2>
-            <Link href="/admin/listings" className="text-xs font-semibold text-amber-400 hover:text-amber-300">
+            <Link href="/admin/listings" className="text-xs font-semibold text-[var(--accent)] hover:text-[var(--accent)]">
               Xem tất cả →
             </Link>
           </div>
           <div className="mt-4 space-y-3">
             {pendingListingsList.length === 0 ? (
-              <p className="py-6 text-center text-sm text-zinc-600">Hàng đợi trống — mọi tin đã được duyệt 🎉</p>
+              <p className="py-6 text-center text-sm text-[var(--muted)]">Hàng đợi trống — mọi tin đã được duyệt 🎉</p>
             ) : (
               pendingListingsList.map((l) => (
-                <Link key={l.id} href="/admin/listings" className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-zinc-800/50">
-                  <div className="size-11 shrink-0 overflow-hidden rounded-md bg-zinc-900">
+                <Link key={l.id} href="/admin/listings" className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-[var(--paper)]">
+                  <div className="size-11 shrink-0 overflow-hidden rounded-md bg-[var(--paper-deep)]">
                     {l.images[0] ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={l.images[0].url} alt="" className="size-full object-cover" />
                     ) : (
-                      <span className="grid size-full place-items-center text-zinc-700">🔇</span>
+                      <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-1 text-sm font-medium">{l.title}</p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="text-xs text-[var(--muted)]">
                       {l.seller!.name} · {formatVND(l.price)} · {formatDate(l.createdAt)}
                     </p>
                   </div>
-                  <span className="badge shrink-0 bg-amber-500/15 text-amber-400">Chờ duyệt</span>
+                  <span className="badge shrink-0 bg-[var(--accent-soft)] text-[var(--accent)]">Chờ duyệt</span>
                 </Link>
               ))
             )}
@@ -206,22 +206,22 @@ export default async function AdminDashboardPage() {
         {/* Đơn gần đây */}
         <section className="card p-5">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
               Đơn hàng mới nhất
             </h2>
-            <Link href="/admin/orders" className="text-xs font-semibold text-amber-400 hover:text-amber-300">
+            <Link href="/admin/orders" className="text-xs font-semibold text-[var(--accent)] hover:text-[var(--accent)]">
               Xem tất cả →
             </Link>
           </div>
           <div className="mt-4 space-y-2.5">
             {recentOrders.length === 0 ? (
-              <p className="py-6 text-center text-sm text-zinc-600">Chưa có đơn hàng nào</p>
+              <p className="py-6 text-center text-sm text-[var(--muted)]">Chưa có đơn hàng nào</p>
             ) : (
               recentOrders.map((o) => (
-                <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-zinc-800/50">
+                <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-[var(--paper)]">
                   <div className="min-w-0 flex-1">
-                    <p className="font-mono text-xs font-bold text-amber-400">{o.code}</p>
-                    <p className="text-xs text-zinc-500">
+                    <p className="font-mono text-xs font-bold text-[var(--accent)]">{o.code}</p>
+                    <p className="text-xs text-[var(--muted)]">
                       {o.buyer!.name} → {o.seller!.name} · {formatDate(o.createdAt)}
                     </p>
                   </div>

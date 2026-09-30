@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Catalog model" };
 
 const STATUS_BADGE: Record<string, string> = {
-  approved: "bg-emerald-400/15 text-emerald-300",
-  pending: "bg-amber-400/15 text-amber-300",
-  merged: "bg-zinc-500/15 text-zinc-400",
+  approved: "bg-[var(--green-soft)] text-[var(--green)]",
+  pending: "bg-[var(--accent-soft)] text-[var(--accent)]",
+  merged: "bg-zinc-500/15 text-[var(--ink-2)]",
 };
 
 export default async function AdminCatalogPage() {
@@ -34,10 +34,10 @@ export default async function AdminCatalogPage() {
   return (
     <div>
       <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight">
-        <AudioLines className="size-6 text-amber-400" />
+        <AudioLines className="size-6 text-[var(--accent)]" />
         Catalog model sản phẩm
       </h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         {approved.length} model đã duyệt · {models.length - approved.length} chờ/gộp — catalog
         chuẩn hóa dùng chung cho mọi tin đăng (§5, §68).
       </p>
@@ -52,12 +52,12 @@ export default async function AdminCatalogPage() {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex flex-wrap items-center gap-2.5">
                     <p className="text-sm font-bold">
-                      <span className="text-zinc-500">{m.brand!.name}</span> {m.name}
+                      <span className="text-[var(--muted)]">{m.brand!.name}</span> {m.name}
                   </p>
                     <span className={cn("badge", STATUS_BADGE[m.status])}>{m.status}</span>
-                    <span className="text-xs text-zinc-600">{specCount} specs · {m.category!.name}</span>
+                    <span className="text-xs text-[var(--muted)]">{specCount} specs · {m.category!.name}</span>
                   </div>
-                  <span className="text-xs text-zinc-600">{formatDate(m.createdAt).split(" ")[0]}</span>
+                  <span className="text-xs text-[var(--muted)]">{formatDate(m.createdAt).split(" ")[0]}</span>
                 </div>
 
                 {m.status === "pending" && (
@@ -72,7 +72,7 @@ export default async function AdminCatalogPage() {
 
                 {m.status !== "merged" && approved.length > 1 && (
                   <details className="mt-2">
-                    <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
+                    <summary className="cursor-pointer text-xs text-[var(--muted)] hover:text-[var(--ink-2)]">
                       Gộp vào model khác (trùng lặp)…
                     </summary>
                     <form action={mergeModelAction} className="mt-2 flex gap-2">
@@ -96,7 +96,7 @@ export default async function AdminCatalogPage() {
 
         {/* ─── Tạo model mới ─── */}
         <aside className="card h-fit p-5 lg:sticky lg:top-20">
-          <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+          <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
             Tạo model mới
           </p>
           <form action={createModelAction} className="mt-4 space-y-3">

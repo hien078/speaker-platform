@@ -75,26 +75,25 @@ export default async function ModelPage({
       </Link>
 
       {/* ═══ Header model ═══ */}
-      <div className="ring-gradient relative overflow-hidden p-6 sm:p-8">
-        <div className="orb right-[-4%] top-[-40%] size-64 bg-amber-500/15" aria-hidden />
+      <div className="card p-6 sm:p-8">
         <div className="relative flex flex-wrap items-start justify-between gap-6">
           <div className="min-w-0">
-            <p className="flex items-center gap-2 text-sm text-zinc-500">
+            <p className="flex items-center gap-2 text-sm text-[var(--muted)]">
               <span>{model.category!.icon}</span>
-              <Link href={`/listings?category=${model.category!.slug}`} className="hover:text-amber-300">
+              <Link href={`/listings?category=${model.category!.slug}`} className="hover:text-[var(--accent)]">
                 {model.category!.name}
               </Link>
               <span>·</span>
-              <span className="font-semibold text-zinc-300">{model.brand!.name}</span>
+              <span className="font-semibold text-[var(--ink-2)]">{model.brand!.name}</span>
             </p>
-            <h1 className="mt-2 font-[family-name:var(--font-space-grotesk)] text-3xl font-bold tracking-tight">
-              {model.brand!.name} <span className="text-spotlight">{model.name}</span>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">
+              {model.brand!.name} <span className="price">{model.name}</span>
             </h1>
             {model.releaseYear && (
-              <p className="mt-1 text-sm text-zinc-500">Ra mắt {model.releaseYear}</p>
+              <p className="mt-1 text-sm text-[var(--muted)]">Ra mắt {model.releaseYear}</p>
             )}
             {model.description && (
-              <p className="mt-3 max-w-xl text-sm leading-relaxed text-zinc-400">{model.description}</p>
+              <p className="mt-3 max-w-xl text-sm leading-relaxed text-[var(--ink-2)]">{model.description}</p>
             )}
           </div>
 
@@ -117,29 +116,29 @@ export default async function ModelPage({
         {stats && (
           <div className="relative mt-6 grid gap-3 sm:grid-cols-4">
             <div className="card p-4">
-              <p className="flex items-center gap-1.5 text-xs text-zinc-500">
-                <TrendingUp className="size-3.5 text-amber-400" />
+              <p className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                <TrendingUp className="size-3.5 text-[var(--accent)]" />
                 Giá tham chiếu (median)
               </p>
-              <p className="mt-1.5 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-spotlight">
+              <p className="mt-1.5 text-xl font-bold price">
                 {formatVND(stats.median)}
               </p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-zinc-500">Khoảng giá thị trường</p>
-              <p className="mt-1.5 text-sm font-semibold text-zinc-200">
+              <p className="text-xs text-[var(--muted)]">Khoảng giá thị trường</p>
+              <p className="mt-1.5 text-sm font-semibold text-[var(--ink)]">
                 {formatVND(stats.low)} — {formatVND(stats.high)}
               </p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-zinc-500">Mẫu giá thu thập</p>
-              <p className="mt-1.5 text-sm font-semibold text-zinc-200">
+              <p className="text-xs text-[var(--muted)]">Mẫu giá thu thập</p>
+              <p className="mt-1.5 text-sm font-semibold text-[var(--ink)]">
                 {stats.count} điểm giá · {stats.soldCount} đã bán
               </p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-zinc-500">Đang bán</p>
-              <p className="mt-1.5 text-sm font-semibold text-emerald-400">{listings.length} tin</p>
+              <p className="text-xs text-[var(--muted)]">Đang bán</p>
+              <p className="mt-1.5 text-sm font-semibold text-[var(--green)]">{listings.length} tin</p>
             </div>
           </div>
         )}
@@ -148,23 +147,23 @@ export default async function ModelPage({
       <div className="mt-8 grid gap-8 lg:grid-cols-[320px_1fr]">
         {/* ═══ Specs ═══ */}
         <aside className="card h-fit p-5 lg:sticky lg:top-20">
-          <p className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-zinc-400">
-            <AudioLines className="size-4 text-amber-400" />
+          <p className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
+            <AudioLines className="size-4 text-[var(--accent)]" />
             Thông số kỹ thuật
           </p>
           {specEntries.length === 0 ? (
-            <p className="mt-4 text-sm text-zinc-600">Chưa có specs chuẩn hóa cho model này.</p>
+            <p className="mt-4 text-sm text-[var(--muted)]">Chưa có specs chuẩn hóa cho model này.</p>
           ) : (
             <dl className="mt-4 space-y-2.5">
               {specEntries.map(([k, v]) => (
                 <div key={k} className="flex items-start justify-between gap-3 text-sm">
-                  <dt className="shrink-0 text-zinc-500">{k}</dt>
-                  <dd className="text-right font-medium text-zinc-200">{v}</dd>
+                  <dt className="shrink-0 text-[var(--muted)]">{k}</dt>
+                  <dd className="text-right font-medium text-[var(--ink)]">{v}</dd>
                 </div>
               ))}
             </dl>
           )}
-          <p className="mt-4 border-t border-[var(--border)] pt-3 text-[11px] leading-relaxed text-zinc-600">
+          <p className="mt-4 border-t border-[var(--line)] pt-3 text-[11px] leading-relaxed text-[var(--muted)]">
             Specs chuẩn hóa từ catalog LoaViet — mọi tin đăng link model này dùng chung dữ liệu.
           </p>
         </aside>
@@ -178,7 +177,7 @@ export default async function ModelPage({
             <div className="card mt-5 grid place-items-center gap-2 p-14 text-center">
               <span className="text-4xl">📭</span>
               <p className="font-bold">Chưa có tin nào đang bán model này</p>
-              <p className="text-sm text-zinc-500">Quay lại sau — hoặc xem các tin liên quan.</p>
+              <p className="text-sm text-[var(--muted)]">Quay lại sau — hoặc xem các tin liên quan.</p>
             </div>
           ) : (
             <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -191,7 +190,7 @@ export default async function ModelPage({
           {/* lịch sử giá */}
           {history.length > 0 && (
             <section className="card mt-8 p-5">
-              <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+              <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
                 Lịch sử giá thu thập
               </p>
               <div className="mt-4 space-y-1.5">
@@ -200,14 +199,14 @@ export default async function ModelPage({
                     <span
                       className={cn(
                         "badge",
-                        h.kind === "sold" ? "bg-emerald-400/15 text-emerald-300" :
-                        h.kind === "reprice" ? "bg-violet-400/15 text-violet-300" :
-                        "bg-amber-400/15 text-amber-300",
+                        h.kind === "sold" ? "bg-[var(--green-soft)] text-[var(--green)]" :
+                        h.kind === "reprice" ? "bg-[var(--violet-soft)] text-[var(--violet)]" :
+                        "bg-[var(--accent-soft)] text-[var(--accent)]",
                       )}
                     >
                       {h.kind === "sold" ? "Đã bán" : h.kind === "reprice" ? "Đổi giá" : "Niêm yết"}
                     </span>
-                    <span className="flex-1 truncate text-xs text-zinc-600">
+                    <span className="flex-1 truncate text-xs text-[var(--muted)]">
                       {formatDate(h.createdAt)}
                     </span>
                     <span className="font-semibold">{formatVND(h.price)}</span>

@@ -50,10 +50,10 @@ export default async function EditListingPage({
       </Link>
 
       <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-        <Pencil className="size-6 text-amber-400" />
+        <Pencil className="size-6 text-[var(--accent)]" />
         Sửa tin đăng
       </h1>
-      <p className="mt-1.5 text-sm text-zinc-500">
+      <p className="mt-1.5 text-sm text-[var(--muted)]">
         Thay đổi nội dung chính (tiêu đề, giá, mô tả…) sẽ đưa tin quay lại hàng chờ duyệt.
       </p>
 

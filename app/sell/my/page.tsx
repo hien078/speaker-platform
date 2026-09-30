@@ -36,7 +36,7 @@ export default async function MyListingsPage({
     <main className="mx-auto max-w-4xl px-4 py-10 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-          <Package className="size-6 text-amber-400" />
+          <Package className="size-6 text-[var(--accent)]" />
           Tin đăng của tôi
         </h1>
         <Link href="/sell/new" className="btn-primary h-10 text-sm">
@@ -46,12 +46,12 @@ export default async function MyListingsPage({
       </div>
 
       {sp.created === "1" && (
-        <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
           ✓ Tin đã gửi thành công và đang chờ quản trị duyệt. Bạn sẽ thấy trạng thái tại đây.
         </div>
       )}
       {sp.updated === "1" && (
-        <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
           ✓ Đã lưu thay đổi. Nếu nội dung chính thay đổi, tin sẽ được duyệt lại.
         </div>
       )}
@@ -59,7 +59,7 @@ export default async function MyListingsPage({
       {pendingOffers > 0 && (
         <Link
           href="/exchange"
-          className="mt-5 flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-300 transition hover:bg-sky-500/15"
+          className="mt-5 flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-[#2563a8]/10 px-4 py-3 text-sm text-[#2563a8] transition hover:bg-[#eaf2fb]"
         >
           <Handshake className="size-4" />
           Bạn có <b>{pendingOffers}</b> đề nghị trao đổi đang chờ phản hồi →
@@ -70,7 +70,7 @@ export default async function MyListingsPage({
         <div className="card mt-8 grid place-items-center gap-3 p-16 text-center">
           <span className="text-5xl">📦</span>
           <p className="text-lg font-bold">Bạn chưa có tin đăng nào</p>
-          <p className="text-sm text-zinc-500">Đăng chiếc loa không dùng đến cho ai cần nó nhé!</p>
+          <p className="text-sm text-[var(--muted)]">Đăng chiếc loa không dùng đến cho ai cần nó nhé!</p>
           <Link href="/sell/new" className="btn-primary mt-2 text-sm">Đăng tin đầu tiên</Link>
         </div>
       ) : (
@@ -79,12 +79,12 @@ export default async function MyListingsPage({
             const pendingOfferCount = l.targetOffers.filter((o) => o.status === "proposed").length;
             return (
               <div key={l.id} className="card flex flex-col gap-4 p-4 sm:flex-row">
-                <Link href={`/listings/${l.slug}`} className="relative size-28 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+                <Link href={`/listings/${l.slug}`} className="relative size-28 shrink-0 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
                   {l.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={l.images[0].url} alt={l.title} className="size-full object-cover" />
                   ) : (
-                    <span className="grid size-full place-items-center text-3xl text-zinc-700">🔇</span>
+                    <span className="grid size-full place-items-center text-3xl text-[var(--muted)]">🔇</span>
                   )}
                 </Link>
 
@@ -94,23 +94,23 @@ export default async function MyListingsPage({
                       {LISTING_STATUS_LABELS[l.status]}
                     </span>
                     {l.acceptExchange && (
-                      <span className="badge bg-sky-500/15 text-sky-400">Trao đổi</span>
+                      <span className="badge bg-[#eaf2fb] text-[#2563a8]">Trao đổi</span>
                     )}
                     {pendingOfferCount > 0 && (
-                      <Link href="/exchange" className="badge bg-amber-500/15 text-amber-400 hover:bg-amber-500/25">
+                      <Link href="/exchange" className="badge bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)]/25">
                         {pendingOfferCount} đề nghị trao đổi
                       </Link>
                     )}
                   </div>
-                  <Link href={`/listings/${l.slug}`} className="mt-1.5 block line-clamp-1 font-semibold hover:text-amber-300">
+                  <Link href={`/listings/${l.slug}`} className="mt-1.5 block line-clamp-1 font-semibold hover:text-[var(--accent)]">
                     {l.title}
                   </Link>
-                  <p className="mt-0.5 text-xs text-zinc-500">
+                  <p className="mt-0.5 text-xs text-[var(--muted)]">
                     {l.category!.name}{l.brand ? ` · ${l.brand.name}` : ""} · {formatDate(l.createdAt)} · {l.viewCount} lượt xem
                   </p>
-                  <p className="mt-1 text-lg font-extrabold text-amber-400">{formatVND(l.price)}</p>
+                  <p className="mt-1 text-lg font-extrabold text-[var(--accent)]">{formatVND(l.price)}</p>
                   {l.rejectionReason && (
-                    <p className="mt-1 text-xs text-red-400">Lý do từ chối: {l.rejectionReason}</p>
+                    <p className="mt-1 text-xs text-[var(--red)]">Lý do từ chối: {l.rejectionReason}</p>
                   )}
                 </div>
 
@@ -142,7 +142,7 @@ export default async function MyListingsPage({
                       <input type="hidden" name="listingId" value={l.id} />
                       <button
                         type="submit"
-                        className="btn h-9 flex-1 px-3 text-xs text-zinc-400 transition hover:bg-red-500/10 hover:text-red-400"
+                        className="btn h-9 flex-1 px-3 text-xs text-[var(--ink-2)] transition hover:bg-[var(--red-soft)] hover:text-[var(--red)]"
                         title="Xóa tin"
                       >
                         <Trash2 className="size-3.5" />

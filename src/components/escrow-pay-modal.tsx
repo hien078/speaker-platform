@@ -82,43 +82,43 @@ export function EscrowPayModal({
   }
 
   return (
-    <div className="fixed inset-0 z-[100] grid place-items-center bg-black/70 p-4 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] grid place-items-center bg-[var(--ink)]/60 p-4 backdrop-blur-sm">
       <div className="card w-full max-w-md overflow-hidden p-0">
         {/* header cổng */}
-        <div className="flex items-center gap-3 border-b border-[var(--border)] bg-gradient-to-r from-violet-500/15 via-amber-500/10 to-transparent px-6 py-4">
-          <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-violet-400 to-fuchsia-600 text-sm font-bold text-white">
+        <div className="flex items-center gap-3 border-b border-[var(--line)] bg-gradient-to-r from-[var(--violet)]/15 via-amber-500/10 to-transparent px-6 py-4">
+          <span className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-[var(--violet)] to-[var(--violet)] text-sm font-bold text-white">
             Mo
           </span>
           <div>
             <p className="text-sm font-extrabold">
               Cổng thanh toán {momoEnabled ? "MoMo" : "LoaViet Pay (mock)"}
             </p>
-            <p className="text-xs text-zinc-500">Đơn {code} · {momoEnabled ? "môi trường thật" : "chưa cấu hình MoMo"}</p>
+            <p className="text-xs text-[var(--muted)]">Đơn {code} · {momoEnabled ? "môi trường thật" : "chưa cấu hình MoMo"}</p>
           </div>
         </div>
 
         <div className="p-6">
           {stage === "choose" && (
             <>
-              <p className="text-center text-2xl font-extrabold text-spotlight">{formatVND(amount)}</p>
-              <p className="mt-1 text-center text-xs text-zinc-500">
+              <p className="text-center text-2xl font-extrabold price">{formatVND(amount)}</p>
+              <p className="mt-1 text-center text-xs text-[var(--muted)]">
                 Tiền sẽ được nền tảng giữ đến khi bạn xác nhận đã nhận hàng
               </p>
 
               {error && (
-                <p className="mt-4 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3.5 py-2.5 text-xs text-amber-300">
+                <p className="mt-4 rounded-lg border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3.5 py-2.5 text-xs text-[var(--accent)]">
                   {error}
                 </p>
               )}
 
               <div className="mt-5 space-y-2">
                 {momoEnabled ? (
-                  <button onClick={payWithMomo} className="btn-primary w-full bg-gradient-to-b from-violet-400 to-fuchsia-600 text-white shadow-[0_8px_30px_-8px_rgba(192,38,211,.5)]">
+                  <button onClick={payWithMomo} className="btn-primary w-full bg-gradient-to-b from-[var(--violet)] to-[var(--violet)] text-white ">
                     <ExternalLink className="size-4" />
                     Thanh toán qua ví MoMo
                   </button>
                 ) : (
-                  <p className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 text-xs leading-relaxed text-zinc-400">
+                  <p className="rounded-lg border border-[var(--line)] bg-[var(--paper)] px-4 py-3 text-xs leading-relaxed text-[var(--ink-2)]">
                     Chưa cấu hình MoMo (thiếu MOMO_PARTNER_CODE trong .env) — đang dùng mock.
                   </p>
                 )}
@@ -135,20 +135,20 @@ export function EscrowPayModal({
 
           {stage === "processing" && (
             <div className="grid place-items-center gap-3 py-10 text-center">
-              <LoaderCircle className="size-10 animate-spin text-amber-400" />
+              <LoaderCircle className="size-10 animate-spin text-[var(--accent)]" />
               <p className="text-sm font-semibold">Đang xử lý giao dịch…</p>
-              <p className="text-xs text-zinc-500">Không tắt trang này</p>
+              <p className="text-xs text-[var(--muted)]">Không tắt trang này</p>
             </div>
           )}
 
           {stage === "done" && (
             <form id="escrow-pay-form" action={formAction} className="grid place-items-center gap-3 py-10 text-center">
               <input type="hidden" name="orderId" value={orderId} />
-              <CheckCircle2 className="size-12 text-emerald-400" />
+              <CheckCircle2 className="size-12 text-[var(--green)]" />
               <p className="text-base font-bold">Giao dịch thành công!</p>
-              <p className="text-xs text-zinc-500">Đang chuyển về trang đơn hàng…</p>
-              {pending && <LoaderCircle className="size-5 animate-spin text-zinc-500" />}
-              {state.error && <p className="text-sm text-red-400">{state.error}</p>}
+              <p className="text-xs text-[var(--muted)]">Đang chuyển về trang đơn hàng…</p>
+              {pending && <LoaderCircle className="size-5 animate-spin text-[var(--muted)]" />}
+              {state.error && <p className="text-sm text-[var(--red)]">{state.error}</p>}
               <button type="submit" className="btn-primary mt-2 text-sm">Hoàn tất</button>
             </form>
           )}

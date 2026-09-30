@@ -52,11 +52,10 @@ export default async function SellerProfilePage({
   return (
     <main className="mx-auto max-w-7xl px-4 py-10 lg:px-8">
       {/* ═══ Thẻ người bán ═══ */}
-      <div className="ring-gradient relative overflow-hidden p-6 sm:p-8">
-        <div className="orb right-[-4%] top-[-40%] size-64 bg-amber-500/15" aria-hidden />
+      <div className="card p-6 sm:p-8">
 
         <div className="relative flex flex-wrap items-center gap-6">
-          <span className="grid size-20 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-amber-300 via-amber-400 to-orange-500 font-[family-name:var(--font-space-grotesk)] text-xl font-bold text-zinc-950 shadow-[0_8px_32px_-6px_rgba(251,146,60,.6)]">
+          <span className="grid size-20 shrink-0 place-items-center rounded-2xl bg-[var(--accent)] text-xl font-bold text-white ">
             {initials}
           </span>
 
@@ -64,13 +63,13 @@ export default async function SellerProfilePage({
             <h1 className="flex flex-wrap items-center gap-2.5 text-2xl font-bold tracking-tight">
               {seller.name}
               {seller.isVerifiedSeller && (
-                <span className="badge border-emerald-400/30 bg-emerald-400/15 text-emerald-300">
+                <span className="badge border-[var(--green)]/35 bg-[var(--green-soft)] text-[var(--green)]">
                   <BadgeCheck className="size-3.5" />
                   Đã xác minh
                 </span>
               )}
             </h1>
-            <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-500">
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-[var(--muted)]">
               {seller.city && (
                 <span className="inline-flex items-center gap-1.5">
                   <MapPin className="size-3.5" />
@@ -80,35 +79,35 @@ export default async function SellerProfilePage({
               <span>Tham gia {formatDate(seller.createdAt).split(" ")[0]}</span>
             </p>
             {seller.bio && (
-              <p className="mt-2 max-w-xl text-sm leading-relaxed text-zinc-400">{seller.bio}</p>
+              <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--ink-2)]">{seller.bio}</p>
             )}
           </div>
 
           {/* Thống kê */}
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
-              <p className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold text-spotlight">
+              <p className="text-2xl font-bold price">
                 {listings.length}
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">tin đang bán</p>
+              <p className="mt-0.5 text-[11px] text-[var(--muted)]">tin đang bán</p>
             </div>
             <div>
-              <p className="font-[family-name:var(--font-space-grotesk)] text-2xl font-bold text-emerald-400">
+              <p className="text-2xl font-bold text-[var(--green)]">
                 {completedSales.c}
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">giao dịch hoàn tất</p>
+              <p className="mt-0.5 text-[11px] text-[var(--muted)]">giao dịch hoàn tất</p>
             </div>
             <div>
-              <p className="flex items-center justify-center gap-1 font-[family-name:var(--font-space-grotesk)] text-2xl font-bold text-amber-300">
-                <Star className="size-4 fill-amber-300" />
+              <p className="flex items-center justify-center gap-1 text-2xl font-bold text-[var(--accent)]">
+                <Star className="size-4 fill-[var(--accent)]" />
                 {reviewAgg.c > 0 ? rating.toFixed(1) : "—"}
               </p>
-              <p className="mt-0.5 text-[11px] text-zinc-500">{reviewAgg.c} đánh giá</p>
+              <p className="mt-0.5 text-[11px] text-[var(--muted)]">{reviewAgg.c} đánh giá</p>
             </div>
           </div>
         </div>
 
-        <p className="relative mt-6 flex items-start gap-2 rounded-xl border border-emerald-400/15 bg-emerald-400/[.05] px-4 py-2.5 text-xs leading-relaxed text-emerald-300/90">
+        <p className="relative mt-6 flex items-start gap-2 rounded-xl border border-[var(--green)]/25 bg-[var(--green-soft)] px-4 py-2.5 text-xs leading-relaxed text-[var(--green)]/90">
           <ShieldCheck className="mt-0.5 size-4 shrink-0" />
           Giao dịch với người bán này qua LoaViet để được escrow bảo vệ — nền tảng giữ tiền
           của bạn cho đến khi nhận hàng và xác nhận.
@@ -118,11 +117,11 @@ export default async function SellerProfilePage({
       {/* ═══ Tin đang bán ═══ */}
       <section className="mt-10">
         <h2 className="flex items-center gap-2.5 text-xl font-bold tracking-tight">
-          <Package className="size-5 text-amber-400" />
+          <Package className="size-5 text-[var(--accent)]" />
           Tin đang bán
         </h2>
         {listings.length === 0 ? (
-          <p className="card mt-5 p-12 text-center text-sm text-zinc-500">
+          <p className="card mt-5 p-12 text-center text-sm text-[var(--muted)]">
             Người bán này hiện không có tin nào đang bán.
           </p>
         ) : (
@@ -149,16 +148,16 @@ export default async function SellerProfilePage({
                         key={i}
                         className={cn(
                           "size-3.5",
-                          i <= r.rating ? "fill-amber-300 text-amber-300" : "text-zinc-700",
+                          i <= r.rating ? "fill-[var(--accent)] text-[var(--accent)]" : "text-[var(--muted)]",
                         )}
                       />
                     ))}
                   </div>
                 </div>
                 {r.comment && (
-                  <p className="mt-2 text-sm leading-relaxed text-zinc-300">{r.comment}</p>
+                  <p className="mt-2 text-sm leading-relaxed text-[var(--ink-2)]">{r.comment}</p>
                 )}
-                <p className="mt-1.5 text-[11px] text-zinc-600">{formatDate(r.createdAt)}</p>
+                <p className="mt-1.5 text-[11px] text-[var(--muted)]">{formatDate(r.createdAt)}</p>
               </div>
             ))}
           </div>

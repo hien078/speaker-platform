@@ -10,12 +10,12 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Thông báo" };
 
 const KIND_ICON: Record<string, React.ReactNode> = {
-  offer: <HandCoins className="size-4 text-amber-300" />,
-  counter: <HandCoins className="size-4 text-violet-300" />,
-  order: <Banknote className="size-4 text-emerald-300" />,
-  dispute: <AlertTriangle className="size-4 text-red-300" />,
-  chat: <MessageCircle className="size-4 text-sky-300" />,
-  withdraw: <Banknote className="size-4 text-orange-300" />,
+  offer: <HandCoins className="size-4 text-[var(--accent)]" />,
+  counter: <HandCoins className="size-4 text-[var(--violet)]" />,
+  order: <Banknote className="size-4 text-[var(--green)]" />,
+  dispute: <AlertTriangle className="size-4 text-[var(--red)]" />,
+  chat: <MessageCircle className="size-4 text-[#2563a8]" />,
+  withdraw: <Banknote className="size-4 text-[var(--accent)]" />,
 };
 
 export default async function NotificationsPage() {
@@ -34,15 +34,15 @@ export default async function NotificationsPage() {
     <main className="mx-auto max-w-2xl px-4 py-10 lg:px-8">
       <div className="flex items-center justify-between gap-3">
         <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight">
-          <Bell className="size-6 text-amber-400" />
+          <Bell className="size-6 text-[var(--accent)]" />
           Thông báo
           {unread > 0 && (
-            <span className="badge bg-amber-400/15 text-amber-300">{unread} mới</span>
+            <span className="badge bg-[var(--accent-soft)] text-[var(--accent)]">{unread} mới</span>
           )}
         </h1>
         {unread > 0 && (
           <form action={markAllReadAction}>
-            <button type="submit" className="btn-ghost text-sm text-amber-400 hover:text-amber-300">
+            <button type="submit" className="btn-ghost text-sm text-[var(--accent)] hover:text-[var(--accent)]">
               <CheckCheck className="size-4" />
               Đọc hết
             </button>
@@ -54,7 +54,7 @@ export default async function NotificationsPage() {
         <div className="card mt-8 grid place-items-center gap-2 p-16 text-center">
           <span className="text-4xl">🔔</span>
           <p className="font-bold">Chưa có thông báo nào</p>
-          <p className="text-sm text-zinc-500">
+          <p className="text-sm text-[var(--muted)]">
             Trả giá, đơn hàng, khiếu nại… sẽ hiện tại đây.
           </p>
         </div>
@@ -65,22 +65,22 @@ export default async function NotificationsPage() {
               <div
                 className={cn(
                   "card flex items-start gap-3.5 p-4 transition",
-                  !n.readAt && "border-amber-400/25 bg-amber-400/[.04]",
+                  !n.readAt && "border-[var(--accent)]/30 bg-[var(--accent-soft)]",
                 )}
               >
-                <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-white/5 bg-white/[.04]">
-                  {KIND_ICON[n.kind] ?? <Bell className="size-4 text-zinc-400" />}
+                <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-[var(--line)] bg-[var(--paper)]">
+                  {KIND_ICON[n.kind] ?? <Bell className="size-4 text-[var(--ink-2)]" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className={cn("text-sm font-semibold leading-snug", !n.readAt && "text-amber-100")}>
                     {n.title}
                   </p>
                   {n.body && (
-                    <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-zinc-400">{n.body}</p>
+                    <p className="mt-0.5 line-clamp-2 text-xs leading-relaxed text-[var(--ink-2)]">{n.body}</p>
                   )}
-                  <p className="mt-1 text-[11px] text-zinc-600">{timeAgo(n.createdAt)}</p>
+                  <p className="mt-1 text-[11px] text-[var(--muted)]">{timeAgo(n.createdAt)}</p>
                 </div>
-                {!n.readAt && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-amber-400" />}
+                {!n.readAt && <span className="mt-1.5 size-2 shrink-0 rounded-full bg-[var(--accent)]" />}
               </div>
             );
             return n.link ? (

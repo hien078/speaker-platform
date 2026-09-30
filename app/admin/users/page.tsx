@@ -57,14 +57,14 @@ export default async function AdminUsersPage({
   return (
     <div>
       <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-        <Users className="size-6 text-amber-400" />
+        <Users className="size-6 text-[var(--accent)]" />
         Người dùng
       </h1>
 
       {/* Bộ lọc */}
       <form action="/admin/users" className="mt-5 flex flex-wrap gap-2">
         <div className="relative min-w-52 flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
           <input name="q" defaultValue={q} className="input pl-9 text-sm" placeholder="Tên hoặc email…" />
         </div>
         <select name="role" defaultValue={role ?? ""} className="input w-40 text-sm">
@@ -93,39 +93,39 @@ export default async function AdminUsersPage({
           <tbody>
             {enriched.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-zinc-500">Không tìm thấy người dùng</td>
+                <td colSpan={8} className="py-10 text-center text-[var(--muted)]">Không tìm thấy người dùng</td>
               </tr>
             ) : (
               enriched.map((u) => (
                 <tr key={u.id}>
                   <td>
                     <p className="text-sm font-semibold">{u.name}</p>
-                    <p className="text-xs text-zinc-500">{u.email}{u.phone ? ` · ${u.phone}` : ""}</p>
+                    <p className="text-xs text-[var(--muted)]">{u.email}{u.phone ? ` · ${u.phone}` : ""}</p>
                   </td>
                   <td>
                     <span className={cn(
                       "badge",
-                      u.role === "admin" ? "bg-red-500/15 text-red-400" :
-                      u.role === "seller" ? "bg-amber-500/15 text-amber-400" :
-                      "bg-sky-500/15 text-sky-400",
+                      u.role === "admin" ? "bg-[var(--red-soft)] text-[var(--red)]" :
+                      u.role === "seller" ? "bg-[var(--accent-soft)] text-[var(--accent)]" :
+                      "bg-[#eaf2fb] text-[#2563a8]",
                     )}>
                       {ROLE_LABELS[u.role]}
                     </span>
                   </td>
-                  <td className="text-xs text-zinc-400">{u.city ?? "—"}</td>
+                  <td className="text-xs text-[var(--ink-2)]">{u.city ?? "—"}</td>
                   <td className="text-sm">{u.listingCount}</td>
                   <td className="text-sm">{u.completedSales}</td>
                   <td>
                     {u.isVerifiedSeller ? (
-                      <span className="badge bg-emerald-500/15 text-emerald-400">
+                      <span className="badge bg-[var(--green-soft)] text-[var(--green)]">
                         <BadgeCheck className="size-3" />
                         Đã xác minh
                       </span>
                     ) : (
-                      <span className="badge bg-zinc-700/60 text-zinc-400">Chưa</span>
+                      <span className="badge bg-[var(--paper-deep)] text-[var(--ink-2)]">Chưa</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap text-xs text-zinc-500">{formatDate(u.createdAt).split(" ")[0]}</td>
+                  <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDate(u.createdAt).split(" ")[0]}</td>
                   <td>
                     {u.role !== "admin" && (
                       <form action={toggleSellerVerificationAction}>
@@ -135,8 +135,8 @@ export default async function AdminUsersPage({
                           className={cn(
                             "btn h-8 px-3 text-xs",
                             u.isVerifiedSeller
-                              ? "bg-zinc-700/60 text-zinc-300 hover:bg-zinc-600"
-                              : "bg-emerald-500/90 text-zinc-950 hover:bg-emerald-400",
+                              ? "bg-[var(--paper-deep)] text-[var(--ink-2)] hover:bg-zinc-600"
+                              : "bg-[var(--green)] text-white hover:opacity-90",
                           )}
                         >
                           {u.isVerifiedSeller ? "Bỏ xác minh" : "Xác minh seller"}

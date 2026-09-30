@@ -31,11 +31,11 @@ export default async function AdminOrdersPage({
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-          <Package className="size-6 text-amber-400" />
+          <Package className="size-6 text-[var(--accent)]" />
           Đơn hàng
         </h1>
-        <p className="text-sm text-zinc-500">
-          Escrow đang giữ: <b className="text-violet-400">{formatVND(escrowHeld)}</b>
+        <p className="text-sm text-[var(--muted)]">
+          Escrow đang giữ: <b className="text-[var(--violet)]">{formatVND(escrowHeld)}</b>
         </p>
       </div>
 
@@ -43,7 +43,7 @@ export default async function AdminOrdersPage({
       <div className="mt-5 flex flex-wrap gap-1.5">
         <a
           href="/admin/orders"
-          className={cn("badge border px-3 py-1.5", !status ? "border-amber-500/60 bg-amber-500/10 text-amber-300" : "border-[var(--border)] bg-[var(--surface-2)] text-zinc-400")}
+          className={cn("badge border px-3 py-1.5", !status ? "border-[var(--accent)]/65 bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--line)] bg-[var(--paper)] text-[var(--ink-2)]")}
         >
           Tất cả
         </a>
@@ -51,7 +51,7 @@ export default async function AdminOrdersPage({
           <a
             key={k}
             href={`/admin/orders?status=${k}`}
-            className={cn("badge border px-3 py-1.5", status === k ? "border-amber-500/60 bg-amber-500/10 text-amber-300" : "border-[var(--border)] bg-[var(--surface-2)] text-zinc-400")}
+            className={cn("badge border px-3 py-1.5", status === k ? "border-[var(--accent)]/65 bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--line)] bg-[var(--paper)] text-[var(--ink-2)]")}
           >
             {v}
           </a>
@@ -76,31 +76,31 @@ export default async function AdminOrdersPage({
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-10 text-center text-zinc-500">Chưa có đơn hàng</td>
+                <td colSpan={9} className="py-10 text-center text-[var(--muted)]">Chưa có đơn hàng</td>
               </tr>
             ) : (
               orders.map((o) => {
                 const payment = o.payments[0];
                 return (
                   <tr key={o.id}>
-                    <td className="font-mono text-xs font-bold text-amber-400">{o.code}</td>
+                    <td className="font-mono text-xs font-bold text-[var(--accent)]">{o.code}</td>
                     <td className="text-sm">{o.buyer!.name}</td>
                     <td className="text-sm">{o.seller!.name}</td>
                     <td className="text-sm font-bold">{formatVND(o.totalAmount)}</td>
-                    <td className="text-sm text-emerald-400">
+                    <td className="text-sm text-[var(--green)]">
                       {formatVND(o.commissionAmount)}
-                      <span className="ml-1 text-[10px] text-zinc-500">({o.commissionRate}%)</span>
+                      <span className="ml-1 text-[10px] text-[var(--muted)]">({o.commissionRate}%)</span>
                     </td>
                     <td className="text-xs">
-                      <p className="text-zinc-300">{PAYMENT_METHOD_LABELS[o.paymentMethod]}</p>
-                      <p className="text-zinc-500">{payment ? PAYMENT_STATUS_LABELS[payment.status] : "—"}</p>
+                      <p className="text-[var(--ink-2)]">{PAYMENT_METHOD_LABELS[o.paymentMethod]}</p>
+                      <p className="text-[var(--muted)]">{payment ? PAYMENT_STATUS_LABELS[payment.status] : "—"}</p>
                     </td>
                     <td>
                       <span className={cn("badge", ORDER_STATUS_BADGE[o.status])}>
                         {ORDER_STATUS_LABELS[o.status]}
                       </span>
                     </td>
-                    <td className="whitespace-nowrap text-xs text-zinc-500">{formatDate(o.createdAt)}</td>
+                    <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDate(o.createdAt)}</td>
                     <td>
                       <Link href={`/orders/${o.id}`} className="btn-ghost h-8 px-2.5 text-xs">
                         Chi tiết

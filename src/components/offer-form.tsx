@@ -19,13 +19,13 @@ export function OfferForm({
   const [amount, setAmount] = useState(Math.round(listingPrice * 0.9));
 
   return (
-    <details className="rounded-xl border border-amber-400/20 bg-amber-400/[.04]">
-      <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-amber-300 transition hover:bg-amber-400/[.08]">
+    <details className="rounded-xl border border-[var(--accent)]/25 bg-[var(--accent-soft)]">
+      <summary className="flex cursor-pointer items-center gap-2 px-4 py-3 text-sm font-semibold text-[var(--accent)] transition hover:bg-[var(--accent)]/[.08]">
         <HandCoins className="size-4" />
         Trả giá — đề nghị giá của bạn
       </summary>
 
-      <form action={formAction} className="space-y-3 border-t border-amber-400/15 p-4">
+      <form action={formAction} className="space-y-3 border-t border-[var(--accent)]/15 p-4">
         <input type="hidden" name="listingId" value={listingId} />
 
         <div>
@@ -53,8 +53,8 @@ export function OfferForm({
                 className={cn(
                   "rounded-full border px-3 py-1 text-xs transition",
                   amount === Math.round((listingPrice * r) / 10000) * 10000
-                    ? "border-amber-400/50 bg-amber-400/15 text-amber-300"
-                    : "border-[var(--border)] text-zinc-400 hover:border-zinc-500",
+                    ? "border-[var(--accent)]/55 bg-[var(--accent-soft)] text-[var(--accent)]"
+                    : "border-[var(--line)] text-[var(--ink-2)] hover:border-zinc-500",
                 )}
               >
                 {Math.round(r * 100)}% · {formatVND(Math.round((listingPrice * r) / 10000) * 10000)}
@@ -75,7 +75,7 @@ export function OfferForm({
         </div>
 
         {state.error && (
-          <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2 text-xs text-red-400">
+          <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2 text-xs text-[var(--red)]">
             {state.error}
           </p>
         )}
@@ -84,7 +84,7 @@ export function OfferForm({
           {pending ? <LoaderCircle className="size-4 animate-spin" /> : <HandCoins className="size-4" />}
           Gửi đề nghị {formatVND(amount)}
         </button>
-        <p className="text-center text-[11px] text-zinc-600">
+        <p className="text-center text-[11px] text-[var(--muted)]">
           Seller có 3 ngày phản hồi — chấp nhận / phản đề nghị / từ chối.
         </p>
       </form>

@@ -80,12 +80,12 @@ export default async function OrderDetailPage({
           <Link href={isSeller ? "/orders/sales" : "/orders"} className="btn-ghost h-9 px-3 text-sm">
             ← Danh sách
           </Link>
-          <h1 className="font-mono text-xl font-extrabold tracking-tight text-amber-400">{order.code}</h1>
+          <h1 className="font-mono text-xl font-extrabold tracking-tight text-[var(--accent)]">{order.code}</h1>
           <span className={cn("badge", ORDER_STATUS_BADGE[order.status])}>
             {ORDER_STATUS_LABELS[order.status]}
           </span>
         </div>
-        <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+        <p className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
           <Clock className="size-3.5" />
           Đặt {formatDate(order.createdAt)}
         </p>
@@ -108,18 +108,18 @@ export default async function OrderDetailPage({
                       className={cn(
                         "grid size-9 place-items-center rounded-full border-2 transition",
                         done
-                          ? "border-amber-500 bg-amber-500 text-zinc-950"
-                          : "border-zinc-700 bg-zinc-900 text-zinc-600",
+                          ? "border-[var(--accent)] bg-[var(--accent)] text-white"
+                          : "border-zinc-700 bg-[var(--paper-deep)] text-[var(--muted)]",
                       )}
                     >
                       {done ? <CheckCircle2 className="size-4.5" /> : i + 1}
                     </span>
-                    <span className={cn("text-[11px] font-medium", done ? "text-amber-300" : "text-zinc-600")}>
+                    <span className={cn("text-[11px] font-medium", done ? "text-[var(--accent)]" : "text-[var(--muted)]")}>
                       {label}
                     </span>
                   </div>
                   {i < STEPS.length - 1 && (
-                    <div className={cn("mx-2 h-0.5 flex-1 sm:mx-3", i < stepIndex ? "bg-amber-500" : "bg-zinc-800")} />
+                    <div className={cn("mx-2 h-0.5 flex-1 sm:mx-3", i < stepIndex ? "bg-[var(--accent)]" : "bg-[var(--paper)]")} />
                   )}
                 </div>
               );
@@ -127,10 +127,10 @@ export default async function OrderDetailPage({
           </div>
 
           {order.status === "shipped" && order.autoReleaseAt && (
-            <p className="mt-5 rounded-lg bg-zinc-800/50 px-4 py-2.5 text-center text-xs text-zinc-400">
-              <ShieldCheck className="mr-1 inline size-3.5 text-emerald-400" />
+            <p className="mt-5 rounded-lg bg-[var(--paper)] px-4 py-2.5 text-center text-xs text-[var(--ink-2)]">
+              <ShieldCheck className="mr-1 inline size-3.5 text-[var(--green)]" />
               Nếu bạn không xác nhận, tiền sẽ tự giải ngân cho người bán sau{" "}
-              <b className="text-zinc-200">{formatDate(order.autoReleaseAt)}</b> (trừ khi có khiếu nại).
+              <b className="text-[var(--ink)]">{formatDate(order.autoReleaseAt)}</b> (trừ khi có khiếu nại).
             </p>
           )}
         </div>
@@ -138,15 +138,15 @@ export default async function OrderDetailPage({
 
       {/* ═══ Khiếu nại ═══ */}
       {(activeDispute || order.status === "disputed") && (
-        <div className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-5">
-          <p className="flex items-center gap-2 text-sm font-bold text-red-400">
+        <div className="mt-6 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] p-5">
+          <p className="flex items-center gap-2 text-sm font-bold text-[var(--red)]">
             <AlertTriangle className="size-4" />
             Đơn đang có khiếu nại — escrow tạm đóng băng
           </p>
           {disputes.map((d) => (
             <div key={d.id} className="mt-3 text-sm">
-              <p className="text-zinc-300">Lý do: {d.reason}</p>
-              <p className="mt-1 text-xs text-zinc-500">
+              <p className="text-[var(--ink-2)]">Lý do: {d.reason}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">
                 Mở {formatDate(d.createdAt)} · {DISPUTE_STATUS_LABELS[d.status]}
                 {d.resolution && ` · Quyết định: ${d.resolution}`}
               </p>
@@ -160,26 +160,26 @@ export default async function OrderDetailPage({
         <div className="space-y-6">
           {/* Sản phẩm */}
           <div className="card p-5">
-            <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">Sản phẩm</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">Sản phẩm</p>
             <div className="mt-4 space-y-4">
               {order.items.map((item) => (
                 <div key={item.id} className="flex items-center gap-4">
-                  <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+                  <div className="relative size-16 shrink-0 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
                     {item.imageUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={item.imageUrl} alt={item.title} className="size-full object-cover" />
                     ) : (
-                      <span className="grid size-full place-items-center text-2xl text-zinc-700">🔇</span>
+                      <span className="grid size-full place-items-center text-2xl text-[var(--muted)]">🔇</span>
                     )}
-                    <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-amber-500 text-[10px] font-bold text-zinc-950">
+                    <span className="absolute -right-1 -top-1 grid size-5 place-items-center rounded-full bg-[var(--accent)] text-[10px] font-bold text-white">
                       {item.quantity}
                     </span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="line-clamp-2 text-sm font-medium">{item.title}</p>
-                    <p className="mt-0.5 text-xs text-zinc-500">{formatVND(item.price)} × {item.quantity}</p>
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">{formatVND(item.price)} × {item.quantity}</p>
                   </div>
-                  <p className="text-sm font-bold text-amber-400">
+                  <p className="text-sm font-bold text-[var(--accent)]">
                     {formatVND(item.price * item.quantity)}
                   </p>
                 </div>
@@ -189,18 +189,18 @@ export default async function OrderDetailPage({
 
           {/* Giao hàng */}
           <div className="card p-5">
-            <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">Giao đến</p>
-            <div className="mt-3 space-y-2 text-sm text-zinc-300">
+            <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">Giao đến</p>
+            <div className="mt-3 space-y-2 text-sm text-[var(--ink-2)]">
               <p className="flex items-start gap-2.5">
-                <MapPin className="mt-0.5 size-4 shrink-0 text-zinc-500" />
+                <MapPin className="mt-0.5 size-4 shrink-0 text-[var(--muted)]" />
                 {order.shippingAddress}
               </p>
               <p className="flex items-center gap-2.5">
-                <Phone className="size-4 shrink-0 text-zinc-500" />
+                <Phone className="size-4 shrink-0 text-[var(--muted)]" />
                 {order.shippingPhone}
               </p>
               {order.note && (
-                <p className="rounded-lg bg-zinc-800/50 px-3 py-2 text-xs text-zinc-400">
+                <p className="rounded-lg bg-[var(--paper)] px-3 py-2 text-xs text-[var(--ink-2)]">
                   Ghi chú: {order.note}
                 </p>
               )}
@@ -210,21 +210,21 @@ export default async function OrderDetailPage({
           {/* Lịch sử trạng thái (§48) */}
           {statusHistory.length > 0 && (
             <div className="card p-5">
-              <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+              <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
                 Lịch sử đơn hàng
               </p>
               <ol className="mt-4 space-y-0">
                 {statusHistory.map((h, i) => (
                   <li key={h.id} className="relative flex gap-3.5 pb-4 last:pb-0">
                     {i < statusHistory.length - 1 && (
-                      <span className="absolute left-[7px] top-4 h-full w-px bg-zinc-800" />
+                      <span className="absolute left-[7px] top-4 h-full w-px bg-[var(--paper)]" />
                     )}
                     <span
                       className={cn(
                         "relative z-10 mt-1 size-3.5 shrink-0 rounded-full border-2",
                         i === statusHistory.length - 1
-                          ? "border-amber-500 bg-amber-500"
-                          : "border-zinc-600 bg-zinc-900",
+                          ? "border-[var(--accent)] bg-[var(--accent)]"
+                          : "border-zinc-600 bg-[var(--paper-deep)]",
                       )}
                     />
                     <div className="min-w-0">
@@ -232,9 +232,9 @@ export default async function OrderDetailPage({
                         {ORDER_STATUS_LABELS[h.status]}
                       </p>
                       {h.note && (
-                        <p className="mt-0.5 text-xs leading-relaxed text-zinc-400">{h.note}</p>
+                        <p className="mt-0.5 text-xs leading-relaxed text-[var(--ink-2)]">{h.note}</p>
                       )}
-                      <p className="mt-0.5 text-[11px] text-zinc-600">{formatDate(h.createdAt)}</p>
+                      <p className="mt-0.5 text-[11px] text-[var(--muted)]">{formatDate(h.createdAt)}</p>
                     </div>
                   </li>
                 ))}
@@ -245,7 +245,7 @@ export default async function OrderDetailPage({
           {/* Đánh giá */}
           {isBuyer && order.status === "completed" && !order.review && (
             <div className="card p-5">
-              <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+              <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
                 Đánh giá người bán
               </p>
               <form action={submitReviewAction} className="mt-4 space-y-3">
@@ -254,7 +254,7 @@ export default async function OrderDetailPage({
                   {[1, 2, 3, 4, 5].map((r) => (
                     <label key={r} className="cursor-pointer">
                       <input type="radio" name="rating" value={r} className="peer sr-only" defaultChecked={r === 5} />
-                      <Star className="size-7 text-zinc-600 transition peer-checked:text-amber-400 hover:text-amber-300" />
+                      <Star className="size-7 text-[var(--muted)] transition peer-checked:text-[var(--accent)] hover:text-[var(--accent)]" />
                     </label>
                   ))}
                 </div>
@@ -271,17 +271,17 @@ export default async function OrderDetailPage({
 
           {order.review && (
             <div className="card p-5">
-              <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">Đánh giá</p>
+              <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">Đánh giá</p>
               <div className="mt-3 flex items-center gap-1.5">
                 {[1, 2, 3, 4, 5].map((r) => (
                   <Star
                     key={r}
-                    className={cn("size-5", r <= order.review!.rating ? "fill-amber-400 text-amber-400" : "text-zinc-700")}
+                    className={cn("size-5", r <= order.review!.rating ? "fill-[var(--accent)] text-[var(--accent)]" : "text-[var(--muted)]")}
                   />
                 ))}
               </div>
               {order.review.comment && (
-                <p className="mt-2 text-sm text-zinc-300">{order.review.comment}</p>
+                <p className="mt-2 text-sm text-[var(--ink-2)]">{order.review.comment}</p>
               )}
             </div>
           )}
@@ -291,38 +291,38 @@ export default async function OrderDetailPage({
         <aside className="space-y-4">
           {/* Thanh toán */}
           <div className="card p-5">
-            <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">Thanh toán</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">Thanh toán</p>
             <div className="mt-4 space-y-2.5 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-400">Phương thức</span>
+                <span className="text-[var(--ink-2)]">Phương thức</span>
                 <span className="text-right font-medium">{PAYMENT_METHOD_LABELS[order.paymentMethod]}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-400">Trạng thái</span>
+                <span className="text-[var(--ink-2)]">Trạng thái</span>
                 <span className={cn(
                   "badge",
-                  payment?.status === "held" ? "bg-violet-500/15 text-violet-400" :
-                  payment?.status === "released" ? "bg-emerald-500/15 text-emerald-400" :
-                  payment?.status === "refunded" ? "bg-orange-500/15 text-orange-400" :
-                  "bg-zinc-700/60 text-zinc-300",
+                  payment?.status === "held" ? "bg-[var(--violet-soft)] text-[var(--violet)]" :
+                  payment?.status === "released" ? "bg-[var(--green-soft)] text-[var(--green)]" :
+                  payment?.status === "refunded" ? "bg-[var(--accent-soft)] text-[var(--accent)]" :
+                  "bg-[var(--paper-deep)] text-[var(--ink-2)]",
                 )}>
                   {payment ? PAYMENT_STATUS_LABELS[payment.status] : "—"}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-zinc-400">Tổng tiền</span>
+                <span className="text-[var(--ink-2)]">Tổng tiền</span>
                 <span className="font-bold">{formatVND(order.totalAmount)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-zinc-500">Hoa hồng nền tảng ({order.commissionRate}%)</span>
-                <span className="text-zinc-400">−{formatVND(order.commissionAmount)}</span>
+                <span className="text-[var(--muted)]">Hoa hồng nền tảng ({order.commissionRate}%)</span>
+                <span className="text-[var(--ink-2)]">−{formatVND(order.commissionAmount)}</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-zinc-500">Người bán nhận</span>
-                <span className="text-emerald-400">{formatVND(order.sellerPayout)}</span>
+                <span className="text-[var(--muted)]">Người bán nhận</span>
+                <span className="text-[var(--green)]">{formatVND(order.sellerPayout)}</span>
               </div>
               {payment?.providerTxnId && (
-                <p className="border-t border-[var(--border)] pt-2.5 font-mono text-[11px] text-zinc-500">
+                <p className="border-t border-[var(--line)] pt-2.5 font-mono text-[11px] text-[var(--muted)]">
                   Mã GD: {payment.providerTxnId}
                 </p>
               )}
@@ -331,7 +331,7 @@ export default async function OrderDetailPage({
 
           {/* Hành động */}
           <div className="card space-y-2.5 p-5">
-            <p className="text-sm font-bold uppercase tracking-wider text-zinc-400">Hành động</p>
+            <p className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">Hành động</p>
 
             {/* Buyer thanh toán escrow */}
             {isBuyer && order.status === "awaiting_payment" && order.paymentMethod === "escrow" && (
@@ -340,10 +340,10 @@ export default async function OrderDetailPage({
 
             {/* Buyer chờ direct/cod */}
             {isBuyer && order.status === "awaiting_payment" && order.paymentMethod !== "escrow" && (
-              <p className="rounded-lg bg-zinc-800/50 p-3 text-xs leading-relaxed text-zinc-400">
-                <Banknote className="mr-1 inline size-3.5 text-amber-400" />
+              <p className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+                <Banknote className="mr-1 inline size-3.5 text-[var(--accent)]" />
                 Bạn chọn trả trực tiếp — liên hệ người bán qua{" "}
-                <Link href="/chat" className="text-amber-400 hover:underline">chat</Link> để nhận thông tin
+                <Link href="/chat" className="text-[var(--accent)] hover:underline">chat</Link> để nhận thông tin
                 chuyển khoản. Seller sẽ xác nhận khi nhận được tiền.
               </p>
             )}
@@ -384,8 +384,8 @@ export default async function OrderDetailPage({
 
             {/* Buyer mở khiếu nại */}
             {isBuyer && ["paid_escrow", "processing", "shipped"].includes(order.status) && (
-              <details className="rounded-lg border border-[var(--border)] bg-[var(--surface-2)] p-3">
-                <summary className="cursor-pointer text-xs font-semibold text-red-400">
+              <details className="rounded-lg border border-[var(--line)] bg-[var(--paper)] p-3">
+                <summary className="cursor-pointer text-xs font-semibold text-[var(--red)]">
                   <AlertTriangle className="mr-1 inline size-3.5" />
                   Có vấn đề với đơn hàng?
                 </summary>
@@ -416,7 +416,7 @@ export default async function OrderDetailPage({
             )}
 
             {order.status === "completed" && (
-              <p className="flex items-start gap-2 rounded-lg bg-emerald-500/10 p-3 text-xs leading-relaxed text-emerald-400">
+              <p className="flex items-start gap-2 rounded-lg bg-[var(--green-soft)] p-3 text-xs leading-relaxed text-[var(--green)]">
                 <ShieldCheck className="mt-0.5 size-4 shrink-0" />
                 Giao dịch hoàn tất. Escrow đã giải ngân {formatVND(order.sellerPayout)} cho người bán
                 {order.payout && ` (${formatDate(order.payout.createdAt)})`}.
@@ -426,13 +426,13 @@ export default async function OrderDetailPage({
 
           {/* Liên hệ */}
           <div className="card p-5 text-sm">
-            <p className="text-xs font-bold uppercase tracking-wider text-zinc-400">Liên hệ</p>
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--ink-2)]">Liên hệ</p>
             <div className="mt-3 space-y-1.5">
-              <p className="text-zinc-400">
-                Người mua: <b className="text-zinc-200">{order.buyer!.name}</b>
+              <p className="text-[var(--ink-2)]">
+                Người mua: <b className="text-[var(--ink)]">{order.buyer!.name}</b>
               </p>
-              <p className="text-zinc-400">
-                Người bán: <b className="text-zinc-200">{order.seller!.name}</b>
+              <p className="text-[var(--ink-2)]">
+                Người bán: <b className="text-[var(--ink)]">{order.seller!.name}</b>
               </p>
               <Link href="/chat" className="btn-secondary mt-2 w-full text-sm">
                 Mở hộp chat

@@ -80,7 +80,7 @@ export default async function ListingsPage({
           <h1 className="text-2xl font-extrabold tracking-tight">
             {exchangeOnly ? "Loa sẵn sàng trao đổi" : category ? category.name : "Chợ loa"}
           </h1>
-          <p className="mt-1 text-sm text-zinc-500">
+          <p className="mt-1 text-sm text-[var(--muted)]">
             {listings.length} tin đăng{q && <> khớp “{q}”</>}
           </p>
         </div>
@@ -99,7 +99,7 @@ export default async function ListingsPage({
         {/* ═══ Sidebar lọc ═══ */}
         <aside className="card h-fit p-4 lg:sticky lg:top-20">
           <p className="mb-3 flex items-center gap-2 text-sm font-bold">
-            <SlidersHorizontal className="size-4 text-amber-400" />
+            <SlidersHorizontal className="size-4 text-[var(--accent)]" />
             Bộ lọc
           </p>
           <form className="space-y-4" action="/listings">
@@ -108,7 +108,7 @@ export default async function ListingsPage({
             <div>
               <label className="label">Từ khóa</label>
               <div className="relative">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-zinc-500" />
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-[var(--muted)]" />
                 <input name="q" defaultValue={q} className="input pl-9 text-sm" placeholder="Tên loa…" />
               </div>
             </div>
@@ -157,7 +157,7 @@ export default async function ListingsPage({
               <label className="label">Giá (₫)</label>
               <div className="flex items-center gap-2">
                 <input name="min" type="number" min={0} defaultValue={sp.min ?? ""} className="input text-sm" placeholder="Từ" />
-                <span className="text-zinc-600">–</span>
+                <span className="text-[var(--muted)]">–</span>
                 <input name="max" type="number" min={0} defaultValue={sp.max ?? ""} className="input text-sm" placeholder="Đến" />
               </div>
             </div>
@@ -185,7 +185,7 @@ export default async function ListingsPage({
             <div className="card grid place-items-center gap-3 p-16 text-center">
               <span className="text-5xl">🔇</span>
               <p className="text-lg font-bold">Không tìm thấy tin đăng nào</p>
-              <p className="max-w-sm text-sm text-zinc-500">
+              <p className="max-w-sm text-sm text-[var(--muted)]">
                 Thử bỏ một vài bộ lọc, hoặc quay lại sau — mỗi ngày đều có tin mới được duyệt.
               </p>
               <Link href="/listings" className="btn-secondary mt-2 text-sm">Xóa bộ lọc</Link>

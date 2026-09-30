@@ -9,13 +9,13 @@ export function ListingGallery({ images, title }: { images: { url: string }[]; t
 
   if (!current) {
     return (
-      <div className="card grid aspect-[4/3] place-items-center text-6xl text-zinc-700">🔇</div>
+      <div className="card grid aspect-[4/3] place-items-center text-6xl text-[var(--muted)]">🔇</div>
     );
   }
 
   return (
     <div>
-      <div className="card relative aspect-[4/3] overflow-hidden bg-zinc-900">
+      <div className="card relative aspect-[4/3] overflow-hidden bg-[var(--paper-deep)]">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img src={current.url} alt={title} className="size-full object-contain" />
       </div>
@@ -27,10 +27,10 @@ export function ListingGallery({ images, title }: { images: { url: string }[]; t
               key={img.url + i}
               onClick={() => setActive(i)}
               className={cn(
-                "relative size-20 shrink-0 overflow-hidden rounded-lg border-2 bg-zinc-900 transition",
+                "relative size-20 shrink-0 overflow-hidden rounded-lg border-2 bg-[var(--paper-deep)] transition",
                 i === active
-                  ? "border-amber-500"
-                  : "border-[var(--border)] opacity-60 hover:opacity-100",
+                  ? "border-[var(--accent)]"
+                  : "border-[var(--line)] opacity-60 hover:opacity-100",
               )}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}

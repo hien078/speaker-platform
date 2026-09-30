@@ -26,13 +26,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
             <div className="grid grid-cols-2 gap-2">
               <label className="group cursor-pointer">
                 <input type="radio" name="role" value="buyer" defaultChecked className="peer sr-only" />
-                <span className="block rounded-lg border border-[var(--border)] px-3 py-2.5 text-center text-sm text-zinc-300 transition peer-checked:border-amber-500/60 peer-checked:bg-amber-500/10 peer-checked:text-amber-300">
+                <span className="block rounded-lg border border-[var(--line)] px-3 py-2.5 text-center text-sm text-[var(--ink-2)] transition peer-checked:border-[var(--accent)]/65 peer-checked:bg-[var(--accent-soft)] peer-checked:text-[var(--accent)]">
                   Mua loa
                 </span>
               </label>
               <label className="group cursor-pointer">
                 <input type="radio" name="role" value="seller" className="peer sr-only" />
-                <span className="block rounded-lg border border-[var(--border)] px-3 py-2.5 text-center text-sm text-zinc-300 transition peer-checked:border-amber-500/60 peer-checked:bg-amber-500/10 peer-checked:text-amber-300">
+                <span className="block rounded-lg border border-[var(--line)] px-3 py-2.5 text-center text-sm text-[var(--ink-2)] transition peer-checked:border-[var(--accent)]/65 peer-checked:bg-[var(--accent-soft)] peer-checked:text-[var(--accent)]">
                   Bán loa
                 </span>
               </label>
@@ -52,7 +52,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       </div>
 
       {state.error && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400">
+        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}
         </p>
       )}
@@ -63,8 +63,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       </button>
 
       {mode === "login" && (
-        <p className="text-center text-xs text-zinc-500">
-          <Link href="/register" className="hover:text-amber-400">Chưa có tài khoản? Đăng ký</Link>
+        <p className="text-center text-xs text-[var(--muted)]">
+          <Link href="/register" className="hover:text-[var(--accent)]">Chưa có tài khoản? Đăng ký</Link>
         </p>
       )}
     </form>

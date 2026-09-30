@@ -105,7 +105,7 @@ export function ListingForm({
       {/* Model sản phẩm (§5 — catalog chuẩn hóa) */}
       <div>
         <label className="label" htmlFor="productModelId">
-          Model sản phẩm <span className="font-normal text-zinc-600">(tùy chọn — dùng specs &amp; giá tham chiếu từ catalog)</span>
+          Model sản phẩm <span className="font-normal text-[var(--muted)]">(tùy chọn — dùng specs &amp; giá tham chiếu từ catalog)</span>
         </label>
         <select
           id="productModelId"
@@ -139,9 +139,9 @@ export function ListingForm({
             defaultValue={edit?.price}
           />
           {price > 0 && (
-            <p className="mt-1.5 text-xs text-zinc-500">
+            <p className="mt-1.5 text-xs text-[var(--muted)]">
               {formatVND(price)} · bạn nhận ≈{" "}
-              <b className="text-emerald-400">
+              <b className="text-[var(--green)]">
                 {formatVND(price - commission)}
               </b>{" "}
               sau hoa hồng {category?.commissionRate ?? 5}%
@@ -189,25 +189,25 @@ export function ListingForm({
 
       {/* Toggle */}
       <div className="grid gap-3 sm:grid-cols-2">
-        <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 transition hover:border-zinc-600">
-          <input type="checkbox" name="negotiable" className="size-4 accent-amber-500" defaultChecked={edit?.negotiable} />
-          <span className="text-sm text-zinc-300">Mở đón thương lượng giá</span>
+        <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-4 py-3 transition hover:border-zinc-600">
+          <input type="checkbox" name="negotiable" className="size-4 accent-[var(--accent)]" defaultChecked={edit?.negotiable} />
+          <span className="text-sm text-[var(--ink-2)]">Mở đón thương lượng giá</span>
         </label>
-        <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-4 py-3 transition hover:border-zinc-600">
-          <input type="checkbox" name="acceptExchange" className="size-4 accent-sky-500" defaultChecked={edit?.acceptExchange} />
-          <span className="text-sm text-zinc-300">Sẵn sàng trao đổi + tiền bù</span>
+        <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-4 py-3 transition hover:border-zinc-600">
+          <input type="checkbox" name="acceptExchange" className="size-4 accent-[var(--violet)]" defaultChecked={edit?.acceptExchange} />
+          <span className="text-sm text-[var(--ink-2)]">Sẵn sàng trao đổi + tiền bù</span>
         </label>
       </div>
 
       {state.error && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400">
+        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}
         </p>
       )}
 
-      <div className="rounded-lg bg-zinc-800/50 p-3 text-xs leading-relaxed text-zinc-400">
-        <p className="flex items-center gap-1.5 font-semibold text-zinc-300">
-          <Banknote className="size-3.5 text-amber-400" />
+      <div className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+        <p className="flex items-center gap-1.5 font-semibold text-[var(--ink-2)]">
+          <Banknote className="size-3.5 text-[var(--accent)]" />
           Hoa hồng {category?.commissionRate ?? 5}% chỉ thu khi giao dịch hoàn tất
         </p>
         <p className="mt-1">

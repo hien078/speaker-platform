@@ -1,0 +1,46 @@
+# LoaViet — production stack
+# Chạy:  docker compose -f docker-compose.prod.yml up -d
+# Sau đó migrate:  docker compose -f docker-compose.prod.yml exec app npx prisma db update --yes
+# Seed (tuỳ chọn): docker compose -f docker-compose.prod.yml exec app npx tsx src/prisma/seed.ts
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: loaviet
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
+      POSTGRES_DB: loaviet
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loaviet"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # KHÔNG expose port ra ngoài — chỉ app kết nối trong network
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+      AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
+      NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
+      ESCROW_AUTO_RELEASE_DAYS: "7"
+      # MoMo production — điền credentials thật từ business.momo.vn
+      MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
+      MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}
+      MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
+      MOMO_ENDPOINT: ${MOMO_ENDPOINT:-https://payment.momo.vn}
+    volumes:
+      - uploads:/app/public/uploads
+
+volumes:
+  pgdata:
+  uploads:

@@ -22,7 +22,7 @@ export function WithdrawForm({ available }: { available: number }) {
       <div>
         <label className="label" htmlFor="amount">Số tiền muốn rút (₫)</label>
         <div className="relative">
-          <Banknote className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+          <Banknote className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[var(--muted)]" />
           <input
             id="amount"
             name="amount"
@@ -35,8 +35,8 @@ export function WithdrawForm({ available }: { available: number }) {
             required
           />
         </div>
-        <p className="mt-1.5 text-xs text-zinc-500">
-          Khả dụng: <b className="text-emerald-400">{formatVND(available)}</b> · tối thiểu 100.000₫
+        <p className="mt-1.5 text-xs text-[var(--muted)]">
+          Khả dụng: <b className="text-[var(--green)]">{formatVND(available)}</b> · tối thiểu 100.000₫
         </p>
       </div>
 
@@ -79,7 +79,7 @@ export function WithdrawForm({ available }: { available: number }) {
       </div>
 
       {state.error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400">
+        <p className="rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}
         </p>
       )}
@@ -94,7 +94,7 @@ export function WithdrawForm({ available }: { available: number }) {
         {canWithdraw ? "Gửi yêu cầu rút tiền" : "Chưa đủ số dư để rút"}
       </button>
 
-      <p className="text-center text-xs leading-relaxed text-zinc-600">
+      <p className="text-center text-xs leading-relaxed text-[var(--muted)]">
         Yêu cầu sẽ được quản trị kiểm tra và chuyển khoản trong 1–2 ngày làm việc.
         Tiền chỉ tính là đã rút khi chuyển khoản thành công.
       </p>

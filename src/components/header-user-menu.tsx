@@ -49,19 +49,19 @@ export function HeaderUserMenu({ user }: { user: SessionUser }) {
     <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition hover:bg-zinc-800/70"
+        className="flex items-center gap-2 rounded-full py-1 pl-1 pr-2 transition hover:bg-[var(--paper)]/70"
       >
-        <span className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-amber-400 to-orange-600 text-xs font-bold text-zinc-950">
+        <span className="grid size-8 place-items-center rounded-full bg-[var(--accent)] text-xs font-bold text-white">
           {initials}
         </span>
-        <ChevronDown className={cn("size-3.5 text-zinc-400 transition", open && "rotate-180")} />
+        <ChevronDown className={cn("size-3.5 text-[var(--ink-2)] transition", open && "rotate-180")} />
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] py-1.5 shadow-2xl shadow-black/50">
-          <div className="border-b border-[var(--border)] px-4 pb-2.5 pt-1">
+        <div className="absolute right-0 top-full mt-2 w-60 overflow-hidden rounded-xl border border-[var(--line)] bg-[var(--card)] py-1.5 shadow-2xl shadow-black/50">
+          <div className="border-b border-[var(--line)] px-4 pb-2.5 pt-1">
             <p className="truncate text-sm font-semibold">{user.name}</p>
-            <p className="truncate text-xs text-zinc-500">{user.email}</p>
+            <p className="truncate text-xs text-[var(--muted)]">{user.email}</p>
           </div>
           <div className="p-1">
             <MenuItem href="/sell/new" icon={<Package className="size-4" />} label="Đăng bán loa" />
@@ -76,10 +76,10 @@ export function HeaderUserMenu({ user }: { user: SessionUser }) {
             {user.role === "admin" && (
               <MenuItem href="/admin" icon={<LayoutDashboard className="size-4" />} label="Trang quản trị" />
             )}
-            <div className="my-1 border-t border-[var(--border)]" />
+            <div className="my-1 border-t border-[var(--line)]" />
             <button
               onClick={logout}
-              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800/70 hover:text-red-400"
+              className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[var(--ink-2)] transition hover:bg-[var(--paper)]/70 hover:text-[var(--red)]"
             >
               <LogOut className="size-4" />
               Đăng xuất
@@ -95,7 +95,7 @@ function MenuItem({ href, icon, label }: { href: string; icon: React.ReactNode; 
   return (
     <Link
       href={href}
-      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-zinc-200 transition hover:bg-zinc-800/70 hover:text-white"
+      className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-[var(--ink)] transition hover:bg-[var(--paper)]/70 hover:text-white"
     >
       {icon}
       {label}

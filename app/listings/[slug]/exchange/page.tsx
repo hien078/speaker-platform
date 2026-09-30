@@ -51,27 +51,27 @@ export default async function ExchangeOfferPage({
       </Link>
 
       <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-        <Handshake className="size-6 text-sky-400" />
+        <Handshake className="size-6 text-[#2563a8]" />
         Đề nghị trao đổi
       </h1>
-      <p className="mt-1.5 text-sm text-zinc-500">
+      <p className="mt-1.5 text-sm text-[var(--muted)]">
         Trao đổi sản phẩm của bạn + tiền bù (nếu có) — phần tiền bù được giữ qua escrow.
       </p>
 
       {/* Tin mục tiêu */}
       <div className="card mt-6 flex items-center gap-4 p-4">
-        <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+        <div className="size-16 shrink-0 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
           {listing.images[0] ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={listing.images[0].url} alt="" className="size-full object-cover" />
           ) : (
-            <span className="grid size-full place-items-center text-2xl text-zinc-700">🔇</span>
+            <span className="grid size-full place-items-center text-2xl text-[var(--muted)]">🔇</span>
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-xs text-zinc-500">Bạn muốn đổi để lấy</p>
+          <p className="text-xs text-[var(--muted)]">Bạn muốn đổi để lấy</p>
           <p className="line-clamp-1 text-sm font-bold">{listing.title}</p>
-          <p className="text-sm font-extrabold text-amber-400">{formatVND(listing.price)}</p>
+          <p className="text-sm font-extrabold text-[var(--accent)]">{formatVND(listing.price)}</p>
         </div>
       </div>
 
@@ -79,8 +79,8 @@ export default async function ExchangeOfferPage({
         <ExchangeOfferForm listingId={listing.id} myListings={myListings} />
       </div>
 
-      <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-zinc-500">
-        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-emerald-400" />
+      <p className="mt-4 flex items-start gap-2 text-xs leading-relaxed text-[var(--muted)]">
+        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[var(--green)]" />
         Nền tảng thu hoa hồng {listing.category!.commissionRate}% trên phần tiền bù khi giao dịch
         hoàn tất. Nếu không bù tiền, giao dịch trao đổi thuần túy không mất phí.
       </p>

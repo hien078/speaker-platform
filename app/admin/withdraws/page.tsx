@@ -14,10 +14,10 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  requested: "bg-amber-400/15 text-amber-300",
-  processing: "bg-sky-400/15 text-sky-300",
-  paid: "bg-emerald-400/15 text-emerald-300",
-  rejected: "bg-red-400/15 text-red-300",
+  requested: "bg-[var(--accent-soft)] text-[var(--accent)]",
+  processing: "bg-[#eaf2fb] text-[#2563a8]",
+  paid: "bg-[var(--green-soft)] text-[var(--green)]",
+  rejected: "bg-[var(--red-soft)] text-[var(--red)]",
 };
 
 export default async function AdminWithdrawsPage() {
@@ -40,12 +40,12 @@ export default async function AdminWithdrawsPage() {
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight">
-          <Banknote className="size-6 text-amber-400" />
+          <Banknote className="size-6 text-[var(--accent)]" />
           Duyệt rút tiền
         </h1>
-        <p className="text-sm text-zinc-500">
-          Chờ duyệt: <b className="text-amber-300">{pendingCount}</b> ·{" "}
-          <b className="text-amber-300">{formatVND(pendingTotal)}</b>
+        <p className="text-sm text-[var(--muted)]">
+          Chờ duyệt: <b className="text-[var(--accent)]">{pendingCount}</b> ·{" "}
+          <b className="text-[var(--accent)]">{formatVND(pendingTotal)}</b>
         </p>
       </div>
 
@@ -61,53 +61,53 @@ export default async function AdminWithdrawsPage() {
               key={r.id}
               className={cn(
                 "card p-5",
-                r.status === "requested" && "border-amber-400/30",
+                r.status === "requested" && "border-[var(--accent)]/35",
               )}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-3">
-                  <p className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold text-spotlight">
+                  <p className="text-lg font-bold price">
                     {formatVND(r.amount)}
                   </p>
                   <span className={cn("badge", STATUS_BADGE[r.status])}>
                     {STATUS_LABELS[r.status]}
                   </span>
                 </div>
-                <span className="text-xs text-zinc-500">{formatDate(r.createdAt)}</span>
+                <span className="text-xs text-[var(--muted)]">{formatDate(r.createdAt)}</span>
               </div>
 
               <div className="mt-3 grid gap-1.5 text-sm sm:grid-cols-2">
-                <p className="text-zinc-400">
+                <p className="text-[var(--ink-2)]">
                   Người bán:{" "}
-                  <b className="text-zinc-200">{r.seller!.name}</b>
-                  {r.seller!.isVerifiedSeller && <span className="ml-1 text-emerald-400">✓</span>}
-                  <span className="ml-2 text-xs text-zinc-600">{r.seller!.email}</span>
+                  <b className="text-[var(--ink)]">{r.seller!.name}</b>
+                  {r.seller!.isVerifiedSeller && <span className="ml-1 text-[var(--green)]">✓</span>}
+                  <span className="ml-2 text-xs text-[var(--muted)]">{r.seller!.email}</span>
                 </p>
-                <p className="text-zinc-400">
-                  Ngân hàng: <b className="text-zinc-200">{r.bankName}</b>
+                <p className="text-[var(--ink-2)]">
+                  Ngân hàng: <b className="text-[var(--ink)]">{r.bankName}</b>
                 </p>
-                <p className="text-zinc-400">
-                  STK: <b className="font-mono text-zinc-200">{r.bankAccount}</b>
+                <p className="text-[var(--ink-2)]">
+                  STK: <b className="font-mono text-[var(--ink)]">{r.bankAccount}</b>
                 </p>
-                <p className="text-zinc-400">
-                  Chủ TK: <b className="text-zinc-200">{r.accountHolder}</b>
+                <p className="text-[var(--ink-2)]">
+                  Chủ TK: <b className="text-[var(--ink)]">{r.accountHolder}</b>
                 </p>
               </div>
 
               {r.note && (
-                <p className="mt-2 rounded-lg bg-white/[.03] px-3 py-1.5 text-xs text-zinc-400">
+                <p className="mt-2 rounded-lg bg-[var(--paper)] px-3 py-1.5 text-xs text-[var(--ink-2)]">
                   Ghi chú seller: {r.note}
                 </p>
               )}
               {r.adminNote && (
-                <p className="mt-2 rounded-lg bg-white/[.03] px-3 py-1.5 text-xs text-zinc-400">
+                <p className="mt-2 rounded-lg bg-[var(--paper)] px-3 py-1.5 text-xs text-[var(--ink-2)]">
                   Ghi chú admin: {r.adminNote}
                   {r.processedAt && ` · ${formatDate(r.processedAt)}`}
                 </p>
               )}
 
               {["requested", "processing"].includes(r.status) && (
-                <form action={processWithdrawAction} className="mt-4 space-y-2.5 border-t border-[var(--border)] pt-4">
+                <form action={processWithdrawAction} className="mt-4 space-y-2.5 border-t border-[var(--line)] pt-4">
                   <input type="hidden" name="withdrawId" value={r.id} />
                   <input
                     name="adminNote"
@@ -128,7 +128,7 @@ export default async function AdminWithdrawsPage() {
                       type="submit"
                       name="action"
                       value="reject"
-                      className="btn h-9 flex-1 border border-red-500/30 bg-red-500/10 text-sm text-red-300 transition hover:bg-red-500/20"
+                      className="btn h-9 flex-1 border border-[var(--red)]/35 bg-[var(--red-soft)] text-sm text-[var(--red)] transition hover:bg-[var(--red-soft)]"
                     >
                       Từ chối
                     </button>

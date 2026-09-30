@@ -26,10 +26,10 @@ export default async function SellNewPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-10 lg:px-8">
       <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-        <Package className="size-6 text-amber-400" />
+        <Package className="size-6 text-[var(--accent)]" />
         Đăng bán loa
       </h1>
-      <p className="mt-1.5 text-sm text-zinc-500">
+      <p className="mt-1.5 text-sm text-[var(--muted)]">
         Tin của bạn sẽ được quản trị duyệt trước khi hiển thị — thường trong 24 giờ.
       </p>
 

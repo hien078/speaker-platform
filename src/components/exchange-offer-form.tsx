@@ -37,8 +37,8 @@ export function ExchangeOfferForm({
             className={cn(
               "rounded-lg border px-3 py-2.5 text-sm transition disabled:opacity-40",
               mode === "pick"
-                ? "border-amber-500/60 bg-amber-500/10 text-amber-300"
-                : "border-[var(--border)] bg-[var(--surface-2)] text-zinc-300",
+                ? "border-[var(--accent)]/65 bg-[var(--accent-soft)] text-[var(--accent)]"
+                : "border-[var(--line)] bg-[var(--paper)] text-[var(--ink-2)]",
             )}
           >
             <PackagePlus className="mr-1.5 inline size-4" />
@@ -50,8 +50,8 @@ export function ExchangeOfferForm({
             className={cn(
               "rounded-lg border px-3 py-2.5 text-sm transition",
               mode === "describe"
-                ? "border-amber-500/60 bg-amber-500/10 text-amber-300"
-                : "border-[var(--border)] bg-[var(--surface-2)] text-zinc-300",
+                ? "border-[var(--accent)]/65 bg-[var(--accent-soft)] text-[var(--accent)]"
+                : "border-[var(--line)] bg-[var(--paper)] text-[var(--ink-2)]",
             )}
           >
             ✍️ Mô tả sản phẩm
@@ -76,8 +76,8 @@ export function ExchangeOfferForm({
             ))}
           </select>
           {selected && (
-            <p className="mt-2 text-xs text-zinc-500">
-              Giá trị tin của bạn: <b className="text-zinc-300">{formatVND(selected.price)}</b>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              Giá trị tin của bạn: <b className="text-[var(--ink-2)]">{formatVND(selected.price)}</b>
             </p>
           )}
         </div>
@@ -109,7 +109,7 @@ export function ExchangeOfferForm({
           placeholder="VD: 2000000"
         />
         {cashTopup > 0 && (
-          <p className="mt-2 text-xs text-zinc-500">
+          <p className="mt-2 text-xs text-[var(--muted)]">
             {formatVND(cashTopup)} sẽ được giữ qua escrow — seller nhận sau khi bạn xác nhận trao đổi xong.
           </p>
         )}
@@ -128,7 +128,7 @@ export function ExchangeOfferForm({
       </div>
 
       {state.error && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400">
+        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}
         </p>
       )}

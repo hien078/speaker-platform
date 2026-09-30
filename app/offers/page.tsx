@@ -49,27 +49,27 @@ export default async function OffersPage({
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 lg:px-8">
       <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight">
-        <HandCoins className="size-6 text-amber-400" />
+        <HandCoins className="size-6 text-[var(--accent)]" />
         Trả giá &amp; đề nghị
       </h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         Thỏa thuận giá qua đề nghị — chấp nhận là tạo đơn escrow ngay tại giá đã chốt.
       </p>
 
       {sp.sent === "1" && (
-        <div className="mt-5 rounded-xl border border-emerald-400/30 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-300">
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
           ✓ Đề nghị đã gửi — seller có 3 ngày phản hồi.
         </div>
       )}
 
       {/* Nhận được */}
       <section className="mt-8">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Đề nghị nhận được ({received.length})
         </h2>
         <div className="mt-4 space-y-4">
           {received.length === 0 ? (
-            <p className="card p-6 text-center text-sm text-zinc-500">
+            <p className="card p-6 text-center text-sm text-[var(--muted)]">
               Chưa ai trả giá tin của bạn. Đánh dấu “Mở đón thương lượng” khi đăng tin để nhận đề nghị.
             </p>
           ) : (
@@ -80,12 +80,12 @@ export default async function OffersPage({
 
       {/* Đã gửi */}
       <section className="mt-10">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Đề nghị bạn đã gửi ({sent.length})
         </h2>
         <div className="mt-4 space-y-4">
           {sent.length === 0 ? (
-            <p className="card p-6 text-center text-sm text-zinc-500">
+            <p className="card p-6 text-center text-sm text-[var(--muted)]">
               Bạn chưa trả giá tin nào. Vào tin có nhãn “mặc cả” và đề nghị giá của bạn.
             </p>
           ) : (

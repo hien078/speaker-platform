@@ -34,7 +34,7 @@ export default async function WishlistPage() {
         <Heart className="size-6 fill-red-500 text-red-500" />
         Tin đã lưu
       </h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         Theo dõi giá và tình trạng những chiếc loa bạn để mắt tới.
       </p>
 
@@ -42,7 +42,7 @@ export default async function WishlistPage() {
         <div className="card mt-8 grid place-items-center gap-3 p-16 text-center">
           <span className="text-5xl">🤍</span>
           <p className="text-lg font-bold">Chưa lưu tin nào</p>
-          <p className="max-w-sm text-sm text-zinc-500">
+          <p className="max-w-sm text-sm text-[var(--muted)]">
             Bấm vào biểu tượng ❤️ ở trang chi tiết tin đăng để lưu sản phẩm vào đây.
           </p>
           <Link href="/listings" className="btn-primary mt-2 text-sm">Đi đến chợ loa</Link>

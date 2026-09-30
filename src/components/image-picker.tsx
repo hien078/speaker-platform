@@ -50,15 +50,15 @@ export function ImagePicker({
     <div>
       <div className="flex flex-wrap gap-2.5">
         {urls.map((url) => (
-          <div key={url} className="group relative size-24 overflow-hidden rounded-lg border border-[var(--border)] bg-zinc-900">
+          <div key={url} className="group relative size-24 overflow-hidden rounded-lg border border-[var(--line)] bg-[var(--paper-deep)]">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={url} alt="" className="size-full object-cover" />
             <button
               type="button"
               onClick={() => remove(url)}
-              className="absolute inset-0 grid place-items-center bg-black/60 opacity-0 transition group-hover:opacity-100"
+              className="absolute inset-0 grid place-items-center bg-[var(--ink)]/60 opacity-0 transition group-hover:opacity-100"
             >
-              <X className="size-5 text-red-400" />
+              <X className="size-5 text-[var(--red)]" />
             </button>
           </div>
         ))}
@@ -69,7 +69,7 @@ export function ImagePicker({
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
             className={cn(
-              "grid size-24 place-items-center gap-1 rounded-lg border-2 border-dashed border-[var(--border)] text-zinc-500 transition hover:border-amber-500/50 hover:text-amber-400",
+              "grid size-24 place-items-center gap-1 rounded-lg border-2 border-dashed border-[var(--line)] text-[var(--muted)] transition hover:border-[var(--accent)]/50 hover:text-[var(--accent)]",
               uploading && "opacity-50",
             )}
           >
@@ -89,8 +89,8 @@ export function ImagePicker({
       {urls.map((u) => (
         <input key={u} type="hidden" name={name} value={u} />
       ))}
-      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
-      <p className="mt-2 text-[11px] text-zinc-500">
+      {error && <p className="mt-2 text-xs text-[var(--red)]">{error}</p>}
+      <p className="mt-2 text-[11px] text-[var(--muted)]">
         {urls.length}/{max} ảnh · JPEG/PNG/WebP tối đa 5MB
       </p>
     </div>

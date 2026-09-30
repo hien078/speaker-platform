@@ -79,7 +79,7 @@ export function ChatWindow({
       {/* Tin nhắn */}
       <div className="flex-1 space-y-3 overflow-y-auto p-4 sm:p-5">
         {messages.length === 0 && (
-          <p className="py-10 text-center text-sm text-zinc-600">
+          <p className="py-10 text-center text-sm text-[var(--muted)]">
             Chưa có tin nhắn — hãy gửi lời chào trước nào!
           </p>
         )}
@@ -91,19 +91,19 @@ export function ChatWindow({
                 className={cn(
                   "max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
                   mine
-                    ? "rounded-br-md bg-amber-500 text-zinc-950"
-                    : "rounded-bl-md bg-zinc-800 text-zinc-100",
+                    ? "rounded-br-md bg-[var(--accent)] text-white"
+                    : "rounded-bl-md bg-[var(--paper)] text-[var(--ink)]",
                 )}
               >
                 {!mine && (
-                  <p className="mb-0.5 text-[11px] font-semibold text-zinc-400">{m.senderName}</p>
+                  <p className="mb-0.5 text-[11px] font-semibold text-[var(--ink-2)]">{m.senderName}</p>
                 )}
                 {m.imageUrl && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.imageUrl} alt="" className="mb-1.5 max-h-64 rounded-lg object-cover" />
                 )}
                 <p className="whitespace-pre-wrap">{m.body}</p>
-                <p className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", mine ? "text-zinc-800" : "text-zinc-500")}>
+                <p className={cn("mt-1 flex items-center justify-end gap-1 text-[10px]", mine ? "text-zinc-800" : "text-[var(--muted)]")}>
                   {timeAgo(m.createdAt)}
                   {mine && m.readAt && <CheckCheck className="size-3" />}
                 </p>
@@ -117,7 +117,7 @@ export function ChatWindow({
       {/* Soạn tin */}
       <form
         onSubmit={send}
-        className="flex items-center gap-2 border-t border-[var(--border)] bg-[var(--surface)] p-3"
+        className="flex items-center gap-2 border-t border-[var(--line)] bg-[var(--card)] p-3"
       >
         <input
           value={text}

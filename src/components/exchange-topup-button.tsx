@@ -44,7 +44,7 @@ export function ExchangeTopupButton({
   return (
     <div className="w-full">
       {error && (
-        <p className="mb-2 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-300">
+        <p className="mb-2 rounded-lg border border-[var(--accent)]/35 bg-[var(--accent-soft)] px-3 py-2 text-xs text-[var(--accent)]">
           {error} — dùng nút mock bên dưới để tiếp tục thử nghiệm.
         </p>
       )}
@@ -52,7 +52,7 @@ export function ExchangeTopupButton({
         <button
           onClick={pay}
           disabled={busy}
-          className="btn-primary w-full bg-gradient-to-b from-violet-400 to-fuchsia-600 text-white shadow-[0_8px_30px_-8px_rgba(192,38,211,.5)]"
+          className="btn-primary w-full bg-gradient-to-b from-[var(--violet)] to-[var(--violet)] text-white "
         >
           {busy ? <LoaderCircle className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}
           Nạp {formatVND(amount)} tiền bù qua MoMo

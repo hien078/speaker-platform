@@ -17,20 +17,20 @@ const METHODS = [
     value: "escrow",
     title: "Thanh toán qua nền tảng (escrow)",
     desc: "Thẻ / QR ngân hàng / Ví MoMo — nền tảng giữ tiền đến khi bạn nhận loa",
-    icon: <ShieldCheck className="size-5 text-emerald-400" />,
+    icon: <ShieldCheck className="size-5 text-[var(--green)]" />,
     recommended: true,
   },
   {
     value: "direct",
     title: "Chuyển khoản trực tiếp cho người bán",
     desc: "Bạn tự chuyển khoản cho seller — nền tảng ghi nhận và thu hoa hồng khi hoàn tất",
-    icon: <Banknote className="size-5 text-amber-400" />,
+    icon: <Banknote className="size-5 text-[var(--accent)]" />,
   },
   {
     value: "cod",
     title: "COD — trả tiền khi nhận hàng",
     desc: "Kiểm tra loa rồi mới trả tiền cho người chuyển giao",
-    icon: <Truck className="size-5 text-sky-400" />,
+    icon: <Truck className="size-5 text-[#2563a8]" />,
   },
 ] as const;
 
@@ -68,7 +68,7 @@ export function CheckoutForm({
 
       {/* ─── Thông tin giao hàng ─── */}
       <section>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Thông tin nhận hàng
         </h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -110,7 +110,7 @@ export function CheckoutForm({
 
       {/* ─── Phương thức thanh toán ─── */}
       <section>
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Phương thức thanh toán
         </h2>
         <input type="hidden" name="paymentMethod" value={method} />
@@ -123,8 +123,8 @@ export function CheckoutForm({
               className={cn(
                 "flex w-full items-start gap-3.5 rounded-xl border p-4 text-left transition",
                 method === m.value
-                  ? "border-amber-500/60 bg-amber-500/10"
-                  : "border-[var(--border)] bg-[var(--surface-2)] hover:border-zinc-600",
+                  ? "border-[var(--accent)]/65 bg-[var(--accent-soft)]"
+                  : "border-[var(--line)] bg-[var(--paper)] hover:border-zinc-600",
               )}
             >
               <span className="mt-0.5 shrink-0">{m.icon}</span>
@@ -132,15 +132,15 @@ export function CheckoutForm({
                 <span className="flex items-center gap-2 text-sm font-bold">
                   {m.title}
                   {"recommended" in m && m.recommended && (
-                    <span className="badge bg-emerald-500/15 text-emerald-400">Khuyên dùng</span>
+                    <span className="badge bg-[var(--green-soft)] text-[var(--green)]">Khuyên dùng</span>
                   )}
                 </span>
-                <span className="mt-1 block text-xs leading-relaxed text-zinc-400">{m.desc}</span>
+                <span className="mt-1 block text-xs leading-relaxed text-[var(--ink-2)]">{m.desc}</span>
               </span>
               <span
                 className={cn(
                   "mt-1 grid size-4.5 shrink-0 place-items-center rounded-full border-2 transition",
-                  method === m.value ? "border-amber-500 bg-amber-500" : "border-zinc-600",
+                  method === m.value ? "border-[var(--accent)] bg-[var(--accent)]" : "border-zinc-600",
                 )}
               >
                 {method === m.value && <span className="size-1.5 rounded-full bg-zinc-950" />}
@@ -151,7 +151,7 @@ export function CheckoutForm({
       </section>
 
       {state.error && (
-        <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3.5 py-2.5 text-sm text-red-400">
+        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}
         </p>
       )}

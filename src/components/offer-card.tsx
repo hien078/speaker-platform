@@ -17,12 +17,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  proposed: "bg-amber-400/15 text-amber-300",
-  countered: "bg-violet-400/15 text-violet-300",
-  accepted: "bg-emerald-400/15 text-emerald-300",
-  rejected: "bg-red-400/15 text-red-300",
-  cancelled: "bg-zinc-500/15 text-zinc-400",
-  expired: "bg-zinc-500/15 text-zinc-400",
+  proposed: "bg-[var(--accent-soft)] text-[var(--accent)]",
+  countered: "bg-[var(--violet-soft)] text-[var(--violet)]",
+  accepted: "bg-[var(--green-soft)] text-[var(--green)]",
+  rejected: "bg-[var(--red-soft)] text-[var(--red)]",
+  cancelled: "bg-zinc-500/15 text-[var(--ink-2)]",
+  expired: "bg-zinc-500/15 text-[var(--ink-2)]",
 };
 
 export type OfferWithListing = {
@@ -61,32 +61,32 @@ export function OfferCard({
     <div className="card p-5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2.5">
-          <p className="font-[family-name:var(--font-space-grotesk)] text-lg font-bold text-spotlight">
+          <p className="text-lg font-bold price">
             {formatVND(offer.amount)}
           </p>
-          <span className="badge bg-zinc-500/15 text-zinc-400">
+          <span className="badge bg-zinc-500/15 text-[var(--ink-2)]">
             −{discount}% so với {formatVND(listing.price)}
           </span>
           <span className={cn("badge", STATUS_BADGE[offer.status])}>
             {STATUS_LABELS[offer.status]}
           </span>
         </div>
-        <span className="text-xs text-zinc-500">{formatDate(offer.createdAt)}</span>
+        <span className="text-xs text-[var(--muted)]">{formatDate(offer.createdAt)}</span>
       </div>
 
       <div className="mt-3 flex items-center gap-3">
         <Link href={`/listings/${listing.slug}`} className="flex min-w-0 flex-1 items-center gap-3">
-          <div className="size-11 shrink-0 overflow-hidden rounded-lg bg-zinc-900">
+          <div className="size-11 shrink-0 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
             {listing.images[0] ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={listing.images[0].url} alt="" className="size-full object-cover" />
             ) : (
-              <span className="grid size-full place-items-center text-zinc-700">🔇</span>
+              <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
             )}
           </div>
           <div className="min-w-0">
             <p className="line-clamp-1 text-sm font-medium hover:text-amber-200">{listing.title}</p>
-            <p className="text-xs text-zinc-500">
+            <p className="text-xs text-[var(--muted)]">
               {isSeller ? `Đề nghị từ ${offer.buyer.name}` : `Tin của ${listing.seller.name}`}
               {" · hạn phản hồi " + formatDate(offer.expiresAt).split(" ")[0]}
             </p>
@@ -95,21 +95,21 @@ export function OfferCard({
       </div>
 
       {offer.message && (
-        <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2 text-xs leading-relaxed text-zinc-300">
+        <p className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3.5 py-2 text-xs leading-relaxed text-[var(--ink-2)]">
           “{offer.message}”
         </p>
       )}
 
       {offer.counterAmount && (
-        <p className="mt-3 flex items-center gap-2 rounded-lg border border-violet-400/25 bg-violet-400/[.07] px-3.5 py-2.5 text-sm">
-          <ArrowLeftRight className="size-4 text-violet-300" />
+        <p className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--violet)]/30 bg-[var(--violet-soft)] px-3.5 py-2.5 text-sm">
+          <ArrowLeftRight className="size-4 text-[var(--violet)]" />
           Seller phản đề nghị:{" "}
-          <b className="text-violet-200">{formatVND(offer.counterAmount)}</b>
+          <b className="text-[var(--violet)]">{formatVND(offer.counterAmount)}</b>
         </p>
       )}
 
       {/* Hành động */}
-      <div className="mt-4 space-y-2.5 border-t border-[var(--border)] pt-4">
+      <div className="mt-4 space-y-2.5 border-t border-[var(--line)] pt-4">
         {isSeller && offer.status === "proposed" && (
           <>
             <form action={respondOfferAction} className="flex flex-wrap gap-2">
@@ -122,7 +122,7 @@ export function OfferCard({
                 type="submit"
                 name="response"
                 value="reject"
-                className="btn h-9 flex-1 border border-red-500/30 bg-red-500/10 text-sm text-red-300 transition hover:bg-red-500/20"
+                className="btn h-9 flex-1 border border-[var(--red)]/35 bg-[var(--red-soft)] text-sm text-[var(--red)] transition hover:bg-[var(--red-soft)]"
               >
                 <XCircle className="size-4" />
                 Từ chối
@@ -161,7 +161,7 @@ export function OfferCard({
         {!isSeller && ["proposed", "countered"].includes(offer.status) && (
           <form action={cancelOfferAction}>
             <input type="hidden" name="offerId" value={offer.id} />
-            <button type="submit" className="btn-ghost w-full text-sm text-zinc-400 hover:text-red-400">
+            <button type="submit" className="btn-ghost w-full text-sm text-[var(--ink-2)] hover:text-[var(--red)]">
               <Ban className="size-4" />
               Rút đề nghị
             </button>

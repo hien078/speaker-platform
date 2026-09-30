@@ -18,12 +18,12 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Trao đổi" };
 
 const STATUS_BADGE: Record<string, string> = {
-  proposed: "bg-amber-500/15 text-amber-400",
-  accepted: "bg-sky-500/15 text-sky-400",
-  paid: "bg-violet-500/15 text-violet-400",
-  completed: "bg-emerald-500/15 text-emerald-400",
-  rejected: "bg-red-500/15 text-red-400",
-  cancelled: "bg-zinc-700/60 text-zinc-300",
+  proposed: "bg-[var(--accent-soft)] text-[var(--accent)]",
+  accepted: "bg-[#eaf2fb] text-[#2563a8]",
+  paid: "bg-[var(--violet-soft)] text-[var(--violet)]",
+  completed: "bg-[var(--green-soft)] text-[var(--green)]",
+  rejected: "bg-[var(--red-soft)] text-[var(--red)]",
+  cancelled: "bg-[var(--paper-deep)] text-[var(--ink-2)]",
 };
 
 export default async function ExchangePage({
@@ -80,71 +80,71 @@ export default async function ExchangePage({
           <span className={cn("badge", STATUS_BADGE[offer.status])}>
             {EXCHANGE_STATUS_LABELS[offer.status]}
           </span>
-          <span className="text-xs text-zinc-500">{formatDate(offer.createdAt)}</span>
+          <span className="text-xs text-[var(--muted)]">{formatDate(offer.createdAt)}</span>
         </div>
 
         {/* Hai sản phẩm */}
         <div className="mt-4 flex items-center gap-3">
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
               {isSeller ? "Người mua đưa ra" : "Bạn đưa ra"}
             </p>
             {mine ? (
               <Link href={`/listings/${mine.slug}`} className="mt-1 flex items-center gap-2">
-                <div className="size-10 shrink-0 overflow-hidden rounded-md bg-zinc-900">
+                <div className="size-10 shrink-0 overflow-hidden rounded-md bg-[var(--paper-deep)]">
                   {mine.images[0] ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={mine.images[0].url} alt="" className="size-full object-cover" />
                   ) : (
-                    <span className="grid size-full place-items-center text-zinc-700">🔇</span>
+                    <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
                   )}
                 </div>
-                <p className="line-clamp-1 text-xs font-medium hover:text-amber-300">{mine.title}</p>
+                <p className="line-clamp-1 text-xs font-medium hover:text-[var(--accent)]">{mine.title}</p>
               </Link>
             ) : (
-              <p className="mt-1 line-clamp-2 text-xs text-zinc-400">{offer.myItemDescription}</p>
+              <p className="mt-1 line-clamp-2 text-xs text-[var(--ink-2)]">{offer.myItemDescription}</p>
             )}
           </div>
 
-          <ArrowLeftRight className="size-4 shrink-0 text-amber-400" />
+          <ArrowLeftRight className="size-4 shrink-0 text-[var(--accent)]" />
 
           <div className="min-w-0 flex-1 text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">
+            <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--muted)]">
               Đổi lấy
             </p>
             <Link href={`/listings/${target.slug}`} className="mt-1 flex flex-row-reverse items-center gap-2">
-              <div className="size-10 shrink-0 overflow-hidden rounded-md bg-zinc-900">
+              <div className="size-10 shrink-0 overflow-hidden rounded-md bg-[var(--paper-deep)]">
                 {target.images[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={target.images[0].url} alt="" className="size-full object-cover" />
                 ) : (
-                  <span className="grid size-full place-items-center text-zinc-700">🔇</span>
+                  <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
                 )}
               </div>
-              <p className="line-clamp-1 text-xs font-medium hover:text-amber-300">{target.title}</p>
+              <p className="line-clamp-1 text-xs font-medium hover:text-[var(--accent)]">{target.title}</p>
             </Link>
           </div>
         </div>
 
         {/* Tiền bù */}
-        <div className="mt-4 flex items-center justify-between rounded-lg bg-zinc-800/50 px-3.5 py-2.5 text-sm">
-          <span className="text-zinc-400">
-            <Banknote className="mr-1.5 inline size-4 text-amber-400" />
+        <div className="mt-4 flex items-center justify-between rounded-lg bg-[var(--paper)] px-3.5 py-2.5 text-sm">
+          <span className="text-[var(--ink-2)]">
+            <Banknote className="mr-1.5 inline size-4 text-[var(--accent)]" />
             Tiền bù
           </span>
-          <span className="font-bold text-amber-400">
+          <span className="font-bold text-[var(--accent)]">
             {offer.cashTopup > 0 ? `+${formatVND(offer.cashTopup)}` : "Không bù tiền"}
           </span>
         </div>
 
         {offer.message && (
-          <p className="mt-3 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3.5 py-2.5 text-xs leading-relaxed text-zinc-300">
+          <p className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--paper)] px-3.5 py-2.5 text-xs leading-relaxed text-[var(--ink-2)]">
             “{offer.message}”
           </p>
         )}
 
         {/* Hành động */}
-        <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--border)] pt-4">
+        <div className="mt-4 flex flex-wrap gap-2 border-t border-[var(--line)] pt-4">
           {isSeller && offer.status === "proposed" && (
             <>
               <form action={respondExchangeOfferAction} className="flex-1">
@@ -202,7 +202,7 @@ export default async function ExchangePage({
           {!isSeller && ["proposed", "accepted"].includes(offer.status) && (
             <form action={cancelExchangeOfferAction} className="w-full">
               <input type="hidden" name="offerId" value={offer.id} />
-              <button type="submit" className="btn-ghost h-9 w-full text-sm text-zinc-400 hover:text-red-400">
+              <button type="submit" className="btn-ghost h-9 w-full text-sm text-[var(--ink-2)] hover:text-[var(--red)]">
                 <Ban className="size-4" />
                 Rút đề nghị
               </button>
@@ -220,27 +220,27 @@ export default async function ExchangePage({
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 lg:px-8">
       <h1 className="flex items-center gap-2.5 text-2xl font-extrabold tracking-tight">
-        <Handshake className="size-6 text-sky-400" />
+        <Handshake className="size-6 text-[#2563a8]" />
         Giao dịch trao đổi
       </h1>
-      <p className="mt-1 text-sm text-zinc-500">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         Đổi loa lấy loa + tiền bù — phần tiền bù được bảo vệ bằng escrow.
       </p>
 
       {sp.sent === "1" && (
-        <div className="mt-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
           ✓ Đề nghị đã gửi! Người bán sẽ phản hồi qua tin nhắn.
         </div>
       )}
 
       {/* ─── Nhận được ─── */}
       <section className="mt-8">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Đề nghị nhận được ({received.length})
         </h2>
         <div className="mt-4 space-y-4">
           {received.length === 0 ? (
-            <p className="card p-6 text-center text-sm text-zinc-500">
+            <p className="card p-6 text-center text-sm text-[var(--muted)]">
               Chưa có ai đề nghị trao đổi tin của bạn.
             </p>
           ) : (
@@ -251,14 +251,14 @@ export default async function ExchangePage({
 
       {/* ─── Gửi đi ─── */}
       <section className="mt-10">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-zinc-400">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
           Đề nghị bạn đã gửi ({sent.length})
         </h2>
         <div className="mt-4 space-y-4">
           {sent.length === 0 ? (
-            <p className="card p-6 text-center text-sm text-zinc-500">
+            <p className="card p-6 text-center text-sm text-[var(--muted)]">
               Bạn chưa gửi đề nghị trao đổi nào.{" "}
-              <Link href="/listings?exchange=1" className="text-amber-400 hover:underline">
+              <Link href="/listings?exchange=1" className="text-[var(--accent)] hover:underline">
                 Xem các loa nhận trao đổi →
               </Link>
             </p>

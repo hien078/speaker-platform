@@ -36,13 +36,13 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       {/* Sidebar */}
       <aside className="hidden w-60 shrink-0 lg:block">
         <div className="card sticky top-20 p-3">
-          <div className="flex items-center gap-2.5 border-b border-[var(--border)] px-3 pb-3 pt-1">
-            <span className="grid size-8 place-items-center rounded-lg bg-amber-500 text-zinc-950">
+          <div className="flex items-center gap-2.5 border-b border-[var(--line)] px-3 pb-3 pt-1">
+            <span className="grid size-8 place-items-center rounded-lg bg-[var(--accent)] text-white">
               <AudioLines className="size-4" strokeWidth={2.5} />
             </span>
             <div>
               <p className="text-sm font-extrabold">LoaViet</p>
-              <p className="text-[10px] font-medium uppercase tracking-wider text-amber-400">
+              <p className="text-[10px] font-medium uppercase tracking-wider text-[var(--accent)]">
                 Quản trị
               </p>
             </div>
@@ -52,9 +52,9 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
               <Link
                 key={item.href}
                 href={item.href}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-zinc-300 transition hover:bg-zinc-800/70 hover:text-white"
+                className="flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-sm text-[var(--ink-2)] transition hover:bg-[var(--paper)]/70 hover:text-white"
               >
-                <item.icon className="size-4 text-zinc-500" />
+                <item.icon className="size-4 text-[var(--muted)]" />
                 {item.label}
               </Link>
             ))}
@@ -63,12 +63,12 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
       </aside>
 
       {/* Mobile nav */}
-      <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-[var(--border)] bg-[var(--surface)]/95 p-1.5 backdrop-blur lg:hidden">
+      <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--card)]/95 p-1.5 backdrop-blur lg:hidden">
         {NAV.map((item) => (
           <Link
             key={item.href}
             href={item.href}
-            className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] text-zinc-400"
+            className="flex flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] text-[var(--ink-2)]"
           >
             <item.icon className="size-4" />
             {item.label.split(" ")[0]}
