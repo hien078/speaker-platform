@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { Header } from "@/src/components/header";
 import { Footer } from "@/src/components/footer";
+import { ServiceWorkerRegister } from "@/src/components/sw-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,6 +28,17 @@ export const metadata: Metadata = {
   },
   description:
     "Nền tảng trung gian mua bán, trao đổi loa và thiết bị âm thanh. Escrow bảo vệ người mua, hoa hồng minh bạch cho người bán.",
+  manifest: "/manifest.webmanifest",
+  themeColor: "#07070e",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "LoaViet",
+  },
+  icons: {
+    icon: [{ url: "/icons/favicon-64.png", type: "image/png" }],
+    apple: [{ url: "/icons/icon-192.png" }],
+  },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -38,6 +50,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col">
         {/* hạt noise tạo chiều sâu */}
         <div className="noise-overlay" aria-hidden />
+        <ServiceWorkerRegister />
         <Header />
         <div className="flex-1">{children}</div>
         <Footer />
