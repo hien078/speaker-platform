@@ -1,5 +1,5 @@
 import { db } from "@/src/prisma/db";
-import { formatVND, formatDate, cn } from "@/src/lib/utils";
+import { formatVND, formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import {
   approveModelAction,
   mergeModelAction,
@@ -57,7 +57,7 @@ export default async function AdminCatalogPage() {
                     <span className={cn("badge", STATUS_BADGE[m.status])}>{m.status}</span>
                     <span className="text-xs text-[var(--muted)]">{specCount} specs · {m.category!.name}</span>
                   </div>
-                  <span className="text-xs text-[var(--muted)]">{formatDate(m.createdAt).split(" ")[0]}</span>
+                  <span className="text-xs text-[var(--muted)]">{formatDateShort(m.createdAt)}</span>
                 </div>
 
                 {m.status === "pending" && (

@@ -4,13 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
+import { getOrCreateCart } from "@/src/lib/actions/helpers";
 
-export async function getOrCreateCart(userId: string): Promise<string> {
-  const cart = await db.orm.public.Cart.first({ userId });
-  if (cart) return cart.id;
-  const created = await db.orm.public.Cart.create({ userId });
-  return created.id;
-}
+
 
 export async function addToCartAction(formData: FormData): Promise<void> {
   const user = await requireUser();

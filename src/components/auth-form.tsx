@@ -5,12 +5,13 @@ import Link from "next/link";
 import { loginAction, registerAction, type AuthFormState } from "@/src/lib/actions/auth";
 import { LoaderCircle } from "lucide-react";
 
-export function AuthForm({ mode }: { mode: "login" | "register" }) {
+export function AuthForm({ mode, next = "" }: { mode: "login" | "register"; next?: string }) {
   const action = mode === "login" ? loginAction : registerAction;
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(action, {});
 
   return (
     <form action={formAction} className="space-y-4">
+      {next && <input type="hidden" name="next" value={next} />}
       {mode === "register" && (
         <>
           <div>

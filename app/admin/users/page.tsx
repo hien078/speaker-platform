@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { db } from "@/src/prisma/db";
-import { formatDate, cn } from "@/src/lib/utils";
+import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";
 import { Users, BadgeCheck, Search } from "lucide-react";
@@ -125,7 +125,7 @@ export default async function AdminUsersPage({
                       <span className="badge bg-[var(--paper-deep)] text-[var(--ink-2)]">Chưa</span>
                     )}
                   </td>
-                  <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDate(u.createdAt).split(" ")[0]}</td>
+                  <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDateShort(u.createdAt)}</td>
                   <td>
                     {u.role !== "admin" && (
                       <form action={toggleSellerVerificationAction}>

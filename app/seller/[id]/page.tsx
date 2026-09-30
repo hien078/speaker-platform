@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { ListingCard } from "@/src/components/listing-card";
-import { formatVND, formatDate, cn } from "@/src/lib/utils";
+import { formatVND, formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import { BadgeCheck, MapPin, Star, Package, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -76,7 +76,7 @@ export default async function SellerProfilePage({
                   {seller.city}
                 </span>
               )}
-              <span>Tham gia {formatDate(seller.createdAt).split(" ")[0]}</span>
+              <span>Tham gia {formatDateShort(seller.createdAt)}</span>
             </p>
             {seller.bio && (
               <p className="mt-2 max-w-xl text-sm leading-relaxed text-[var(--ink-2)]">{seller.bio}</p>

@@ -26,6 +26,7 @@ export async function registerAction(
     phone: formData.get("phone") || "",
     role: formData.get("role") || "buyer",
   });
+  const next = String(formData.get("next") ?? "");
 
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dữ liệu không hợp lệ" };
@@ -51,6 +52,10 @@ export async function registerAction(
   await db.orm.public.Cart.create({ userId: user.id });
 
   await createSession(user.id);
+  // quay về trang đang xem nếu có ?next= (chỉ cho path nội bộ)
+  if (next.startsWith("/") && !next.startsWith("//")) {
+    redirect(next);
+  }
   redirect("/");
 }
 
@@ -60,6 +65,7 @@ export async function loginAction(
 ): Promise<AuthFormState> {
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
+  const next = String(formData.get("next") ?? "");
 
   if (!email || !password) {
     return { error: "Vui lòng nhập email và mật khẩu" };
@@ -80,6 +86,10 @@ export async function loginAction(
   if (!cart) await db.orm.public.Cart.create({ userId: user.id });
 
   await createSession(user.id);
+  // quay về trang đang xem nếu có ?next= (chỉ cho path nội bộ)
+  if (next.startsWith("/") && !next.startsWith("//")) {
+    redirect(next);
+  }
   redirect("/");
 }
 

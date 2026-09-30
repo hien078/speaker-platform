@@ -59,6 +59,9 @@ export async function markExchangeTopupPaid(
     await tx.orm.public.ExchangeOffer
       .where({ id: offerId })
       .update({ status: "paid" });
+    // ledger: escrow nhận tiền bù qua cổng thật
+    const { recordLedgerTx, escrowIn } = await import("@/src/lib/ledger");
+    await recordLedgerTx(tx, "exchange", offerId, escrowIn(offer.buyerId, offer.cashTopup, `Tiền bù trao đổi (${provider})`));
   });
   const listing = await db.orm.public.Listing.first({ id: offer.listingId });
   if (listing) {

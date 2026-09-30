@@ -83,5 +83,17 @@ export async function POST(
     .where({ id })
     .update({ lastMessageAt: new Date().toISOString() });
 
+  // notify người nhận (không phải người gửi)
+  const recipientId = convo.sellerId === user.id ? convo.buyerId : convo.sellerId;
+  const { notify } = await import("@/src/lib/notify");
+  const listing = convo.listingId ? await db.orm.public.Listing.first({ id: convo.listingId }) : null;
+  await notify(
+    recipientId,
+    "chat",
+    `Tin nhắn mới từ ${user.name}`,
+    (text || "[hình ảnh]").slice(0, 80),
+    `/chat/${id}`,
+  );
+
   return Response.json({ ok: true, id: message.id });
 }

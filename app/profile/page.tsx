@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ProfileForm } from "@/src/components/profile-form";
-import { formatDate, formatVND } from "@/src/lib/utils";
+import { formatDate, formatDateShort, formatVND } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { UserRound, Package, ShoppingBag, BadgeCheck } from "lucide-react";
 
@@ -48,7 +48,7 @@ export default async function ProfilePage() {
             )}
           </p>
           <p className="text-sm text-[var(--muted)]">
-            {user.email} · {ROLE_LABELS[user.role]} · tham gia {formatDate(user.createdAt).split(" ")[0]}
+            {user.email} · {ROLE_LABELS[user.role]} · tham gia {formatDateShort(user.createdAt)}
           </p>
           {reviewAgg.c > 0 && (
             <p className="mt-1 text-sm text-[var(--accent)]">

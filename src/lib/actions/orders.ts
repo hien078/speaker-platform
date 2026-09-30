@@ -6,6 +6,7 @@ import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode, computeCommission } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease, escrowRefund } from "@/src/lib/ledger";
+import { recordStatusChange, getOrCreateCart, processAutoReleases, getAutoReleaseDays } from "@/src/lib/actions/helpers";
 import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
@@ -13,22 +14,6 @@ const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 type CheckoutItem = { listingId: string; quantity: number };
-
-/** Ghi lịch sử chuyển trạng thái đơn (§48 OrderStatusHistory) */
-export async function recordStatusChange(
-  tx: TxContext,
-  orderId: string,
-  status: string,
-  note: string | null,
-  actorId: string | null,
-): Promise<void> {
-  await tx.orm.public.OrderStatusHistory.create({
-    orderId,
-    status: status as "awaiting_payment",
-    note,
-    actorId,
-  });
-}
 
 /**
  * Tạo đơn hàng từ giỏ hàng hoặc mua ngay 1 sản phẩm.
@@ -106,8 +91,8 @@ export async function createOrderAction(formData: FormData): Promise<void> {
         commission += Math.round((listing.price * item.quantity * listing.category!.commissionRate) / 100);
       }
 
-      const { commissionAmount, sellerPayout } = computeCommission(total, entries[0]!.listing.category!.commissionRate);
-      void commissionAmount;
+      // sellerPayout = tổng − hoa hồng tính ĐÚNG TỪNG ITEM (không dùng rate item đầu)
+      const sellerPayout = total - commission;
 
       const order = await tx.orm.public.Order.create({
         code: generateOrderCode(),
@@ -190,7 +175,7 @@ export async function payEscrowAction(formData: FormData): Promise<void> {
       .where({ id: orderId })
       .update({
         status: "paid_escrow",
-        autoReleaseAt: new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+        autoReleaseAt: new Date(Date.now() + await getAutoReleaseDays() * 24 * 60 * 60 * 1000).toISOString(),
       });
     await recordStatusChange(tx, orderId, "paid_escrow", "Buyer thanh toán qua escrow — tiền được giữ", user.id);
     await recordLedgerTx(tx, "payment", orderId, escrowIn(user.id, order.totalAmount, `Escrow đơn ${order.code}`));
@@ -208,6 +193,10 @@ export async function sellerConfirmPaymentAction(formData: FormData): Promise<vo
 
   const order = await db.orm.public.Order.first({ id: orderId });
   if (!order || order.sellerId !== user.id) throw new Error("Không tìm thấy đơn");
+  // Escrow: tiền do BUYER trả qua cổng — seller KHÔNG được xác nhận hộ
+  if (order.paymentMethod === "escrow") {
+    throw new Error("Đơn escrow — tiền do người mua thanh toán qua cổng, không cần xác nhận");
+  }
   if (!["awaiting_payment", "paid_escrow"].includes(order.status)) {
     throw new Error("Đơn không ở trạng thái chờ xác nhận");
   }
@@ -241,7 +230,12 @@ export async function shipOrderAction(formData: FormData): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.orm.public.Order
       .where({ id: orderId })
-      .update({ status: "shipped", note: tracking ? `Mã vận đơn: ${tracking}` : order.note });
+      .update({
+        status: "shipped",
+        note: tracking ? `Mã vận đơn: ${tracking}` : order.note,
+        // đồng hồ khiếu nại tính từ lúc GỬI HÀNG — buyer có đủ số ngày admin cấu hình
+        autoReleaseAt: new Date(Date.now() + await getAutoReleaseDays() * 24 * 60 * 60 * 1000).toISOString(),
+      });
     await recordStatusChange(tx, orderId, "shipped", tracking ? `Mã vận đơn: ${tracking}` : "Seller đã gửi hàng", user.id);
   });
   await notify(order.buyerId, "order", `Đơn ${order.code} đã gửi hàng`, tracking ? `Mã vận đơn: ${tracking}` : "Seller đã gửi hàng cho bạn", `/orders/${orderId}`);
@@ -278,24 +272,39 @@ export async function confirmReceiptAction(formData: FormData): Promise<void> {
   }
 
   const now = new Date().toISOString();
+  const isEscrow = order.paymentMethod === "escrow";
   await db.transaction(async (tx) => {
     await tx.orm.public.Order
       .where({ id: orderId })
       .update({ status: "completed", escrowReleasedAt: now });
-    await tx.orm.public.Payment
-      .where({ orderId })
-      .update({ status: "released", releasedAt: now });
-    await tx.orm.public.Payout.create({
-      orderId,
-      sellerId: order.sellerId,
-      amount: order.sellerPayout,
-      status: "released",
-    });
-    await recordStatusChange(tx, orderId, "completed", `Buyer xác nhận nhận hàng — giải ngân ${order.sellerPayout}₫ cho seller`, user.id);
-    await recordLedgerTx(tx, "payout", orderId, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Giải ngân đơn ${order.code}`));
+    if (isEscrow) {
+      // CHỈ escrow mới có tiền trong nền tảng → giải ngân + ledger
+      await tx.orm.public.Payment
+        .where({ orderId })
+        .update({ status: "released", releasedAt: now });
+      await tx.orm.public.Payout.create({
+        orderId,
+        sellerId: order.sellerId,
+        amount: order.sellerPayout,
+        status: "released",
+      });
+      await recordLedgerTx(tx, "payout", orderId, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Giải ngân đơn ${order.code}`));
+    } else {
+      // direct/COD: tiền trao tay ngoài nền tảng — chỉ ghi nhận, KHÔNG tạo Payout
+      await tx.orm.public.Payment
+        .where({ orderId })
+        .update({ status: "released", releasedAt: now });
+    }
+    await recordStatusChange(tx, orderId, "completed", isEscrow
+      ? `Buyer xác nhận nhận hàng — giải ngân ${order.sellerPayout}₫ cho seller`
+      : `Buyer xác nhận nhận hàng — giao dịch trực tiếp hoàn tất (hoa hồng ${order.commissionAmount}₫ ghi nợ seller)`, user.id);
   });
   await recordSoldPrices(orderId);
-  await notify(order.sellerId, "order", `Đã giải ngân ${order.sellerPayout.toLocaleString("vi-VN")}₫`, `Đơn ${order.code} hoàn tất — tiền vào ví sau hoa hồng`, `/orders/${orderId}`);
+  if (isEscrow) {
+    await notify(order.sellerId, "order", `Đã giải ngân ${order.sellerPayout.toLocaleString("vi-VN")}₫`, `Đơn ${order.code} hoàn tất — tiền vào ví sau hoa hồng`, `/orders/${orderId}`);
+  } else {
+    await notify(order.sellerId, "order", `Đơn ${order.code} hoàn tất`, `Giao dịch trực tiếp — hoa hồng ${order.commissionAmount.toLocaleString("vi-VN")}₫ ghi nợ ví`, `/orders/${orderId}`);
+  }
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/orders");
@@ -367,35 +376,3 @@ export async function openDisputeAction(formData: FormData): Promise<void> {
   revalidatePath(`/orders/${orderId}`);
 }
 
-/**
- * Kiểm tra & thực hiện giải ngân tự động các đơn đã giao quá hạn.
- * Gọi khi xem trang đơn hàng / cron.
- */
-export async function processAutoReleases(): Promise<number> {
-  const now = new Date().toISOString();
-  const overdue = await db.orm.public.Order
-    .where((o) => o.status.eq("shipped"))
-    .where((o) => o.autoReleaseAt.lte(now))
-    .all();
-
-  for (const order of overdue) {
-    await db.transaction(async (tx) => {
-      await tx.orm.public.Order
-        .where({ id: order.id })
-        .update({ status: "completed", escrowReleasedAt: now });
-      await tx.orm.public.Payment
-        .where({ orderId: order.id })
-        .update({ status: "released", releasedAt: now });
-      await tx.orm.public.Payout.create({
-        orderId: order.id,
-        sellerId: order.sellerId,
-        amount: order.sellerPayout,
-        status: "released",
-      });
-      await recordStatusChange(tx, order.id, "completed", "Tự giải ngân sau thời gian khiếu nại (không có khiếu nại)", null);
-      await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Tự giải ngân đơn ${order.code}`));
-    });
-    await recordSoldPrices(order.id);
-  }
-  return overdue.length;
-}

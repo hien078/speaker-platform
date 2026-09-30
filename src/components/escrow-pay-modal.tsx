@@ -122,10 +122,12 @@ export function EscrowPayModal({
                     Chưa cấu hình MoMo (thiếu MOMO_PARTNER_CODE trong .env) — đang dùng mock.
                   </p>
                 )}
-                <button onClick={payMock} className="btn-secondary w-full">
-                  <CreditCard className="size-4" />
-                  Mô phỏng thanh toán (mock)
-                </button>
+                {process.env.NODE_ENV !== "production" && (
+                  <button onClick={payMock} className="btn-secondary w-full">
+                    <CreditCard className="size-4" />
+                    Mô phỏng thanh toán (mock)
+                  </button>
+                )}
                 <button onClick={() => setOpen(false)} className="btn-ghost w-full text-sm">
                   Để sau
                 </button>

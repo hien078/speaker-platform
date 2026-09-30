@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/src/prisma/db";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
-import { processAutoReleases } from "@/src/lib/actions/orders";
+import { processAutoReleases } from "@/src/lib/actions/helpers";
 import {
   Banknote,
   FileSearch,

@@ -4,7 +4,7 @@ import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
-import { formatVND, formatDate, cn } from "@/src/lib/utils";
+import { formatVND, formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import { CONDITION_LABELS } from "@/src/lib/constants";
 import { addToCartAction } from "@/src/lib/actions/cart";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
@@ -298,7 +298,7 @@ export default async function ListingDetailPage({
                 </p>
                 <p className="text-xs text-[var(--muted)]">
                   {listing.seller!.isVerifiedSeller ? "Đã xác minh" : "Chưa xác minh"} · từ{" "}
-                  {formatDate(listing.seller!.createdAt).split(" ")[0]}
+                  {formatDateShort(listing.seller!.createdAt)}
                 </p>
               </div>
             </Link>

@@ -3,26 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db";
 import { requireAdmin } from "@/src/lib/auth";
-import { recordStatusChange } from "@/src/lib/actions/orders";
+import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
 import { notify } from "@/src/lib/notify";
 
-/** Ghi log quản trị */
-export async function audit(
-  adminId: string,
-  action: string,
-  entity: string,
-  entityId?: string,
-  detail?: string,
-): Promise<void> {
-  await db.orm.public.AdminAuditLog.create({
-    adminId,
-    action,
-    entity,
-    entityId: entityId ?? null,
-    detail: detail ?? null,
-  });
-}
+
 
 /** Duyệt tin đăng */
 export async function approveListingAction(formData: FormData): Promise<void> {
@@ -37,6 +22,8 @@ export async function approveListingAction(formData: FormData): Promise<void> {
     .update({ status: "approved", rejectionReason: null });
 
   await audit(admin.id, "approve_listing", "Listing", listingId, listing.title);
+  const { notify } = await import("@/src/lib/notify");
+  await notify(listing.sellerId, "listing", `Tin đã được duyệt: ${listing.title.slice(0, 50)}`, "Tin của bạn đang hiển thị trên chợ", `/listings/${listing.slug}`);
   revalidatePath("/admin/listings");
   revalidatePath("/listings");
 }
@@ -55,6 +42,8 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
     .update({ status: "rejected", rejectionReason: reason });
 
   await audit(admin.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
+  const { notify } = await import("@/src/lib/notify");
+  await notify(listing.sellerId, "listing", `Tin bị từ chối: ${listing.title.slice(0, 50)}`, `Lý do: ${reason} — sửa tin để duyệt lại`, "/sell/my");
   revalidatePath("/admin/listings");
 }
 
@@ -80,40 +69,46 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
       .where({ id: disputeId })
       .update({ status: outcome as "resolved_buyer" | "resolved_seller" | "closed", resolution, resolvedAt: now });
 
+    const isEscrowOrder = order.paymentMethod === "escrow";
     if (outcome === "resolved_buyer") {
-      // hoàn tiền cho buyer, hủy giải ngân
       await tx.orm.public.Payment
         .where({ orderId: order.id })
         .update({ status: "refunded" });
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "refunded" });
-      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — hoàn tiền cho buyer: ${resolution}`, admin.id);
-      await recordLedgerTx(tx, "refund", order.id, escrowRefund(order.buyerId, order.totalAmount, `Admin hoàn escrow đơn ${order.code}`));
+      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — nghiêng buyer: ${resolution}`, admin.id);
+      if (isEscrowOrder) {
+        // CHỈ escrow mới có tiền trong nền tảng để hoàn
+        await recordLedgerTx(tx, "refund", order.id, escrowRefund(order.buyerId, order.totalAmount, `Admin hoàn escrow đơn ${order.code}`));
+      }
       // trả tin về đang bán
       const items = await tx.orm.public.OrderItem.where({ orderId: order.id }).all();
       for (const item of items) {
         await tx.orm.public.Listing.where({ id: item.listingId }).update({ status: "approved" });
       }
     } else if (outcome === "resolved_seller") {
-      // giải ngân cho seller
       await tx.orm.public.Payment
         .where({ orderId: order.id })
         .update({ status: "released", releasedAt: now });
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "completed", escrowReleasedAt: now });
-      const existingPayout = await tx.orm.public.Payout.where({ orderId: order.id }).first();
-      if (!existingPayout) {
-        await tx.orm.public.Payout.create({
-          orderId: order.id,
-          sellerId: order.sellerId,
-          amount: order.sellerPayout,
-          status: "released",
-        });
+      if (isEscrowOrder) {
+        const existingPayout = await tx.orm.public.Payout.where({ orderId: order.id }).first();
+        if (!existingPayout) {
+          await tx.orm.public.Payout.create({
+            orderId: order.id,
+            sellerId: order.sellerId,
+            amount: order.sellerPayout,
+            status: "released",
+          });
+        }
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân escrow cho seller: ${resolution}`, admin.id);
+        await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Admin giải ngân đơn ${order.code}`));
+      } else {
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — nghiêng seller (giao dịch trực tiếp): ${resolution}`, admin.id);
       }
-      await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân cho seller: ${resolution}`, admin.id);
-      await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Admin giải ngân đơn ${order.code}`));
     } else {
       // đóng băng tiếp tục → trả đơn về shipped để chờ tự giải ngân
       await tx.orm.public.Order

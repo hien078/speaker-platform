@@ -5,6 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { computeCommission } from "@/src/lib/utils";
+import { recordLedgerTx, escrowIn, escrowRelease } from "@/src/lib/ledger";
+import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
 
@@ -89,15 +91,19 @@ export async function respondExchangeOfferAction(formData: FormData): Promise<vo
   const listing = await db.orm.public.Listing.first({ id: offer.listingId });
   if (!listing || listing.sellerId !== user.id) return;
   if (offer.status !== "proposed") return;
+  // chặn chấp nhận trao đổi trên tin đã bán
+  if (listing.status !== "approved") return;
 
   if (response === "accept") {
     await db.orm.public.ExchangeOffer
       .where({ id: offerId })
       .update({ status: "accepted" });
+    await notify(offer.buyerId, "offer", `Đề nghị trao đổi được chấp nhận`, `Nạp tiền bù ${offer.cashTopup > 0 ? offer.cashTopup.toLocaleString("vi-VN") + "₫ qua escrow" : "không có"} để bắt đầu trao đổi`, "/exchange");
   } else {
     await db.orm.public.ExchangeOffer
       .where({ id: offerId })
       .update({ status: "rejected" });
+    await notify(offer.buyerId, "offer", `Đề nghị trao đổi bị từ chối`, listing.title.slice(0, 50), "/exchange");
   }
 
   revalidatePath("/exchange");
@@ -128,6 +134,8 @@ export async function payExchangeTopupAction(formData: FormData): Promise<void> 
     await tx.orm.public.ExchangeOffer
       .where({ id: offerId })
       .update({ status: "paid" });
+    // ledger: escrow nhận tiền bù, buyer ghi nợ
+    await recordLedgerTx(tx, "exchange", offerId, escrowIn(offer.buyerId, offer.cashTopup, `Tiền bù trao đổi offer ${offerId.slice(0, 8)}`));
   });
 
   revalidatePath("/exchange");
@@ -146,12 +154,15 @@ export async function completeExchangeAction(formData: FormData): Promise<void> 
   const isBuyer = offer.buyerId === user.id;
   const isSeller = listing.sellerId === user.id;
   if (!isBuyer && !isSeller) return;
-  if (!["paid", "accepted"].includes(offer.status)) return;
+  // có tiền bù → BẮT BUỘC đã nạp (paid) mới được hoàn tất
+  if (offer.cashTopup > 0 && offer.status !== "paid") return;
+  // không có tiền bù → accepted là đủ
+  if (offer.cashTopup === 0 && offer.status !== "accepted") return;
 
   const now = new Date().toISOString();
   await db.transaction(async (tx) => {
     if (offer.cashTopup > 0 && offer.status === "paid") {
-      const { sellerPayout } = computeCommission(offer.cashTopup, offer.commissionRate);
+      const { commissionAmount, sellerPayout } = computeCommission(offer.cashTopup, offer.commissionRate);
       await tx.orm.public.Payment
         .where({ exchangeOfferId: offerId })
         .update({ status: "released", releasedAt: now });
@@ -161,6 +172,8 @@ export async function completeExchangeAction(formData: FormData): Promise<void> 
         amount: sellerPayout,
         status: "released",
       });
+      // ledger: escrow trả tiền bù — seller nhận sau hoa hồng, platform thu hoa hồng
+      await recordLedgerTx(tx, "exchange", offerId, escrowRelease(listing.sellerId, offer.cashTopup, commissionAmount, `Giải ngân tiền bù trao đổi offer ${offerId.slice(0, 8)}`));
     }
     await tx.orm.public.ExchangeOffer
       .where({ id: offerId })

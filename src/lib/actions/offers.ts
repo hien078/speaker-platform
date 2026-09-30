@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode, computeCommission } from "@/src/lib/utils";
-import { recordStatusChange } from "@/src/lib/actions/orders";
+import { recordStatusChange } from "@/src/lib/actions/helpers";
 import { notify } from "@/src/lib/notify";
 
 const OFFER_EXPIRY_DAYS = 3;
@@ -70,6 +70,13 @@ export async function respondOfferAction(formData: FormData): Promise<void> {
   if (listing.sellerId !== user.id) return;
   if (offer.status !== "proposed") return;
   if (listing.status !== "approved") return;
+  // offer quá hạn → tự đánh dấu expired, không phản hồi được
+  if (offer.expiresAt < new Date().toISOString()) {
+    await db.orm.public.Offer
+      .where({ id: offerId })
+      .update({ status: "expired" });
+    return;
+  }
 
   const now = new Date().toISOString();
 

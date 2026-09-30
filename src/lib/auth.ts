@@ -79,11 +79,20 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
   }
 }
 
-/** Yêu cầu đăng nhập — throw nếu chưa. Dùng trong server actions. */
+/** Yêu cầu đăng nhập — redirect về /login nếu chưa. Dùng trong server actions. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getCurrentUser();
-  if (!user) throw new Error("UNAUTHENTICATED");
-  return user;
+  if (!user) {
+    // redirect() throw NEXT_REDIRECT — Next xử lý chuyển hướng, không bao giờ return
+    const { redirect } = await import("next/navigation");
+    const { headers } = await import("next/headers");
+    const h = await headers();
+    const path = h.get("x-invoke-path") ?? h.get("referer") ?? "";
+    const url = new URL(path || "/", "http://local");
+    const next = url.pathname && url.pathname !== "/" ? `?next=${encodeURIComponent(url.pathname)}` : "";
+    redirect(`/login${next}`);
+  }
+  return user!;
 }
 
 export async function requireAdmin(): Promise<SessionUser> {

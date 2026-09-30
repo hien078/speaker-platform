@@ -190,7 +190,7 @@ export async function updateListingAction(
     negotiable,
     acceptExchange,
     productModelId,
-    status: contentChanged && listing.status === "approved" ? "pending" : listing.status,
+    status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
   });
   const finalModelId = productModelId ?? listing.productModelId;
   if (finalModelId && listing.price !== Math.round(price)) {

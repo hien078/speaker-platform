@@ -19,6 +19,7 @@ import {
 } from "@/src/lib/actions/orders";
 import { submitReviewAction } from "@/src/lib/actions/reviews";
 import { EscrowPayModal } from "@/src/components/escrow-pay-modal";
+import { ConfirmReceiptButton } from "@/src/components/confirm-receipt-button";
 import { isMomoConfigured } from "@/src/lib/momo";
 import {
   Package,
@@ -373,13 +374,7 @@ export default async function OrderDetailPage({
 
             {/* Buyer xác nhận nhận hàng */}
             {isBuyer && ["shipped", "paid_escrow", "processing"].includes(order.status) && (
-              <form action={confirmReceiptAction}>
-                <input type="hidden" name="orderId" value={order.id} />
-                <button type="submit" className="btn-primary w-full">
-                  <CheckCircle2 className="size-4" />
-                  Đã nhận hàng — giải ngân cho seller
-                </button>
-              </form>
+              <ConfirmReceiptButton orderId={order.id} />
             )}
 
             {/* Buyer mở khiếu nại */}

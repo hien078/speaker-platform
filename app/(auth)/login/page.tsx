@@ -3,7 +3,10 @@ import { AuthForm } from "@/src/components/auth-form";
 
 export const metadata = { title: "Đăng nhập" };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: PageProps<"/login">) {
+  const sp = (await searchParams) as { next?: string };
   return (
     <main className="mx-auto flex min-h-[calc(100vh-20rem)] max-w-sm flex-col justify-center px-4 py-16">
       <div className="mb-7">
@@ -15,7 +18,7 @@ export default function LoginPage() {
       </div>
 
       <div className="card p-5">
-        <AuthForm mode="login" />
+        <AuthForm mode="login" next={sp.next ?? ""} />
       </div>
 
       <p className="mt-5 text-center text-[13px] text-[var(--ink-2)]">

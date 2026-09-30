@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db";
 import { requireAdmin } from "@/src/lib/auth";
-import { audit } from "@/src/lib/actions/admin";
+import { audit } from "@/src/lib/actions/helpers";
 import { slugify } from "@/src/lib/utils";
 
 /** Duyệt model vào catalog công khai */

@@ -17,11 +17,25 @@ export async function Header() {
       const items = await db.orm.public.CartItem.where({ cartId: cart.id }).all();
       cartCount = items.length;
     }
-    const unread = await db.orm.public.Message
-      .where((m) => m.readAt.isNull())
-      .include("sender", (s) => s.select("id"))
+    // chỉ đếm tin chưa đọc trong hội thoại CỦA user (buyer hoặc seller)
+    const asBuyer = await db.orm.public.Conversation
+      .where({ buyerId: user.id })
+      .select("id")
       .all();
-    unreadChat = unread.filter((m) => m.sender!.id !== user.id).length;
+    const asSeller = await db.orm.public.Conversation
+      .where({ sellerId: user.id })
+      .select("id")
+      .all();
+    const convos = [...asBuyer, ...asSeller];
+    if (convos.length > 0) {
+      const convoIds = convos.map((c) => c.id);
+      const unread = await db.orm.public.Message
+        .where((m) => m.readAt.isNull())
+        .where((m) => m.conversationId.in(convoIds))
+        .include("sender", (s) => s.select("id"))
+        .all();
+      unreadChat = unread.filter((m) => m.sender!.id !== user.id).length;
+    }
     unreadNoti = await unreadCount(user.id);
   }
 

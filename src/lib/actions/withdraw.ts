@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db";
 import { requireUser, requireAdmin } from "@/src/lib/auth";
 import { getWalletSummary } from "@/src/lib/wallet";
-import { audit } from "@/src/lib/actions/admin";
+import { audit } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, withdrawPaid } from "@/src/lib/ledger";
 import { notify } from "@/src/lib/notify";
 
@@ -91,6 +91,17 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
     });
 
   if (next === "paid") {
+    // kiểm số dư thật lần cuối — chặn rút tiền seller chưa kiếm được
+    const { getWalletSummary } = await import("@/src/lib/wallet");
+    const wallet = await getWalletSummary(request.sellerId);
+    if (request.amount > wallet.available + request.amount) {
+      // available đã trừ request này (requested/processing) — cộng lại để so đúng
+      // nếu vẫn vượt tổng thu nhập thực → chặn
+    }
+    const earned = wallet.totalEarned - wallet.totalWithdrawn;
+    if (request.amount > earned) {
+      throw new Error(`VÍ KHÔNG ĐỦ: seller chỉ kiếm được ${earned.toLocaleString("vi-VN")}₫, yêu cầu rút ${request.amount.toLocaleString("vi-VN")}₫`);
+    }
     await recordLedgerTx(
       db,
       "withdraw",
