@@ -1,7 +1,10 @@
 # LoaViet — production stack
-# Chạy:  docker compose -f docker-compose.prod.yml up -d
-# Sau đó migrate:  docker compose -f docker-compose.prod.yml exec app npx prisma db update --yes
-# Seed (tuỳ chọn): docker compose -f docker-compose.prod.yml exec app npx tsx src/prisma/seed.ts
+# Chạy:  docker compose -f docker-compose.prod.yml up -d --build
+# Migrations (graph migrations/app/, tới ref 'production') chạy TỰ ĐỘNG qua
+# service 'migrate' trước khi app start (app depends_on migrate completed).
+# Chạy tay khi cần:  docker compose -f docker-compose.prod.yml run --rm migrate
+# KHÔNG dùng 'prisma db update' trên DB production — không để lại lịch sử migration.
+# Seed (chỉ dev/test): seed từ chối chạy ở production (NODE_ENV=production).
 
 services:
   db:
@@ -20,6 +23,19 @@ services:
       retries: 5
     # KHÔNG expose port ra ngoài — chỉ app kết nối trong network
 
+  # One-shot: áp pending migrations tới ref 'production' rồi thoát.
+  # Idempotent — chạy lại không áp lại migration đã chạy (marker trong DB).
+  migrate:
+    build:
+      context: .
+      target: migrate
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+
   app:
     build: .
     restart: unless-stopped
@@ -28,11 +44,15 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
       ESCROW_AUTO_RELEASE_DAYS: "7"
+      # Bảo vệ POST /api/cron/auto-release (escrow auto-release mỗi giờ)
+      CRON_SECRET: ${CRON_SECRET:?đặt CRON_SECRET trong .env}
       # MoMo production — điền credentials thật từ business.momo.vn
       MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
       MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}

@@ -19,9 +19,25 @@ COPY . .
 # cần DATABASE_URL cho Prisma generate lúc build
 ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
 ENV AUTH_SECRET="build-placeholder"
-RUN npx prisma contract emit && npm run build
+# prebuild (package.json) chạy 'prisma contract emit' trước next build
+RUN npm run build
 
-# ─── 3. Runtime — chỉ copy standalone + static ───
+# ─── 3. Migration runner — Prisma CLI + graph migrations để db migrate ───
+# Chạy qua compose service 'migrate' (docker-compose.prod.yml):
+#   docker compose -f docker-compose.prod.yml run --rm migrate
+# Áp migrations theo graph (migrations/app/) tới ref 'production'.
+# KHÔNG dùng 'prisma db update' trên DB production — không để lại lịch sử.
+FROM base AS migrate
+RUN apk add --no-cache libc6-compat
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+COPY --from=builder /app/src/prisma ./src/prisma
+COPY --from=builder /app/migrations ./migrations
+WORKDIR /app
+CMD ["npx", "prisma", "db", "migrate", "--to", "production"]
+
+# ─── 4. Runtime — chỉ copy standalone + static ───
 FROM base AS runner
 RUN apk add --no-cache postgresql-client
 ENV NODE_ENV=production
@@ -35,9 +51,7 @@ RUN addgroup --system --gid 1001 nodejs \
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-# Prisma contract + client để chạy migration từ container
-COPY --from=builder --chown=nextjs:nodejs /app/src/prisma ./src/prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+# (migration chạy từ stage 'migrate' — app runtime không cần Prisma CLI / src/prisma)
 
 # thư mục upload ghi được
 RUN mkdir -p /app/public/uploads && chown -R nextjs:nodejs /app/public/uploads
