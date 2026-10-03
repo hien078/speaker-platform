@@ -43,3 +43,6 @@ next-env.d.ts
 node_modules/
 dist/
 .env
+
+# backup archives (chứa dữ liệu — không commit)
+backups/
