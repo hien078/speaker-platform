@@ -35,9 +35,25 @@ done
 command -v pg_restore >/dev/null || { echo "✗ Không tìm thấy pg_restore" >&2; exit 1; }
 command -v psql >/dev/null || { echo "✗ Không tìm thấy psql" >&2; exit 1; }
 
+# Tên database đi vào SQL (pg_database, CREATE DATABASE) — CHỈ nhận charset
+# an toàn [a-z_][a-z0-9_]* trước khi chạm bất kỳ query nào (chống injection
+# qua --into / tên trong archive).
+safe_dbname() {
+  case "$1" in
+    ''|*[!a-z0-9_]*) return 1 ;;
+    [0-9]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+if [ "$MODE" = "into" ]; then
+  safe_dbname "$INTO" || { echo "✗ --into chỉ nhận [a-z_][a-z0-9_]* (nhận '$INTO')" >&2; exit 1; }
+fi
+
 # Tên nguồn từ header comment của archive ("; dbname: <tên>")
 SRC_NAME="$(pg_restore --list "$FILE" | sed -n 's/^;[[:space:]]*dbname:[[:space:]]*//p' | head -1 | tr -d '\r')"
 [ -n "$SRC_NAME" ] || { echo "✗ Không đọc được tên database nguồn từ archive" >&2; exit 1; }
+safe_dbname "$SRC_NAME" || { echo "✗ Tên database nguồn trong archive không an toàn: '$SRC_NAME'" >&2; exit 1; }
 echo "→ Archive nguồn: database '$SRC_NAME' ($(pg_restore --list "$FILE" | grep -c 'TABLE DATA') bảng dữ liệu)"
 
 db_exists() {

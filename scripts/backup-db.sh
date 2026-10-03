@@ -29,6 +29,20 @@ done
 [ -n "$URL" ] || { echo "✗ Thiếu --url (hoặc biến BACKUP_DATABASE_URL)" >&2; usage; }
 command -v pg_dump >/dev/null || { echo "✗ Không tìm thấy pg_dump — cài postgresql-client" >&2; exit 1; }
 
+# Validate đầu vào TRƯỚC khi chạm filesystem (tên đi vào tên file + ls pipeline)
+safe_name() {
+  case "$1" in
+    ''|*[!A-Za-z0-9._-]*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+safe_name "$NAME" || { echo "✗ --name chỉ chứa chữ/số/._- (nhận '$NAME')" >&2; exit 1; }
+if [ -n "$KEEP" ]; then
+  case "$KEEP" in
+    ''|*[!0-9]*) echo "✗ --keep phải là số nguyên không âm (nhận '$KEEP')" >&2; exit 1 ;;
+  esac
+fi
+
 mkdir -p "$OUT_DIR"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$OUT_DIR/db-${NAME}-${TS}.dump"
@@ -36,16 +50,20 @@ FILE="$OUT_DIR/db-${NAME}-${TS}.dump"
 echo "→ pg_dump custom format → $FILE"
 pg_dump "$URL" --format=custom --file="$FILE"
 
-# Kiểm tra tính toàn vẹn KHÔNG phá hủy: đọc table of contents từ archive
+# Kiểm tra tính toàn vẹn KHÔNG phá hủy: đọc TOC từ archive.
+# sed -n '1,5p' đọc TOÀN BỘ input (không đóng pipe sớm như head —
+# pg_restore bị SIGPIPE dưới 'set -o pipefail' sẽ giết script ở đây).
+TOC="$(pg_restore --list "$FILE")"
 echo "→ Verify archive (pg_restore --list):"
-pg_restore --list "$FILE" | head -5
-echo "  … ($(pg_restore --list "$FILE" | grep -c 'TABLE DATA') bảng dữ liệu trong archive)"
+printf '%s\n' "$TOC" | sed -n '1,5p'
+echo "  … ($(printf '%s\n' "$TOC" | grep -c 'TABLE DATA') bảng dữ liệu trong archive)"
 echo "✓ Backup xong: $FILE ($(du -h "$FILE" | cut -f1))"
 
-# Retention — CHỈ khi --keep N truyền vào
+# Retention — CHỈ khi --keep N truyền vào (đã validate số nguyên không âm)
 if [ -n "$KEEP" ]; then
   echo "→ Retention: giữ $KEEP bản mới nhất của $NAME"
-  ls -t "$OUT_DIR"/db-"${NAME}"-*.dump 2>/dev/null | tail -n +"$((KEEP + 1))" | while read -r old; do
+  # tên file đã an toàn charset (NAME validated) → ls parse được
+  ls -t "$OUT_DIR"/db-"$NAME"-*.dump 2>/dev/null | tail -n "+$((KEEP + 1))" | while read -r old; do
     echo "  xoá: $old"
     rm "$old"
   done
