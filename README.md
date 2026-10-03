@@ -8,7 +8,7 @@ Marketplace chuyên biệt cho loa & thiết bị âm thanh: người bán trưn
 - **PostgreSQL 16** + **Prisma 8** (contract-first, PSL schema tại `src/prisma/contract.prisma`)
 - **Auth**: JWT session (jose) + bcrypt, cookie httpOnly
 - **Chat**: polling 3s qua route handler
-- **Thanh toán**: mock gateway (sẵn sàng cắm VNPay/MoMo)
+- **Thanh toán**: MoMo Payment Gateway v2 (verify chữ ký HMAC IPN, escrow tự động) — mock gateway chỉ dùng ở dev (server action tự chặn khi NODE_ENV=production)
 
 ## Chạy dự án
 
@@ -19,20 +19,19 @@ docker run -d --name speaker-postgres \
   -e POSTGRES_DB=speaker_platform -p 5435:5432 postgres:16-alpine
 
 # 2. Cấu hình
-cp .env.example .env   # đã có sẵn .env mặc định cho dev
+cp .env.example .env   # đặt tối thiểu: DATABASE_URL, AUTH_SECRET, SEED_PASSWORD
 
-# 3. Schema → DB
-npx prisma contract emit
-npx prisma db update --yes
+# 3. Schema → DB (graph migration — replay được, xem migrations/app/)
+npx prisma db migrate
 
-# 4. Dữ liệu mẫu
-npx tsx src/prisma/seed.ts
+# 4. Dữ liệu mẫu (chỉ dev — cần SEED_PASSWORD ≥ 8 ký tự, từ chối ở production)
+SEED_PASSWORD=<mật khẩu dev> npx tsx src/prisma/seed.ts
 
 # 5. Chạy
 npm run dev
 ```
 
-**Tài khoản mẫu** (mật khẩu `123456`): `admin@loaviet.vn` · `seller1@loaviet.vn` · `buyer@loaviet.vn`
+**Tài khoản mẫu** (mật khẩu = giá trị `SEED_PASSWORD` bạn đặt): `admin@loaviet.vn` · `seller1@loaviet.vn` · `buyer@loaviet.vn`
 
 ## Luồng escrow (vòng đời giao dịch)
 

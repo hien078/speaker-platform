@@ -7,6 +7,8 @@ Internet ──► [Nginx/Cloudflare] ──► Docker app (Next.js :3000)
                                         │
                                         ▼
                                   PostgreSQL (Docker volume)
+
+Cron mỗi giờ ──► POST /api/cron/auto-release (Bearer CRON_SECRET) ──► giải ngân escrow quá hạn
 ```
 
 ## 1. Yêu cầu server
@@ -30,6 +32,7 @@ cat > .env << 'EOF'
 DB_PASSWORD=<mật khẩu DB mạnh, sinh bằng openssl rand -hex 16>
 AUTH_SECRET=<sinh bằng openssl rand -hex 32>
 NEXT_PUBLIC_APP_URL=https://loaviet.vn        # domain thật — MoMo IPN cần URL công khai
+CRON_SECRET=<sinh bằng openssl rand -hex 32>  # bảo vệ endpoint cron auto-release
 MOMO_PARTNER_CODE=<từ business.momo.vn>
 MOMO_ACCESS_KEY=<từ business.momo.vn>
 MOMO_SECRET_KEY=<từ business.momo.vn>
@@ -38,18 +41,22 @@ EOF
 chmod 600 .env
 
 # 3. Build + khởi động
+#    Service 'migrate' áp migrations theo graph (migrations/app/) tới ref
+#    'production' TỰ ĐỘNG trước khi app start (app depends_on migrate).
 docker compose -f docker-compose.prod.yml up -d --build
 
-# 4. Tạo schema DB (lần đầu)
-docker compose -f docker-compose.prod.yml exec app npx prisma db update --yes
+# 4. (Tuỳ chọn) Chạy tay migration khi cần — idempotent, chạy lại không áp lại
+docker compose -f docker-compose.prod.yml run --rm migrate
 
-# 5. Seed danh mục + dữ liệu mẫu (tuỳ chọn)
-docker compose -f docker-compose.prod.yml exec app npx tsx src/prisma/seed.ts
-
-# 6. Kiểm tra sức khoẻ
+# 5. Kiểm tra sức khoẻ
 curl http://localhost:3000/api/health
 # → {"ok":true,"db":"up",...}
 ```
+
+> ⚠️ **KHÔNG chạy `prisma db update` trên DB production** — nó diff trực tiếp
+> và không để lại lịch sử migration. Luôn đi qua graph: `db migrate --to production`.
+> Seed dữ liệu mẫu cũng KHÔNG chạy ở production (script tự từ chối khi
+> NODE_ENV=production) — danh mục/hoa hồng cấu hình qua admin UI.
 
 ## 3. Nginx reverse-proxy + SSL (Let's Encrypt)
 
@@ -101,14 +108,30 @@ docker compose -f docker-compose.prod.yml logs -f app
 
 # cập nhật code mới
 git pull && docker compose -f docker-compose.prod.yml up -d --build
-
-# giải ngân escrow quá hạn (nên cron mỗi giờ — gọi từ cron trong container hoặc hệ thống ngoài)
-curl -X POST https://loaviet.vn/api/cron/auto-release   # nếu có
-# hoặc chạy thủ công: exec app npx tsx scripts/auto-release.ts
+# (migrate service tự chạy pending migrations trước khi app start lại)
 
 # vào DB
 docker compose -f docker-compose.prod.yml exec db psql -U loaviet
 ```
+
+### Escrow auto-release — cron mỗi giờ (BẮT BUỘC)
+
+Đơn shipped quá hạn `autoReleaseAt` (mặc định 7 ngày) mà không có khiếu nại
+phải tự giải ngân. Việc này KHÔNG chạy theo page load nữa — chạy qua endpoint
+cron (idempotent, chỉ xử lý đơn quá hạn):
+
+```bash
+# crontab trên server (hoặc cron-job.org / Cloudflare Worker cron):
+0 * * * * curl -fsS -X POST -H "Authorization: Bearer $CRON_SECRET" \
+  https://loaviet.vn/api/cron/auto-release
+```
+
+Hành vi:
+- `200 {"ok":true,"released":N}` — N=0 là bình thường (không có đơn quá hạn).
+- `401` sai/thiếu secret · `503` chưa đặt `CRON_SECRET` (fail closed).
+- `500` lỗi xử lý (DB down…) — scheduler thử lại chu kỳ kế tiếp; đơn quá hạn
+  không mất, vẫn nằm trong tập hợp cho tới khi xử lý được.
+- Chạy 2 lần liên tiếp không giải ngân 2 lần (idempotent).
 
 ## 7. Chi phí vận hành (tham khảo 2026)
 
@@ -124,9 +147,10 @@ docker compose -f docker-compose.prod.yml exec db psql -U loaviet
 ## 8. Bảo mật — checklist trước khi mở
 
 - [ ] `AUTH_SECRET` mạnh (32+ hex), không dùng giá trị dev
+- [ ] `CRON_SECRET` mạnh (32+ hex) — endpoint auto-release fail closed nếu thiếu
 - [ ] `.env` chmod 600, không commit lên git
 - [ ] DB không expose port ra internet
-- [ ] Đổi mật khẩu các tài khoản seed (admin@loaviet.vn…)
+- [ ] Seed KHÔNG chạy ở production (script tự từ chối NODE_ENV=production; mật khẩu tài khoản mẫu chỉ tồn tại ở dev qua SEED_PASSWORD)
 - [ ] Bật rate limit ở Nginx cho `/api/` (limit_req)
 - [ ] Cloudflare DNS + proxy (chặn DDoS tầng mạng, ẩn IP server)
 - [ ] Cấu hình backup DB tự động + test restore 1 lần
