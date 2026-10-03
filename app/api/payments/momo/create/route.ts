@@ -3,7 +3,9 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { createMomoPayment } from "@/src/lib/momo";
 
 function appUrl(): string {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3002";
+  // Dev default khớp .env.example (port 3000); production đặt NEXT_PUBLIC_APP_URL
+  // thành HTTPS domain công khai — MoMo IPN cần URL công khai.
+  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
 
 /**
