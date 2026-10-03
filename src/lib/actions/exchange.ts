@@ -6,6 +6,7 @@ import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
 import { computeCommission } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease } from "@/src/lib/ledger";
+import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
 import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
@@ -111,6 +112,7 @@ export async function respondExchangeOfferAction(formData: FormData): Promise<vo
 
 /** Buyer nạp tiền bù vào escrow (mock cổng) */
 export async function payExchangeTopupAction(formData: FormData): Promise<void> {
+  assertMockPaymentsAllowed(); // guard server-side — tiền thật không được "mô phỏng"
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 

@@ -3,15 +3,16 @@ import { createHmac } from "node:crypto";
 
 /**
  * MoMo Payment Gateway v2 (developers.momo.vn)
- * - Dev: dùng credentials test công khai của MoMo (mặc định dưới)
- * - Production: điền MOMO_PARTNER_CODE / MOMO_ACCESS_KEY / MOMO_SECRET_KEY thật
- *   vào .env + đổi MOMO_ENDPOINT sang https://payment.momo.vn
+ * - Credentials đọc từ env (MOMO_PARTNER_CODE / MOMO_ACCESS_KEY / MOMO_SECRET_KEY)
+ *   — KHÔNG có fallback hardcode: thiếu là fail loud (MOMO_NOT_CONFIGURED).
+ * - Dev: credentials test của MoMo từ business.momo.vn, MOMO_ENDPOINT=test-payment.momo.vn
+ * - Production: credentials thật + MOMO_ENDPOINT=https://payment.momo.vn
  */
 
 export function momoConfig() {
-  const partnerCode = process.env.MOMO_PARTNER_CODE ?? "MOMO";
-  const accessKey = process.env.MOMO_ACCESS_KEY ?? "F8BBA842ECF85";
-  const secretKey = process.env.MOMO_SECRET_KEY ?? "K951B6PE1waDMi640xX08PD3vg6EkVlz";
+  const partnerCode = process.env.MOMO_PARTNER_CODE;
+  const accessKey = process.env.MOMO_ACCESS_KEY;
+  const secretKey = process.env.MOMO_SECRET_KEY;
   const endpoint = process.env.MOMO_ENDPOINT ?? "https://test-payment.momo.vn";
   return { partnerCode, accessKey, secretKey, endpoint };
 }
@@ -41,6 +42,13 @@ export type CreatePaymentResult = {
 /** Tạo thanh toán MoMo → trả payUrl để redirect người mua */
 export async function createMomoPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
   const { partnerCode, accessKey, secretKey, endpoint } = momoConfig();
+  if (!partnerCode || !accessKey || !secretKey) {
+    // Fail loud — không bao giờ ký bằng credential fallback: thiếu env là lỗi cấu hình
+    throw new Error(
+      "MOMO_NOT_CONFIGURED: set MOMO_PARTNER_CODE, MOMO_ACCESS_KEY, MOMO_SECRET_KEY " +
+        "(production thêm MOMO_ENDPOINT=https://payment.momo.vn) trong .env",
+    );
+  }
   const requestId = `REQ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const extraData = "";
 
@@ -134,6 +142,7 @@ export function buildCallbackRawSignature(b: MomoCallbackBody, accessKey: string
 /** Verify chữ ký callback — chống giả mạo webhook */
 export function verifyMomoCallback(b: MomoCallbackBody): boolean {
   const { accessKey, secretKey } = momoConfig();
+  if (!accessKey || !secretKey) return false; // chưa cấu hình → không verify được gì
   if (!b.signature) return false;
   const raw = buildCallbackRawSignature(b, accessKey);
   const expected = sign(raw, secretKey);
