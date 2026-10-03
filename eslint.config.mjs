@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Prisma 8 generated artefacts — không lint code sinh tự động
     "src/prisma/contract.d.ts",
     "src/prisma/contract.json",
+    // Prisma 8 migration snapshot store (content-addressed, phải commit — không phải code app)
+    "migrations/**",
   ]),
 ]);
 
