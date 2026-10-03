@@ -4,15 +4,13 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { requireUser } from "@/src/lib/auth";
-import { generateOrderCode, computeCommission } from "@/src/lib/utils";
+import { generateOrderCode } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease, escrowRefund } from "@/src/lib/ledger";
-import { recordStatusChange, getOrCreateCart, processAutoReleases, getAutoReleaseDays } from "@/src/lib/actions/helpers";
+import { recordStatusChange, getAutoReleaseDays } from "@/src/lib/actions/helpers";
 import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
 import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
-
-type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 type CheckoutItem = { listingId: string; quantity: number };
 

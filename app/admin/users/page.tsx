@@ -1,6 +1,5 @@
-import Link from "next/link";
 import { db } from "@/src/prisma/db";
-import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
+import { formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";
 import { Users, BadgeCheck, Search } from "lucide-react";

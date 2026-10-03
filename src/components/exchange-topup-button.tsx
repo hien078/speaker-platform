@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { formatVND } from "@/src/lib/utils";
-import { Banknote, LoaderCircle, ExternalLink } from "lucide-react";
+import { LoaderCircle, ExternalLink } from "lucide-react";
 
 /**
  * Nút nạp tiền bù trao đổi qua escrow.

@@ -10,8 +10,6 @@ import { ImagePicker } from "@/src/components/image-picker";
 import { formatVND } from "@/src/lib/utils";
 import { LoaderCircle, Banknote } from "lucide-react";
 
-type Condition = "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts";
-
 export function ListingForm({
   categories,
   brands,

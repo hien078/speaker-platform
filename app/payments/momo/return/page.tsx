@@ -1,5 +1,4 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
 import { verifyMomoCallback, type MomoCallbackBody } from "@/src/lib/momo";
 import { markEscrowPaid, markExchangeTopupPaid } from "@/src/lib/escrow";
 

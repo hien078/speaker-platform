@@ -9,8 +9,6 @@ import { recordLedgerTx, escrowIn, escrowRelease } from "@/src/lib/ledger";
 import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
 import { notify } from "@/src/lib/notify";
 
-const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
-
 export type ExchangeFormState = { error?: string };
 
 /**
@@ -51,7 +49,7 @@ export async function createExchangeOfferAction(
     return { error: "Tiền bù tối thiểu 50.000₫ (hoặc để 0 nếu không bù tiền)" };
   }
 
-  const offer = await db.orm.public.ExchangeOffer.create({
+  await db.orm.public.ExchangeOffer.create({
     listingId,
     buyerId: user.id,
     myListingId,

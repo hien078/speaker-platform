@@ -3,7 +3,6 @@ import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
-import { websearchToTsquery } from "@prisma/orm-postgres/target/full-text";
 import {
   AudioLines,
   TrendingUp,

@@ -1,8 +1,7 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { ListingCard } from "@/src/components/listing-card";
-import { formatVND, formatDate, formatDateShort, cn } from "@/src/lib/utils";
+import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import { BadgeCheck, MapPin, Star, Package, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";

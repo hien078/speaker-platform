@@ -3,9 +3,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND } from "@/src/lib/utils";
-import { createOrderAction } from "@/src/lib/actions/orders";
 import { CheckoutForm } from "@/src/components/checkout-form";
-import { ShieldCheck, Banknote, Truck, HandCoins } from "lucide-react";
+import { ShieldCheck, Truck, HandCoins } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Thanh toán" };

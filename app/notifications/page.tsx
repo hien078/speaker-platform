@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
-import { formatDate, timeAgo, cn } from "@/src/lib/utils";
+import { timeAgo, cn } from "@/src/lib/utils";
 import { markAllReadAction } from "@/src/lib/actions/notifications";
 import { Bell, HandCoins, AlertTriangle, MessageCircle, Banknote, CheckCheck } from "lucide-react";
 

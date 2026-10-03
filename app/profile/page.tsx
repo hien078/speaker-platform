@@ -2,9 +2,9 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ProfileForm } from "@/src/components/profile-form";
-import { formatDate, formatDateShort, formatVND } from "@/src/lib/utils";
+import { formatDateShort } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
-import { UserRound, Package, ShoppingBag, BadgeCheck } from "lucide-react";
+import { UserRound, BadgeCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hồ sơ của tôi" };

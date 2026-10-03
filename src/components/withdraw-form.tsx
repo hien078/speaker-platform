@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { createWithdrawRequestAction, type WithdrawFormState } from "@/src/lib/actions/withdraw";
 import { formatVND, cn } from "@/src/lib/utils";
-import { LoaderCircle, Banknote, CheckCircle2 } from "lucide-react";
+import { LoaderCircle, Banknote } from "lucide-react";
 
 const BANKS = [
   "Vietcombank", "Techcombank", "BIDV", "VietinBank", "MB Bank",

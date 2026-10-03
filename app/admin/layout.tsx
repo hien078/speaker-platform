@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/src/lib/auth";
-import { cn } from "@/src/lib/utils";
 import Link from "next/link";
 import {
   LayoutDashboard,
