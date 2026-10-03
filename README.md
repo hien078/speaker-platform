@@ -10,6 +10,8 @@ Marketplace chuyên biệt cho loa & thiết bị âm thanh: người bán trưn
 - **Chat**: polling 3s qua route handler
 - **Thanh toán**: MoMo Payment Gateway v2 (verify chữ ký HMAC IPN, escrow tự động) — mock gateway chỉ dùng ở dev (server action tự chặn khi NODE_ENV=production)
 
+**Yêu cầu runtime:** Node ≥ 22 (khớp Docker image `node:22-alpine`), npm ≥ 10.
+
 ## Chạy dự án
 
 ```bash
