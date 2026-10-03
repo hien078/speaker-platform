@@ -2,7 +2,6 @@ import Link from "next/link";
 import { db } from "@/src/prisma/db";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
-import { processAutoReleases } from "@/src/lib/actions/helpers";
 import {
   Banknote,
   FileSearch,
@@ -17,8 +16,8 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Tổng quan" };
 
 export default async function AdminDashboardPage() {
-  // giải ngân tự động các đơn quá hạn (chạy khi admin vào dashboard)
-  const autoReleased = await processAutoReleases();
+  // Escrow auto-release chạy qua cron /api/cron/auto-release (CRON_SECRET) —
+  // KHÔNG chạy theo page load nữa (trước đây: processAutoReleases() ở đây).
 
   const [
     pendingListings,
@@ -122,11 +121,6 @@ export default async function AdminDashboardPage() {
     <div>
       <h1 className="text-2xl font-extrabold tracking-tight">Tổng quan nền tảng</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        {autoReleased > 0 && (
-          <span className="mr-2 rounded-full bg-[var(--green-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--green)]">
-            ✓ Đã tự giải ngân {autoReleased} đơn quá hạn
-          </span>
-        )}
         Số liệu tính đến {formatDate(new Date())}
       </p>
 
