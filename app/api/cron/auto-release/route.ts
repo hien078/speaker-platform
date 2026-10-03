@@ -1,5 +1,6 @@
 import { processAutoReleases } from "@/src/lib/actions/helpers";
 import { verifyCronAuth } from "@/src/lib/cron-auth";
+import { captureError } from "@/src/lib/observability";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +35,7 @@ export async function POST(request: Request) {
     const released = await processAutoReleases();
     return Response.json({ ok: true, released });
   } catch (e) {
-    console.error("[cron:auto-release]", e);
+    captureError("cron:auto-release", e);
     return Response.json(
       { ok: false, error: "AUTO_RELEASE_FAILED" },
       { status: 500 },

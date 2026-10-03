@@ -1,6 +1,7 @@
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
 import { createMomoPayment } from "@/src/lib/momo";
+import { rateLimitRequest } from "@/src/lib/rate-limit";
 
 function appUrl(): string {
   // Dev default khớp .env.example (port 3000); production đặt NEXT_PUBLIC_APP_URL
@@ -14,6 +15,13 @@ function appUrl(): string {
  * → tạo thanh toán MoMo, trả { payUrl } để client redirect.
  */
 export async function POST(request: Request) {
+  // tạo thanh toán = endpoint nhạy cảm tiền — rate limit/IP trước mọi xử lý
+  const limited = await rateLimitRequest(request, "payment:create", {
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
 

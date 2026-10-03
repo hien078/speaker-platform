@@ -1,5 +1,6 @@
 import { db } from "@/src/prisma/db";
 import { getCurrentUser } from "@/src/lib/auth";
+import { rateLimitRequest } from "@/src/lib/rate-limit";
 
 /**
  * GET /api/chat/[id]?after=<iso>
@@ -9,6 +10,13 @@ export async function GET(
   request: Request,
   ctx: RouteContext<"/api/chat/[id]">,
 ) {
+  // polling 3s/client ≈ 20 req/phút — cap 120/phút/IP (nhiều tab vẫn thoải mái)
+  const limited = await rateLimitRequest(request, "chat:poll", {
+    limit: 120,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
   const user = await getCurrentUser();
   if (!user) return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
 
@@ -86,7 +94,6 @@ export async function POST(
   // notify người nhận (không phải người gửi)
   const recipientId = convo.sellerId === user.id ? convo.buyerId : convo.sellerId;
   const { notify } = await import("@/src/lib/notify");
-  const listing = convo.listingId ? await db.orm.public.Listing.first({ id: convo.listingId }) : null;
   await notify(
     recipientId,
     "chat",

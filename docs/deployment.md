@@ -105,6 +105,9 @@ sudo certbot --nginx -d loaviet.vn
 ```bash
 # xem log
 docker compose -f docker-compose.prod.yml logs -f app
+# Lỗi ghi qua seam src/lib/observability.ts — 1 dòng JSON có scope
+# (grep '"scope":"cron:auto-release"' v.v.). Gắn Sentry/GlitchTip/OTel
+# sau = thay thân captureError, call-site không đổi (gate tích hợp ngoài).
 
 # cập nhật code mới
 git pull && docker compose -f docker-compose.prod.yml up -d --build
@@ -152,5 +155,6 @@ Hành vi:
 - [ ] DB không expose port ra internet
 - [ ] Seed KHÔNG chạy ở production (script tự từ chối NODE_ENV=production; mật khẩu tài khoản mẫu chỉ tồn tại ở dev qua SEED_PASSWORD)
 - [ ] Bật rate limit ở Nginx cho `/api/` (limit_req)
+- [ ] Rate limit app (in-memory, 1 instance): login/register 10 lần/10 phút/IP, upload 20/10 phút, payment 10/phút, chat 120/phút — KHÔNG có tác dụng nếu scale >1 app instance (bộ nhớ không chia sẻ); khi scale thì chuyển limiter dùng chung (Redis/Postgres)
 - [ ] Cloudflare DNS + proxy (chặn DDoS tầng mạng, ẩn IP server)
 - [ ] Cấu hình backup DB tự động + test restore 1 lần

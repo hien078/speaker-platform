@@ -1,9 +1,26 @@
 "use server";
 
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { db } from "@/src/prisma/db";
 import { hashPassword, verifyPassword, createSession, destroySession } from "@/src/lib/auth";
+import { checkRateLimit, clientIpFromHeaders } from "@/src/lib/rate-limit";
+
+/** 10 lần / 10 phút / IP cho login + register (chống brute-force / spam tài khoản) */
+const AUTH_RULE = { limit: 10, windowMs: 10 * 60_000 };
+
+/** Giữ rate limit ở action (không phải UI) — action là entry point công khai. Fail open. */
+async function authRateLimited(scope: string): Promise<AuthFormState | null> {
+  try {
+    const ip = clientIpFromHeaders(await headers());
+    const decision = checkRateLimit(`${scope}:${ip}`, AUTH_RULE);
+    if (decision.allowed) return null;
+    return { error: `Quá nhiều lần thử — chờ ${decision.retryAfterSec} giây rồi thử lại.` };
+  } catch {
+    return null; // limiter lỗi → không chặn người dùng
+  }
+}
 
 const registerSchema = z.object({
   name: z.string().trim().min(2, "Tên quá ngắn").max(80),
@@ -19,6 +36,9 @@ export async function registerAction(
   _prev: AuthFormState,
   formData: FormData,
 ): Promise<AuthFormState> {
+  const limited = await authRateLimited("auth:register");
+  if (limited) return limited;
+
   const parsed = registerSchema.safeParse({
     name: formData.get("name"),
     email: formData.get("email"),
@@ -63,6 +83,9 @@ export async function loginAction(
   _prev: AuthFormState,
   formData: FormData,
 ): Promise<AuthFormState> {
+  const limited = await authRateLimited("auth:login");
+  if (limited) return limited;
+
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "");
