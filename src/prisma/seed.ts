@@ -1,11 +1,38 @@
 /**
- * Seed dữ liệu mẫu cho LoaViet
- * Chạy: npx tsx src/prisma/seed.ts
+ * Seed dữ liệu mẫu cho LoaViet — CHỈ dành cho môi trường dev/test.
+ * Chạy: SEED_PASSWORD=<mật khẩu dev> npx tsx src/prisma/seed.ts
+ *
+ * Bảo mật:
+ * - Từ chối chạy khi NODE_ENV=production (seed dữ liệu mẫu + mật khẩu
+ *   biết trước vào DB thật là lỗ bảo mật).
+ * - Mật khẩu các tài khoản mẫu lấy từ env SEED_PASSWORD (≥ 8 ký tự) —
+ *   không hardcode, không in ra console.
  */
 import { db } from "./db";
 import bcrypt from "bcryptjs";
 import { slugify } from "../lib/utils";
 import { writeFileSync, mkdirSync } from "node:fs";
+
+if (process.env.NODE_ENV === "production") {
+  console.error("✗ SEED_REFUSED: không seed dữ liệu mẫu ở production (NODE_ENV=production).");
+  process.exit(1);
+}
+
+/** Đọc + validate SEED_PASSWORD (≥ 8 ký tự) — trả về string đã narrow. */
+function requireSeedPassword(): string {
+  const password = process.env.SEED_PASSWORD;
+  if (!password || password.length < 8) {
+    console.error(
+      "✗ SEED_PASSWORD chưa đặt (hoặc ngắn hơn 8 ký tự) — đặt trong .env: SEED_PASSWORD=<mật khẩu dev ≥ 8 ký tự>.",
+    );
+    console.error("  Đây là mật khẩu của các tài khoản mẫu (admin/seller/buyer) — không dùng giá trị thật.");
+    process.exit(1);
+  }
+  return password;
+}
+
+const seedPassword = requireSeedPassword();
+
 
 // ─── Ảnh placeholder SVG ───
 function makeSvg(label: string, hue: number): string {
@@ -202,7 +229,7 @@ async function main() {
   console.log(`✓ ${BRANDS.length} thương hiệu`);
 
   // ─── Users ───
-  const passwordHash = await bcrypt.hash("123456", 10);
+  const passwordHash = await bcrypt.hash(seedPassword, 10);
   const admin = await db.orm.public.User.create({
     email: "admin@loaviet.vn", name: "Admin LoaViet", passwordHash, role: "admin", city: "Hà Nội",
   });
@@ -226,7 +253,7 @@ async function main() {
   for (const u of [admin, seller1, seller2, seller3, buyer]) {
     await db.orm.public.Cart.create({ userId: u.id });
   }
-  console.log("✓ 5 người dùng (admin@loaviet.vn / seller1-3 / buyer — mật khẩu 123456)");
+  console.log("✓ 5 người dùng (admin@loaviet.vn / seller1-3 / buyer — mật khẩu từ SEED_PASSWORD, không in ra)");
 
   const sellerByEmail = new Map<string, string>([
     ["seller1@loaviet.vn", seller1.id],
@@ -283,9 +310,8 @@ async function main() {
   });
 
   console.log("🎉 Seed hoàn tất!");
-  console.log("   Đăng nhập thử:  admin@loaviet.vn / 123456  (quản trị)");
-  console.log("                   seller1@loaviet.vn / 123456  (người bán)");
-  console.log("                   buyer@loaviet.vn / 123456     (người mua)");
+  console.log("   Tài khoản mẫu: admin@loaviet.vn (quản trị) · seller1-3@loaviet.vn (người bán) · buyer@loaviet.vn (người mua)");
+  console.log("   Mật khẩu: giá trị SEED_PASSWORD bạn đã đặt (xem .env) — không in ra đây.");
 }
 
 main()
