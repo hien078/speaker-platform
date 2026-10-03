@@ -13,13 +13,15 @@ import { captureError } from "@/src/lib/observability";
  * - Restart app reset bộ nhớ (kẻ brute-force có thêm `limit` request —
  *   chấp nhận được cho MVP, ghi nhận ở docs/deployment.md).
  *
- * Identity (clientIpFromHeaders) — CHỈ đúng sau reverse proxy đã cấu hình
- * theo docs/deployment.md (nginx đặt x-real-ip + append x-forwarded-for):
+ * Identity (clientIpFromHeaders) — CHỈ đọc proxy header khi TRUST_PROXY_HEADERS=true
+ * (mặc định TẮT, fail-safe — client tự đặt được header). Bật khi topology đảm bảo
+ * app không truy cập được trực tiếp từ internet (compose bind 127.0.0.1 + nginx
+ * proxy local theo docs/deployment.md):
  * - Ưu tiên x-real-ip (nginx đặt từ $remote_addr — tin được).
  * - Không có: lấy IP cuối cùng của x-forwarded-for (hop proxy thêm vào —
  *   tin được); các hop TRƯỚC trong chuỗi do client kiểm soát, bỏ qua.
- * - Không có gì (dev local không proxy): bucket "local" dùng chung — mọi
- *   client dev chia sẻ một bucket, chặt hơn chứ không lỏng hơn.
+ * - Không có gì (hoặc gate tắt): bucket "local" dùng chung — mọi client
+ *   chia một bucket, chặt hơn chứ không lỏng hơn.
  *
  * Fail-safe: limiter lỗi nội bộ → cho qua + log (fail open) — bảo vệ
  * brute-force vẫn hoạt động ở path bình thường, site không sập vì limiter.
@@ -82,9 +84,19 @@ function sweep(now: number): void {
 
 /**
  * IP client từ request headers — xem comment đầu file về quy tắc tin tưởng.
+ *
+ * TRUST_PROXY_HEADERS gate (mặc định TẮT — fail-safe): header proxy do CLIENT
+ * tự đặt được — tin vô điều kiện = kẻ bypass rate limit bằng cách gửi mỗi
+ * request một x-real-ip khác. Chỉ bật khi app KHÔNG thể truy cập trực tiếp
+ * từ internet (compose bind 127.0.0.1 + nginx proxy local theo
+ * docs/deployment.md). Tắt → mọi client chung bucket 'local' (chặt hơn).
+ *
  * Trả về chuỗi làm khóa; không bao giờ throw.
  */
 export function clientIpFromHeaders(headers: Headers): string {
+  if (process.env.TRUST_PROXY_HEADERS !== "true") {
+    return "local"; // không tin proxy header — bucket chung, fail-safe
+  }
   try {
     const realIp = headers.get("x-real-ip");
     if (realIp) return realIp.trim();

@@ -156,5 +156,6 @@ Hành vi:
 - [ ] Seed KHÔNG chạy ở production (script tự từ chối NODE_ENV=production; mật khẩu tài khoản mẫu chỉ tồn tại ở dev qua SEED_PASSWORD)
 - [ ] Bật rate limit ở Nginx cho `/api/` (limit_req)
 - [ ] Rate limit app (in-memory, 1 instance): login/register 10 lần/10 phút/IP, upload 20/10 phút, payment 10/phút, chat 120/phút — KHÔNG có tác dụng nếu scale >1 app instance (bộ nhớ không chia sẻ); khi scale thì chuyển limiter dùng chung (Redis/Postgres)
+- [ ] `TRUST_PROXY_HEADERS=true` chỉ khi app KHÔNG expose trực tiếp (compose bind `127.0.0.1:3000`, nginx cùng host proxy sang) — client tự đặt được proxy header; tin sai = bypass rate limit bằng identity giả
 - [ ] Cloudflare DNS + proxy (chặn DDoS tầng mạng, ẩn IP server)
 - [ ] Cấu hình backup DB tự động + test restore 1 lần

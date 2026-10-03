@@ -72,18 +72,40 @@ describe("checkRateLimit — sliding window", () => {
   });
 });
 
-describe("clientIpFromHeaders — identity sau reverse proxy", () => {
-  it("ưu tiên x-real-ip (nginx đặt theo deployment doc)", () => {
+describe("clientIpFromHeaders — identity sau reverse proxy (TRUST_PROXY_HEADERS gate)", () => {
+  it("mặc định KHÔNG tin proxy headers — header spoof bị bỏ qua (fail-safe)", () => {
+    delete process.env.TRUST_PROXY_HEADERS;
+    const spoofed = new Headers({
+      "x-real-ip": "203.0.113.66",
+      "x-forwarded-for": "203.0.113.66, 10.0.0.1",
+    });
+    expect(clientIpFromHeaders(spoofed)).toBe("local");
+  });
+
+  it("TRUST_PROXY_HEADERS != true (giá trị lạ) — vẫn không tin (fail-safe)", () => {
+    vi.stubEnv("TRUST_PROXY_HEADERS", "yes");
+    const spoofed = new Headers({ "x-real-ip": "203.0.113.66" });
+    expect(clientIpFromHeaders(spoofed)).toBe("local");
+    vi.unstubAllEnvs();
+  });
+
+  it("TRUST_PROXY_HEADERS=true → ưu tiên x-real-ip (nginx đặt theo deployment doc)", () => {
+    vi.stubEnv("TRUST_PROXY_HEADERS", "true");
     const h = new Headers({ "x-real-ip": "203.0.113.9" });
     expect(clientIpFromHeaders(h)).toBe("203.0.113.9");
+    vi.unstubAllEnvs();
   });
 
-  it("x-forwarded-for: lấy IP ĐÚNG CÙNG (proxy thêm vào cuối) — các hop trước có thể spoof", () => {
+  it("TRUST_PROXY_HEADERS=true → x-forwarded-for: lấy IP cuối cùng (proxy thêm), bỏ hop spoof được", () => {
+    vi.stubEnv("TRUST_PROXY_HEADERS", "true");
     const h = new Headers({ "x-forwarded-for": "1.1.1.1, 203.0.113.10" });
     expect(clientIpFromHeaders(h)).toBe("203.0.113.10");
+    vi.unstubAllEnvs();
   });
 
-  it("không có proxy header (dev local) → bucket dùng chung 'local'", () => {
+  it("TRUST_PROXY_HEADERS=true, không có proxy header → bucket 'local'", () => {
+    vi.stubEnv("TRUST_PROXY_HEADERS", "true");
     expect(clientIpFromHeaders(new Headers())).toBe("local");
+    vi.unstubAllEnvs();
   });
 });
