@@ -36,7 +36,9 @@ echo "── docker compose build (image production từ Dockerfile)"
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" build --quiet
 
 echo "── docker compose up -d (db + migrate + app — stack cô lập $PROJECT)"
-docker compose -f "$COMPOSE_FILE" -p "$PROJECT" up -d --wait >/dev/null
+# --wait-timeout 120: HEALTHCHECK app start-period 20s + interval 30s —
+# mặc định ngắn hơn chu kỳ check đầu tiên nên báo unhealthy sai
+docker compose -f "$COMPOSE_FILE" -p "$PROJECT" up -d --wait --wait-timeout 120 >/dev/null
 
 declare -a FAILED=()
 check() {
@@ -68,14 +70,16 @@ else
   FAILED+=("health-db-up")
 fi
 
-# migrate phải đã chạy (marker trong DB) — kiểm tra trong container db của PROJECT mình
+# migrate phải đã chạy — marker table của Prisma 8 nằm ở schema prisma_contract
+# (đã khảo sát: prisma_contract.{contract,ledger,marker}) — kiểm tra trong container db
+# của PROJECT mình tạo
 migrated=$(docker compose -f "$COMPOSE_FILE" -p "$PROJECT" exec -T db \
   psql -U loaviet -d loaviet -tAc \
-  "select count(*) from information_schema.tables where table_name like '%prisma%'" 2>/dev/null || true)
-if [[ "${migrated//[[:space:]]/}" -gt 0 ]]; then
-  echo "✔ migration marker table tồn tại trong DB (migrate service đã chạy)"
+  "select count(*) from prisma_contract.marker" 2>/dev/null || true)
+if [[ "${migrated//[[:space:]]/}" -ge 1 ]]; then
+  echo "✔ prisma_contract.marker có marker — migrate service đã chạy"
 else
-  echo "✘ không thấy marker table — migrate có thể chưa chạy" >&2
+  echo "✘ prisma_contract.marker trống — migrate có thể chưa chạy" >&2
   FAILED+=("migrate-marker")
 fi
 

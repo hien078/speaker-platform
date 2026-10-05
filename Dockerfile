@@ -59,8 +59,10 @@ RUN mkdir -p /app/public/uploads && chown -R nextjs:nodejs /app/public/uploads
 USER nextjs
 EXPOSE 3000
 
-# healthcheck
+# healthcheck — 127.0.0.1 (IPv4 tường minh): busybox wget resolve "localhost"
+# sang ::1 (IPv6) trong khi standalone server nghe 0.0.0.0 (IPv4) → refused
+# (đã chứng minh: curl từ host 200, wget localhost trong container refused)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+  CMD wget -qO- http://127.0.0.1:3000/api/health || exit 1
 
 CMD ["node", "server.js"]
