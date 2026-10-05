@@ -101,6 +101,28 @@ export function validateEnv(env: NodeJS.ProcessEnv): EnvValidationResult {
     }
   }
 
+  // ─── Finance capability (private beta shutdown) ───
+  // FINANCIAL_FEATURES_ENABLED: server-only, mặc định/bỏ trống = false.
+  // Strict: chỉ literal "true" | "false" — malformed fail validation,
+  // không bao giờ thành truthy (xem src/lib/financial-features.ts).
+  // Production (môi trường private beta) phải "false": nền tảng không
+  // giữ tiền trong giai đoạn beta → set "true" là lỗi cấu hình fail-fast.
+  const finance = env.FINANCIAL_FEATURES_ENABLED;
+  if (finance !== undefined && finance !== "") {
+    if (finance !== "true" && finance !== "false") {
+      issues.push({
+        key: "FINANCIAL_FEATURES_ENABLED",
+        problem: 'chỉ nhận "true" | "false" (bỏ trống = false)',
+      });
+    } else if (prod && finance === "true") {
+      issues.push({
+        key: "FINANCIAL_FEATURES_ENABLED",
+        problem:
+          'private beta: phải là "false" ở production — nền tảng không giữ tiền trong giai đoạn beta',
+      });
+    }
+  }
+
   // ─── MoMo: cấu hình "nửa vời" là sai — hoặc đủ 3 key hoặc không key nào ───
   const momoKeys = ["MOMO_PARTNER_CODE", "MOMO_ACCESS_KEY", "MOMO_SECRET_KEY"] as const;
   const setCount = momoKeys.filter((k) => env[k] !== undefined && env[k] !== "").length;

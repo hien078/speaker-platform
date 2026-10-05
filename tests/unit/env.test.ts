@@ -117,6 +117,47 @@ describe("validateEnv — key tuỳ chọn có set thì phải hợp lệ", () =
   });
 });
 
+describe("validateEnv — FINANCIAL_FEATURES_ENABLED (ranh giới tài chính private beta)", () => {
+  it("bỏ trống → OK (mặc định false — private beta tắt tài chính)", () => {
+    expect(validateEnv(baseEnv({ FINANCIAL_FEATURES_ENABLED: undefined })).ok).toBe(true);
+  });
+
+  it('literal "false" → OK', () => {
+    expect(validateEnv(baseEnv({ FINANCIAL_FEATURES_ENABLED: "false" })).ok).toBe(true);
+  });
+
+  it('literal "true" NGOÀI production → OK (chỉ dev/test chạy thuật toán legacy)', () => {
+    expect(
+      validateEnv(baseEnv({ NODE_ENV: "development", FINANCIAL_FEATURES_ENABLED: "true" })).ok,
+    ).toBe(true);
+    expect(
+      validateEnv(baseEnv({ NODE_ENV: "test", FINANCIAL_FEATURES_ENABLED: "true" })).ok,
+    ).toBe(true);
+  });
+
+  it('literal "true" ở production → báo key (private beta phải giữ false)', () => {
+    const result = validateEnv(baseEnv({ FINANCIAL_FEATURES_ENABLED: "true" }));
+    expect(result.ok).toBe(false);
+    expect(result.issues).toEqual([
+      {
+        key: "FINANCIAL_FEATURES_ENABLED",
+        problem:
+          'private beta: phải là "false" ở production — nền tảng không giữ tiền trong giai đoạn beta',
+      },
+    ]);
+  });
+
+  it("giá trị malformed → báo key (strict, không bao giờ thành truthy)", () => {
+    for (const bad of ["TRUE", "True", "yes", "1", " true", "true "]) {
+      const result = validateEnv(baseEnv({ FINANCIAL_FEATURES_ENABLED: bad }));
+      expect(result.issues).toContainEqual({
+        key: "FINANCIAL_FEATURES_ENABLED",
+        problem: 'chỉ nhận "true" | "false" (bỏ trống = false)',
+      });
+    }
+  });
+});
+
 describe("validateEnv — MoMo nửa vời", () => {
   it("thiếu 1 trong 3 key MoMo → báo đủ các key còn thiếu", () => {
     const result = validateEnv(
