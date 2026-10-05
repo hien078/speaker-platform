@@ -33,6 +33,7 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
       ESCROW_AUTO_RELEASE_DAYS: "7"
+      CRON_SECRET: ${CRON_SECRET:?đặt CRON_SECRET trong .env}
       # MoMo production — điền credentials thật từ business.momo.vn
       MOMO_PARTNER_CODE: ${MOMO_PARTNER_CODE:-}
       MOMO_ACCESS_KEY: ${MOMO_ACCESS_KEY:-}

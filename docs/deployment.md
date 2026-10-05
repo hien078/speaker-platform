@@ -29,6 +29,7 @@ git clone <repo> loaviet && cd loaviet
 cat > .env << 'EOF'
 DB_PASSWORD=<mật khẩu DB mạnh, sinh bằng openssl rand -hex 16>
 AUTH_SECRET=<sinh bằng openssl rand -hex 32>
+CRON_SECRET=<sinh bằng openssl rand -hex 24 — bảo vệ endpoint cron auto-release>
 NEXT_PUBLIC_APP_URL=https://loaviet.vn        # domain thật — MoMo IPN cần URL công khai
 MOMO_PARTNER_CODE=<từ business.momo.vn>
 MOMO_ACCESS_KEY=<từ business.momo.vn>
@@ -102,9 +103,9 @@ docker compose -f docker-compose.prod.yml logs -f app
 # cập nhật code mới
 git pull && docker compose -f docker-compose.prod.yml up -d --build
 
-# giải ngân escrow quá hạn (nên cron mỗi giờ — gọi từ cron trong container hoặc hệ thống ngoài)
-curl -X POST https://loaviet.vn/api/cron/auto-release   # nếu có
-# hoặc chạy thủ công: exec app npx tsx scripts/auto-release.ts
+# giải ngân escrow quá hạn — endpoint có sẵn, cron mỗi giờ trên server (crontab -e):
+# 0 * * * * curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" https://loaviet.vn/api/cron/auto-release
+# trả về {"ok":true,"released":<số đơn đã giải ngân>} — 401 nếu sai secret
 
 # vào DB
 docker compose -f docker-compose.prod.yml exec db psql -U loaviet
