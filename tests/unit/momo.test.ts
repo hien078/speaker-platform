@@ -123,4 +123,19 @@ describe("verifyMomoCallback", () => {
     const body: MomoCallbackBody = { ...validBody, signature: "deadbeef" };
     expect(verifyMomoCallback(body)).toBe(false);
   });
+
+  it("từ chối signature rác (không hex) — không throw, timing-safe path an toàn", () => {
+    const body: MomoCallbackBody = { ...validBody, signature: "zzzz-not-hex!!" };
+    expect(verifyMomoCallback(body)).toBe(false);
+  });
+
+  it("từ chối signature đúng dạng nhưng sai độ dài", () => {
+    const body: MomoCallbackBody = { ...validBody, signature: "abc123" };
+    expect(verifyMomoCallback(body)).toBe(false);
+  });
+
+  it("chấp nhận signature hex uppercase (MoMo gửi lowercase — hex parse không phân biệt hoa)", () => {
+    const signature = signBody(validBody, TEST_ACCESS_KEY, TEST_SECRET_KEY).toUpperCase();
+    expect(verifyMomoCallback({ ...validBody, signature })).toBe(true);
+  });
 });

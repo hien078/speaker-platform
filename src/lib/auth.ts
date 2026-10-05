@@ -2,7 +2,8 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
+import { safeNextPath } from "@/src/lib/redirect";
 
 const SESSION_COOKIE = "sp_session";
 const SESSION_DAYS = 30;
@@ -89,8 +90,8 @@ export async function requireUser(): Promise<SessionUser> {
     const h = await headers();
     const path = h.get("x-invoke-path") ?? h.get("referer") ?? "";
     const url = new URL(path || "/", "http://local");
-    const next = url.pathname && url.pathname !== "/" ? `?next=${encodeURIComponent(url.pathname)}` : "";
-    redirect(`/login${next}`);
+    const next = safeNextPath(url.pathname && url.pathname !== "/" ? `${url.pathname}${url.search}` : null);
+    redirect(`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`);
   }
   return user!;
 }

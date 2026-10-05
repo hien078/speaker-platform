@@ -3,9 +3,10 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { hashPassword, verifyPassword, createSession, destroySession } from "@/src/lib/auth";
 import { checkRateLimit, clientIpFromHeaders } from "@/src/lib/rate-limit";
+import { safeNextPath } from "@/src/lib/redirect";
 
 /** 10 lần / 10 phút / IP cho login + register (chống brute-force / spam tài khoản) */
 const AUTH_RULE = { limit: 10, windowMs: 10 * 60_000 };
@@ -72,10 +73,9 @@ export async function registerAction(
   await db.orm.public.Cart.create({ userId: user.id });
 
   await createSession(user.id);
-  // quay về trang đang xem nếu có ?next= (chỉ cho path nội bộ)
-  if (next.startsWith("/") && !next.startsWith("//")) {
-    redirect(next);
-  }
+  // quay về trang đang xem nếu có ?next= — chỉ path nội bộ (chống open redirect)
+  const safe = safeNextPath(next);
+  if (safe) redirect(safe);
   redirect("/");
 }
 
@@ -109,10 +109,9 @@ export async function loginAction(
   if (!cart) await db.orm.public.Cart.create({ userId: user.id });
 
   await createSession(user.id);
-  // quay về trang đang xem nếu có ?next= (chỉ cho path nội bộ)
-  if (next.startsWith("/") && !next.startsWith("//")) {
-    redirect(next);
-  }
+  // quay về trang đang xem nếu có ?next= — chỉ path nội bộ (chống open redirect)
+  const safe = safeNextPath(next);
+  if (safe) redirect(safe);
   redirect("/");
 }
 

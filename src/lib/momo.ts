@@ -1,5 +1,5 @@
 import "server-only";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 
 /**
  * MoMo Payment Gateway v2 (developers.momo.vn)
@@ -139,12 +139,15 @@ export function buildCallbackRawSignature(b: MomoCallbackBody, accessKey: string
   );
 }
 
-/** Verify chữ ký callback — chống giả mạo webhook */
+/** Verify chữ ký callback — chống giả mạo webhook.
+ * So sánh timing-safe (HMAC hex 64 bytes) — không rò thông qua thời gian phản hồi. */
 export function verifyMomoCallback(b: MomoCallbackBody): boolean {
   const { accessKey, secretKey } = momoConfig();
   if (!accessKey || !secretKey) return false; // chưa cấu hình → không verify được gì
-  if (!b.signature) return false;
+  if (!b || typeof b.signature !== "string") return false;
   const raw = buildCallbackRawSignature(b, accessKey);
-  const expected = sign(raw, secretKey);
-  return expected === b.signature;
+  const expected = Buffer.from(sign(raw, secretKey), "hex");
+  const got = Buffer.from(b.signature, "hex");
+  // Buffer.from(hex) với chuỗi rác → buffer rỗng/lệch độ dài → false, không throw
+  return expected.length === got.length && timingSafeEqual(expected, got);
 }
