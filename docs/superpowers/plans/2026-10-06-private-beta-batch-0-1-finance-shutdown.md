@@ -158,8 +158,10 @@ git commit -m "feat(finance): add server-owned shutdown boundary"
 - Modify: `src/lib/actions/withdraw.ts`
 - Modify: `src/lib/actions/admin.ts`
 - Modify: `src/lib/escrow.ts`
+- Modify: `src/lib/ledger.ts`
 - Modify: `src/lib/momo.ts`
 - Modify: `src/lib/wallet.ts`
+- Modify: `src/lib/actions/helpers.ts`
 - Modify: `app/api/payments/momo/create/route.ts`
 - Modify: `app/api/payments/momo/ipn/route.ts`
 - Modify: `app/api/cron/auto-release/route.ts`
@@ -179,6 +181,9 @@ git commit -m "feat(finance): add server-owned shutdown boundary"
 - [ ] Run the focused tests and confirm their expected failure.
 - [ ] Insert `assertFinancialFeaturesEnabled()` at the outermost server entry point and retain defense-in-depth in reusable mutation libraries such as escrow/provider helpers.
 - [ ] Ensure direct imports/calls to reusable financial libraries are also denied; do not rely only on page or button removal.
+- [ ] Add defense-in-depth assertions to `recordLedgerTx()` and `processAutoReleases()` so a future caller cannot bypass the route/action boundary. Keep `reconcileEscrow()` available as a read-only historical reconciliation operation.
+- [ ] Leave account/login cart bootstrap and listing-deletion cart cleanup unguarded: they are non-financial data hygiene, cannot create a transaction, and remain unreachable as a commerce flow once cart UI/actions are disabled.
+- [ ] Leave legacy review creation and the legacy seller-verification toggle outside the finance guard; their removal/replacement belongs to the later review and seller-verification batches.
 - [ ] Choose route responses consistent with Next.js 16 Route Handler APIs and existing API conventions. Keep the stable typed code in the response; do not redirect provider callbacks to a live finance flow.
 - [ ] Preserve existing finance implementation behind the boundary. Do not delete historical logic or migrations.
 - [ ] Rerun focused tests until green.
@@ -186,7 +191,7 @@ git commit -m "feat(finance): add server-owned shutdown boundary"
 - [ ] Commit backend denial only:
 
 ```bash
-git add src/lib/actions/cart.ts src/lib/actions/orders.ts src/lib/actions/offers.ts src/lib/actions/exchange.ts src/lib/actions/withdraw.ts src/lib/actions/admin.ts src/lib/escrow.ts src/lib/momo.ts src/lib/wallet.ts app/api/payments/momo/create/route.ts app/api/payments/momo/ipn/route.ts app/api/cron/auto-release/route.ts app/payments/momo/return/page.tsx tests
+git add src/lib/actions/cart.ts src/lib/actions/orders.ts src/lib/actions/offers.ts src/lib/actions/exchange.ts src/lib/actions/withdraw.ts src/lib/actions/admin.ts src/lib/actions/helpers.ts src/lib/escrow.ts src/lib/ledger.ts src/lib/momo.ts src/lib/wallet.ts app/api/payments/momo/create/route.ts app/api/payments/momo/ipn/route.ts app/api/cron/auto-release/route.ts app/payments/momo/return/page.tsx tests
 git commit -m "feat(finance): deny dormant finance entry points"
 ```
 
@@ -199,6 +204,7 @@ git commit -m "feat(finance): deny dormant finance entry points"
 - Modify: `src/components/header.tsx`
 - Modify: `src/components/header-user-menu.tsx`
 - Modify: `src/components/footer.tsx`
+- Modify: `src/components/listing-form.tsx`
 - Modify: `app/listings/[slug]/page.tsx`
 - Modify: `app/manifest.ts`
 - Modify: `app/robots.ts`
@@ -236,7 +242,7 @@ rg -n -i 'escrow|hoa hồng|commission|giữ tiền|bảo vệ (người mua|tha
 - [ ] Commit only public surface/copy changes:
 
 ```bash
-git add src/components/header.tsx src/components/header-user-menu.tsx src/components/footer.tsx app README.md tests/unit/finance-public-surface.test.ts
+git add src/components/header.tsx src/components/header-user-menu.tsx src/components/footer.tsx src/components/listing-form.tsx app README.md tests/unit/finance-public-surface.test.ts
 git commit -m "feat(marketplace): remove beta-facing finance surfaces"
 ```
 
