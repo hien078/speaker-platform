@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/src/prisma/db.client";
 import { ListingCard, getListingCards } from "@/src/components/listing-card";
+import { FeaturedSpeakersSection } from "@/src/components/featured-speakers";
 import { Search, ArrowRight, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -77,6 +78,9 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* ═══ Mẫu loa nổi bật — ảnh AI, thông số tham khảo ═══ */}
+      <FeaturedSpeakersSection />
 
       {/* ═══ Vừa lên kệ ═══ */}
       <section className="py-10">
