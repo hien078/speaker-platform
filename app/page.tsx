@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/src/prisma/db.client";
 import { ListingCard, getListingCards } from "@/src/components/listing-card";
 import { FeaturedSpeakersSection } from "@/src/components/featured-speakers";
+import { SecondhandModelsSection } from "@/src/components/secondhand-models";
 import { Search, ArrowRight, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +30,8 @@ export default async function HomePage() {
             Chợ loa secondhand &amp; mới
           </p>
           <h1 className="mt-3 text-[34px] font-extrabold leading-[1.12] tracking-tight text-[var(--ink)] sm:text-[42px]">
-            Mua bán loa ở đây,<br />
-            tiền được giữ hộ<br className="hidden sm:block" /> đến khi bạn nhận hàng.
+            Loa xịn, giá thật,<br />
+            giao dịch an toàn.
           </h1>
           <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-[var(--ink-2)]">
             Loa thùng, loa kéo, bookshelf, ampli — từ người bán đã xác minh.
@@ -78,6 +79,9 @@ export default async function HomePage() {
           </Link>
         </div>
       </section>
+
+      {/* ═══ Gợi ý mẫu loa secondhand — ảnh tham khảo, không phải tin bán ═══ */}
+      <SecondhandModelsSection />
 
       {/* ═══ Mẫu loa nổi bật — ảnh AI, thông số tham khảo ═══ */}
       <FeaturedSpeakersSection />

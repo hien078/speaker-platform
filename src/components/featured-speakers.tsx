@@ -513,9 +513,6 @@ export function FeaturedSpeakersSection() {
                         loading="lazy"
                         className="size-full object-cover"
                       />
-                      <span className="badge absolute left-1.5 top-1.5 bg-white text-[var(--muted)]">
-                        Ảnh minh họa AI
-                      </span>
                     </div>
 
                     <div className="flex flex-1 flex-col gap-1 p-3">
