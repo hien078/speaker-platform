@@ -14,8 +14,15 @@ import { FEATURED_SPEAKERS } from "../../src/components/featured-speakers";
 const publicDir = fileURLToPath(new URL("../../public", import.meta.url));
 
 describe("FEATURED_SPEAKERS", () => {
-  it("có 4 mẫu loa", () => {
-    expect(FEATURED_SPEAKERS).toHaveLength(4);
+  it("có 8 mẫu loa", () => {
+    expect(FEATURED_SPEAKERS).toHaveLength(8);
+  });
+
+  it("có đủ các thương hiệu nổi bật yêu cầu", () => {
+    const brands = FEATURED_SPEAKERS.map((s) => s.brand);
+    for (const required of ["JBL", "Sony", "Bose", "Harman Kardon"]) {
+      expect(brands).toContain(required);
+    }
   });
 
   it("mỗi mẫu có brand/model/type và query tìm kiếm không rỗng", () => {

@@ -54,6 +54,110 @@ export const FEATURED_SPEAKERS: FeaturedSpeaker[] = [
     sourceLabel: "jblpro.com",
   },
   {
+    brand: "Sony",
+    model: "SRS-XV800",
+    type: "Loa party di động",
+    specs: [
+      "Pin tối đa 25 giờ",
+      "Bluetooth 5.2",
+      "IPX4 đặt dọc / IPX2 đặt ngang",
+      "Khoảng 18,5 kg",
+    ],
+    query: "SRS-XV800",
+    image: {
+      src: "/img/featured/sony-srs-xv800-ai.webp",
+      width: 1000,
+      height: 750,
+    },
+    alt: "Ảnh minh họa AI của loa Sony SRS-XV800",
+    sourceUrl:
+      "https://www.sony.com/electronics/support/speakers-wireless-speakers/srs-xv800/specifications",
+    sourceLabel: "sony.com",
+  },
+  {
+    brand: "Bose",
+    model: "S1 Pro+",
+    type: "PA di động",
+    specs: [
+      "Mixer 3 kênh",
+      "Pin tối đa 11 giờ",
+      "Bluetooth 5.0",
+      "6,5 kg",
+    ],
+    query: "S1 Pro+",
+    image: {
+      src: "/img/featured/bose-s1-pro-plus-ai.webp",
+      width: 1000,
+      height: 750,
+    },
+    alt: "Ảnh minh họa AI của loa Bose S1 Pro+",
+    sourceUrl:
+      "https://www.bose.com/p/portable-pa/s1-pro-wireless-pa-system/S1PROP-SPEAKERWIRELESS.html",
+    sourceLabel: "bose.com",
+  },
+  {
+    brand: "Harman Kardon",
+    model: "Go + Play 3",
+    type: "Loa Bluetooth di động",
+    specs: [
+      "160 W RMS",
+      "43 Hz–20 kHz (−6 dB)",
+      "Pin tối đa 8 giờ",
+      "4,7 kg",
+    ],
+    query: "Go + Play 3",
+    image: {
+      src: "/img/featured/harman-kardon-go-play-3-ai.webp",
+      width: 1000,
+      height: 750,
+    },
+    alt: "Ảnh minh họa AI của loa Harman Kardon Go + Play 3",
+    sourceUrl:
+      "https://www.harmankardon.com/on/demandware.static/-/Sites-masterCatalog_Harman/default/dw2b4318bf/pdfs/HK%20Go%2BPlay%203_Spec%20Sheet_EN.pdf",
+    sourceLabel: "harmankardon.com",
+  },
+  {
+    brand: "Marshall",
+    model: "Stanmore III",
+    type: "Loa Bluetooth để bàn",
+    specs: [
+      "80 W Class D (50 W + 2 × 15 W)",
+      "45 Hz–20 kHz",
+      "Max SPL 97 dB @ 1 m",
+      "Bluetooth 5.2",
+    ],
+    query: "Stanmore III",
+    image: {
+      src: "/img/featured/marshall-stanmore-iii-ai.webp",
+      width: 1000,
+      height: 750,
+    },
+    alt: "Ảnh minh họa AI của loa Marshall Stanmore III",
+    sourceUrl:
+      "https://www.marshall.com/gb/en/product/stanmore-iii?color=black&pid=1006013",
+    sourceLabel: "marshall.com",
+  },
+  {
+    brand: "Klipsch",
+    model: "The Three Plus",
+    type: "Loa Bluetooth tabletop cao cấp",
+    specs: [
+      "120 W",
+      "45 Hz–20 kHz",
+      "Max acoustic output 106 dB",
+      "Bluetooth 5.3",
+    ],
+    query: "The Three Plus",
+    image: {
+      src: "/img/featured/klipsch-the-three-plus-ai.webp",
+      width: 1000,
+      height: 750,
+    },
+    alt: "Ảnh minh họa AI của loa Klipsch The Three Plus",
+    sourceUrl: "https://assets.klipsch.com/product-specsheets/Klipsch-The_Three_Plus-Spec_Sheet.pdf",
+    sourceLabel: "klipsch.com",
+  },
+  {
     brand: "Yamaha",
     model: "DBR12",
     type: "Loa PA active 12 inch",
@@ -92,27 +196,6 @@ export const FEATURED_SPEAKERS: FeaturedSpeaker[] = [
     alt: "Ảnh minh họa AI của loa Electro-Voice ZLX-12P G2",
     sourceUrl: "https://products.electrovoice.com/emea/en/zlx-g2-powered-loudspeaker",
     sourceLabel: "products.electrovoice.com",
-  },
-  {
-    brand: "Bose",
-    model: "S1 Pro+",
-    type: "PA di động",
-    specs: [
-      "Mixer 3 kênh",
-      "Pin tối đa 11 giờ",
-      "Bluetooth 5.0",
-      "6,5 kg",
-    ],
-    query: "S1 Pro+",
-    image: {
-      src: "/img/featured/bose-s1-pro-plus-ai.webp",
-      width: 1000,
-      height: 750,
-    },
-    alt: "Ảnh minh họa AI của loa Bose S1 Pro+",
-    sourceUrl:
-      "https://www.bose.com/p/portable-pa/s1-pro-wireless-pa-system/S1PROP-SPEAKERWIRELESS.html",
-    sourceLabel: "bose.com",
   },
 ];
 
