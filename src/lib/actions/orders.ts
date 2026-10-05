@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease, escrowRefund } from "@/src/lib/ledger";
@@ -163,7 +163,18 @@ export async function payEscrowAction(formData: FormData): Promise<void> {
   if (order.status !== "awaiting_payment") throw new Error("Đơn không ở trạng thái chờ thanh toán");
 
   const now = new Date().toISOString();
-  await db.transaction(async (tx) => {
+  const applied = await db.transaction(async (tx) => {
+    // Claim atomic (chống double-click / 2 request đồng thời double-credit ledger):
+    // UPDATE ... WHERE id AND status — 1 statement atomic (ORM .update() là
+    // select-then-identity, KHÔNG recheck status — không dùng cho claim)
+    const claimed = await tx.orm.public.Order
+      .where({ id: orderId, status: "awaiting_payment" })
+      .updateAll({
+        status: "paid_escrow",
+        autoReleaseAt: new Date(Date.now() + await getAutoReleaseDays() * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    if (claimed.length === 0) return false;
+
     await tx.orm.public.Payment
       .where({ orderId })
       .update({
@@ -171,15 +182,11 @@ export async function payEscrowAction(formData: FormData): Promise<void> {
         providerTxnId: `MOCK-${Date.now()}`,
         paidAt: now,
       });
-    await tx.orm.public.Order
-      .where({ id: orderId })
-      .update({
-        status: "paid_escrow",
-        autoReleaseAt: new Date(Date.now() + await getAutoReleaseDays() * 24 * 60 * 60 * 1000).toISOString(),
-      });
     await recordStatusChange(tx, orderId, "paid_escrow", "Buyer thanh toán qua escrow — tiền được giữ", user.id);
     await recordLedgerTx(tx, "payment", orderId, escrowIn(user.id, order.totalAmount, `Escrow đơn ${order.code}`));
+    return true;
   });
+  if (!applied) throw new Error("Đơn không ở trạng thái chờ thanh toán");
   await notify(order.sellerId, "order", `Đơn ${order.code} đã thanh toán`, `${order.buyerId === user.id ? "" : ""}Tiền đã vào escrow — bạn có thể gửi hàng`, `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
@@ -202,14 +209,21 @@ export async function sellerConfirmPaymentAction(formData: FormData): Promise<vo
   }
 
   const now = new Date().toISOString();
-  await db.transaction(async (tx) => {
+  const applied = await db.transaction(async (tx) => {
+    // Claim atomic trên đúng trạng thái đã đọc — 2 confirm đồng thời chỉ 1 thắng
+    const claimed = await tx.orm.public.Order
+      .where({ id: orderId, status: order.status })
+      .updateAll({
+        status: "processing",
+        autoReleaseAt: new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      });
+    if (claimed.length === 0) return false;
+
     await tx.orm.public.Payment.where({ orderId }).update({ status: "held", paidAt: now });
-    await tx.orm.public.Order.where({ id: orderId }).update({
-      status: "processing",
-      autoReleaseAt: new Date(Date.now() + AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString(),
-    });
     await recordStatusChange(tx, orderId, "processing", "Seller xác nhận đã nhận tiền", user.id);
+    return true;
   });
+  if (!applied) throw new Error("Đơn không ở trạng thái chờ xác nhận");
   await notify(order.buyerId, "order", `Đơn ${order.code} đang được chuẩn bị`, "Seller đã xác nhận và chuẩn bị gửi hàng", `/orders/${orderId}`);
 
   revalidatePath(`/orders/${orderId}`);
@@ -273,10 +287,14 @@ export async function confirmReceiptAction(formData: FormData): Promise<void> {
 
   const now = new Date().toISOString();
   const isEscrow = order.paymentMethod === "escrow";
-  await db.transaction(async (tx) => {
-    await tx.orm.public.Order
-      .where({ id: orderId })
-      .update({ status: "completed", escrowReleasedAt: now });
+  const applied = await db.transaction(async (tx) => {
+    // Claim atomic trên đúng trạng thái đã đọc — 2 confirm đồng thời (double-click)
+    // chỉ 1 thắng, kẻ thua KHÔNG tạo Payout/ledger thứ hai (double payout)
+    const claimed = await tx.orm.public.Order
+      .where({ id: orderId, status: order.status })
+      .updateAll({ status: "completed", escrowReleasedAt: now });
+    if (claimed.length === 0) return false;
+
     if (isEscrow) {
       // CHỈ escrow mới có tiền trong nền tảng → giải ngân + ledger
       await tx.orm.public.Payment
@@ -298,7 +316,9 @@ export async function confirmReceiptAction(formData: FormData): Promise<void> {
     await recordStatusChange(tx, orderId, "completed", isEscrow
       ? `Buyer xác nhận nhận hàng — giải ngân ${order.sellerPayout}₫ cho seller`
       : `Buyer xác nhận nhận hàng — giao dịch trực tiếp hoàn tất (hoa hồng ${order.commissionAmount}₫ ghi nợ seller)`, user.id);
+    return true;
   });
+  if (!applied) throw new Error("Đơn không ở trạng thái có thể xác nhận");
   await recordSoldPrices(orderId);
   if (isEscrow) {
     await notify(order.sellerId, "order", `Đã giải ngân ${order.sellerPayout.toLocaleString("vi-VN")}₫`, `Đơn ${order.code} hoàn tất — tiền vào ví sau hoa hồng`, `/orders/${orderId}`);
@@ -325,12 +345,17 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
   const payment = await db.orm.public.Payment.where({ orderId }).first();
   const wasHeld = payment?.status === "held";
 
-  await db.transaction(async (tx) => {
+  const applied = await db.transaction(async (tx) => {
+    // Claim atomic trên đúng trạng thái đã đọc — 2 cancel đồng thời chỉ 1 hoàn tiền
+    const claimed = await tx.orm.public.Order
+      .where({ id: orderId, status: order.status })
+      .updateAll({ status: "cancelled" });
+    if (claimed.length === 0) return false;
+
     // hoàn tiền escrow về "tài khoản" buyer (mock: đánh dấu refunded)
     if (wasHeld) {
       await tx.orm.public.Payment.where({ orderId }).update({ status: "refunded" });
     }
-    await tx.orm.public.Order.where({ id: orderId }).update({ status: "cancelled" });
     await recordStatusChange(tx, orderId, "cancelled", wasHeld ? "Hủy đơn — hoàn tiền escrow cho buyer" : "Hủy đơn", user.id);
     if (wasHeld) {
       await recordLedgerTx(tx, "refund", orderId, escrowRefund(order.buyerId, order.totalAmount, `Hoàn escrow đơn ${order.code}`));
@@ -340,7 +365,9 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
     for (const item of items) {
       await tx.orm.public.Listing.where({ id: item.listingId }).update({ status: "approved" });
     }
+    return true;
   });
+  if (!applied) throw new Error("Không thể hủy đơn ở trạng thái này");
 
   revalidatePath(`/orders/${orderId}`);
   revalidatePath("/orders");

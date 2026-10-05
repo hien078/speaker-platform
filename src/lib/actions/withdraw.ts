@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireUser, requireAdmin } from "@/src/lib/auth";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { audit } from "@/src/lib/actions/helpers";
@@ -81,14 +81,18 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
   const next = statusMap[action];
   if (!next) return;
 
-  await db.orm.public.WithdrawRequest
-    .where({ id: withdrawId })
-    .update({
+  // Claim atomic trên đúng trạng thái đã đọc — 2 admin click "paid" đồng thời
+  // chỉ 1 thắng, kẻ thua KHÔNG ghi ledger withdrawPaid lần hai (double debit ví)
+  // (UPDATE ... WHERE id AND status — 1 statement atomic)
+  const claimed = await db.orm.public.WithdrawRequest
+    .where({ id: withdrawId, status: request.status })
+    .updateAll({
       status: next,
       adminNote,
       processedById: admin.id,
       processedAt: new Date().toISOString(),
     });
+  if (claimed.length === 0) return; // request khác đã xử lý
 
   if (next === "paid") {
     // kiểm số dư thật lần cuối — chặn rút tiền seller chưa kiếm được

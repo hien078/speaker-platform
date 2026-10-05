@@ -3,7 +3,7 @@
  * KHÔNG có "use server" — module thường, không bị Next.js expose thành endpoint công khai.
  * Mọi hàm ở đây chỉ được import bởi code server, không bao giờ gửi xuống client.
  */
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -67,11 +67,17 @@ export async function processAutoReleases(): Promise<number> {
     .where((o) => o.autoReleaseAt.lte(now))
     .all();
 
+  let released = 0;
   for (const order of overdue) {
-    await db.transaction(async (tx) => {
-      await tx.orm.public.Order
-        .where({ id: order.id })
-        .update({ status: "completed", escrowReleasedAt: now });
+    const applied = await db.transaction(async (tx) => {
+      // Claim atomic: chỉ chuyển shipped → completed được nếu vẫn shipped —
+      // 2 cron instance chồng nhau (hoặc buyer confirm cùng lúc) không double payout
+      // (UPDATE ... WHERE id AND status — 1 statement atomic)
+      const claimed = await tx.orm.public.Order
+        .where({ id: order.id, status: "shipped" })
+        .updateAll({ status: "completed", escrowReleasedAt: now });
+      if (claimed.length === 0) return false;
+
       await tx.orm.public.Payment
         .where({ orderId: order.id })
         .update({ status: "released", releasedAt: now });
@@ -85,11 +91,14 @@ export async function processAutoReleases(): Promise<number> {
       // ledger giải ngân — escrowRelease
       const { recordLedgerTx, escrowRelease } = await import("@/src/lib/ledger");
       await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Tự giải ngân đơn ${order.code}`));
+      return true;
     });
+    if (!applied) continue; // đơn đã được xử lý bởi request khác — bỏ qua
+    released++;
     // notify cả 2 bên — tiền tự di chuyển phải có vết + báo
     const { notify } = await import("@/src/lib/notify");
     await notify(order.sellerId, "order", `Tự giải ngân ${order.sellerPayout.toLocaleString("vi-VN")}₫`, `Đơn ${order.code} quá hạn khiếu nại — tiền vào ví`, `/orders/${order.id}`);
     await notify(order.buyerId, "order", `Đơn ${order.code} đã hoàn tất`, "Quá hạn khiếu nại 7 ngày — escrow đã giải ngân cho người bán", `/orders/${order.id}`);
   }
-  return overdue.length;
+  return released;
 }

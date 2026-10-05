@@ -10,4 +10,9 @@ export default defineConfig({
       "@": root,
     },
   },
+  test: {
+    // Unit tests mặc định — KHÔNG gồm integration (cần scratch DB,
+    // chạy qua: npm run test:integration → scripts/test-integration.sh)
+    include: ["tests/unit/**/*.test.ts"],
+  },
 });
