@@ -1,7 +1,7 @@
-import Link from "next/link";
 import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS } from "@/src/lib/constants";
+import { DormantFinanceNotice } from "../dormant-notice";
 import { Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -39,6 +39,9 @@ export default async function AdminOrdersPage({
         </p>
       </div>
 
+      {/* Đơn tài chính lịch sử — chỉ đọc khi tài chính tắt (plan Task 5) */}
+      <DormantFinanceNotice />
+
       {/* Bộ lọc trạng thái */}
       <div className="mt-5 flex flex-wrap gap-1.5">
         <a
@@ -70,13 +73,12 @@ export default async function AdminOrdersPage({
               <th>Thanh toán</th>
               <th>Trạng thái</th>
               <th>Ngày</th>
-              <th></th>
             </tr>
           </thead>
           <tbody>
             {orders.length === 0 ? (
               <tr>
-                <td colSpan={9} className="py-10 text-center text-[var(--muted)]">Chưa có đơn hàng</td>
+                <td colSpan={8} className="py-10 text-center text-[var(--muted)]">Chưa có đơn hàng</td>
               </tr>
             ) : (
               orders.map((o) => {
@@ -101,11 +103,6 @@ export default async function AdminOrdersPage({
                       </span>
                     </td>
                     <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDate(o.createdAt)}</td>
-                    <td>
-                      <Link href={`/orders/${o.id}`} className="btn-ghost h-8 px-2.5 text-xs">
-                        Chi tiết
-                      </Link>
-                    </td>
                   </tr>
                 );
               })

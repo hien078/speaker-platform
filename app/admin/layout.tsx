@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/src/lib/auth";
 import Link from "next/link";
+import type { ComponentType } from "react";
 import {
   LayoutDashboard,
   FileSearch,
@@ -14,15 +15,23 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: ComponentType<{ className?: string }>;
+  /** View tài chính lịch sử — chỉ đọc khi FINANCIAL_FEATURES_ENABLED=false (plan Task 5). */
+  dormant?: boolean;
+};
+
+const NAV: NavItem[] = [
   { href: "/admin", label: "Tổng quan", icon: LayoutDashboard },
   { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch },
   { href: "/admin/catalog", label: "Catalog model", icon: AudioLines },
-  { href: "/admin/orders", label: "Đơn hàng", icon: Package },
-  { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle },
-  { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote },
+  { href: "/admin/orders", label: "Đơn hàng", icon: Package, dormant: true },
+  { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle, dormant: true },
+  { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote, dormant: true },
   { href: "/admin/users", label: "Người dùng", icon: Users },
-  { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings },
+  { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings, dormant: true },
 ];
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
@@ -55,6 +64,11 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
               >
                 <item.icon className="size-4 text-[var(--muted)]" />
                 {item.label}
+                {item.dormant && (
+                  <span className="badge ml-auto bg-[var(--paper-deep)] text-[10px] font-medium text-[var(--muted)]">
+                    chỉ đọc
+                  </span>
+                )}
               </Link>
             ))}
           </nav>

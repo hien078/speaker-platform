@@ -2,6 +2,7 @@ import Link from "next/link";
 import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
+import { DormantFinanceNotice } from "./dormant-notice";
 import {
   Banknote,
   FileSearch,
@@ -124,6 +125,9 @@ export default async function AdminDashboardPage() {
         Số liệu tính đến {formatDate(new Date())}
       </p>
 
+      {/* View finance lịch sử — chỉ đọc khi tài chính tắt (plan Task 5) */}
+      <DormantFinanceNotice />
+
       {/* Stats */}
       <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {stats.map((s) => (
@@ -212,7 +216,9 @@ export default async function AdminDashboardPage() {
               <p className="py-6 text-center text-sm text-[var(--muted)]">Chưa có đơn hàng nào</p>
             ) : (
               recentOrders.map((o) => (
-                <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-[var(--paper)]">
+                // Route chi tiết đơn public đã retire (Task 4) — hiển thị mã đơn
+                // dạng text, không link sang finance flow đã tắt.
+                <div key={o.id} className="flex items-center gap-3 rounded-lg p-1.5">
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-xs font-bold text-[var(--accent)]">{o.code}</p>
                     <p className="text-xs text-[var(--muted)]">
@@ -225,7 +231,7 @@ export default async function AdminDashboardPage() {
                       {ORDER_STATUS_LABELS[o.status]}
                     </span>
                   </div>
-                </Link>
+                </div>
               ))
             )}
           </div>
