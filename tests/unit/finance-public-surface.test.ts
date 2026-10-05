@@ -286,6 +286,20 @@ describe("public copy & metadata — không còn promise escrow/hoa hồng/giữ
   it("sitemap: không quảng bá exchange filter entry", () => {
     expect(read("app/sitemap.ts")).not.toContain("exchange=1");
   });
+
+  it("notifications: empty state không nhắc finance flow đã retire (trả giá/đơn hàng/khiếu nại)", () => {
+    // Private beta: các kind finance (order/dispute/offer/counter/withdraw) không
+    // còn phát sinh — mọi notify() nằm trong action đã guard. Empty state chỉ
+    // được nhắc thông báo còn sống (tin đăng/tài khoản), không gợi ý flow 404.
+    const src = read("app/notifications/page.tsx");
+    expect(src).not.toContain("Trả giá, đơn hàng, khiếu nại");
+  });
+
+  it("chat empty state: nhãn CTA khớp 'Nhắn người bán' (Task 4 đổi từ 'Chat với người bán')", () => {
+    const src = read("app/chat/page.tsx");
+    expect(src).not.toContain("Chat với người bán");
+    expect(src).toContain("Nhắn người bán");
+  });
 });
 
 // ─── 5. README ──────────────────────────────────────────────────────────────

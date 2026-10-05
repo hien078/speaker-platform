@@ -56,6 +56,12 @@ services:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
+      # Private beta (spec §4.1/§5.1): tài chính TẮT — mọi entry point finance
+      # (escrow/thanh toán/ví/rút tiền/hoa hồng) deny server-side với mã
+      # FINANCIAL_FEATURES_DISABLED. Server-only, không có escape hatch client;
+      # "true" ở production bị validateEnv fail-fast từ chối ngay khi start.
+      # Chỉ đổi qua reviewed product decision + restart (không phải admin toggle).
+      FINANCIAL_FEATURES_ENABLED: "false"
       ESCROW_AUTO_RELEASE_DAYS: "7"
       # Bảo vệ POST /api/cron/auto-release (escrow auto-release mỗi giờ)
       CRON_SECRET: ${CRON_SECRET:?đặt CRON_SECRET trong .env}

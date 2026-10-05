@@ -18,12 +18,18 @@ cd "$(dirname "$0")/.."
 PROJECT="sp-smoke-$(date +%s)"
 COMPOSE_FILE="tests/docker/docker-compose.smoke.yml"
 PORT="${SMOKE_PORT:-3999}"
+TMP_DIR=""
 
 cleanup() {
   echo "→ dọn compose project: $PROJECT (down -v — chỉ tài nguyên project này)"
   docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v --remove-orphans >/dev/null 2>&1 || true
+  if [[ -n "$TMP_DIR" ]]; then
+    rm -rf "$TMP_DIR"
+  fi
 }
 trap cleanup EXIT
+# scratch dir theo TMPDIR của máy — không rơi file tạm vào repo (parity smoke.sh)
+TMP_DIR="$(mktemp -d)"
 
 # env test — sinh random, không in
 export DB_PASSWORD="smoke-$(openssl rand -hex 16)"
@@ -53,13 +59,53 @@ check() {
   fi
 }
 
+check_body() { # check_body <mô tả> <code mong đợi> <chuỗi bắt buộc trong body> <url> [curl args...]
+  local desc="$1" expect="$2" needle="$3" url="$4"; shift 4
+  local code
+  code=$(curl -s -o "$TMP_DIR/resp.json" -w '%{http_code}' "$@" "$url" || true)
+  if [[ "$code" == "$expect" ]] && grep -q "$needle" "$TMP_DIR/resp.json" 2>/dev/null; then
+    echo "✔ $desc → $code (body chứa $needle)"
+  else
+    echo "✘ $desc → $code (mong đợi $expect, body thiếu $needle)" >&2
+    FAILED+=("$desc")
+  fi
+}
+
 echo "── smoke checks qua 127.0.0.1:$PORT"
 check "GET /api/health → 200" 200 "http://127.0.0.1:$PORT/api/health"
 check "GET / → 200" 200 "http://127.0.0.1:$PORT/"
-check "POST /api/cron/auto-release sai secret → 401" 401 \
+check "GET /login → 200" 200 "http://127.0.0.1:$PORT/login"
+
+# ─── Private beta finance shutdown (spec §4.1/§5.1, plan Task 6) ──────────────
+# FINANCIAL_FEATURES_ENABLED=false trong compose smoke: mọi entry point finance
+# phải trả unavailable TYPED — không auth/parse/read/mutation vận hành.
+check_body "POST /api/payments/momo/create (chưa đăng nhập) → 503 typed denial" 503 \
+  "FINANCIAL_FEATURES_DISABLED" \
+  "http://127.0.0.1:$PORT/api/payments/momo/create" -X POST \
+  -H "Content-Type: application/json" -d '{"orderId":"smoke-order"}'
+check_body "POST /api/payments/momo/ipn body rác → 503 typed denial (không parse)" 503 \
+  "FINANCIAL_FEATURES_DISABLED" \
+  "http://127.0.0.1:$PORT/api/payments/momo/ipn" -X POST \
+  -H "Content-Type: application/json" -d "not-json"
+check_body "POST /api/cron/auto-release secret ĐÚNG → 503 typed denial (không giải ngân)" 503 \
+  "FINANCIAL_FEATURES_DISABLED" \
+  "http://127.0.0.1:$PORT/api/cron/auto-release" -X POST \
+  -H "Authorization: Bearer $CRON_SECRET"
+check "POST /api/cron/auto-release sai secret → 401 (fail-closed auth giữ nguyên)" 401 \
   "http://127.0.0.1:$PORT/api/cron/auto-release" -X POST -H "Authorization: Bearer wrong"
-check "POST /api/payments/momo/ipn body rác → 400" 400 \
-  "http://127.0.0.1:$PORT/api/payments/momo/ipn" -X POST -H "Content-Type: application/json" -d "not-json"
+
+# Page finance retire (Task 4): direct request → 404 TRƯỚC mọi read/session
+for path in /cart /checkout /orders /orders/sales /wallet /offers /exchange; do
+  check "GET $path (finance retire) → 404" 404 "http://127.0.0.1:$PORT$path"
+done
+check "GET /orders/<id> (finance retire) → 404" 404 "http://127.0.0.1:$PORT/orders/smoke-test-id"
+check "GET /listings/<slug>/exchange (finance retire) → 404" 404 \
+  "http://127.0.0.1:$PORT/listings/smoke-test-slug/exchange"
+
+# Return URL MoMo: throw typed denial → error boundary 500 "unavailable" —
+# KHÔNG mutate escrow, KHÔNG redirect vào flow finance sống (spec §5.1)
+check "GET /payments/momo/return (query bất kỳ) → 500 unavailable" 500 \
+  "http://127.0.0.1:$PORT/payments/momo/return?orderId=ORDER-smoke&resultCode=0&amount=1"
 
 # health phải báo db up (không chỉ HTTP 200)
 body=$(curl -s "http://127.0.0.1:$PORT/api/health")
@@ -85,6 +131,7 @@ fi
 
 if [[ ${#FAILED[@]} -eq 0 ]]; then
   echo "DOCKER SMOKE PASS — image production + compose stack vận hành đúng."
+  echo "DOCKER SMOKE PASS — private beta: mọi finance entry point deny typed, page finance 404."
   exit 0
 else
   echo "DOCKER SMOKE FAIL — check đỏ: ${FAILED[*]}" >&2

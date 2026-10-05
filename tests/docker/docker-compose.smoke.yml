@@ -54,6 +54,9 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:?docker-smoke.sh set}
       CRON_SECRET: ${CRON_SECRET:?docker-smoke.sh set}
       NEXT_PUBLIC_APP_URL: https://smoke.invalid
+      # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong stack smoke —
+      # mọi finance entry point phải deny typed (scripts/docker-smoke.sh assert).
+      FINANCIAL_FEATURES_ENABLED: "false"
       ESCROW_AUTO_RELEASE_DAYS: "7"
       TRUST_PROXY_HEADERS: "true"
       # MoMo trống cả 3 — stack smoke không cần cổng thật

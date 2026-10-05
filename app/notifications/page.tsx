@@ -55,7 +55,7 @@ export default async function NotificationsPage() {
           <span className="text-4xl">🔔</span>
           <p className="font-bold">Chưa có thông báo nào</p>
           <p className="text-sm text-[var(--muted)]">
-            Trả giá, đơn hàng, khiếu nại… sẽ hiện tại đây.
+            Thông báo về tin đăng và tài khoản của bạn sẽ hiện tại đây.
           </p>
         </div>
       ) : (

@@ -121,8 +121,8 @@ src/
 |---|---|
 | `npm run preflight` | 7 gate release: contract drift, lint, tsc, unit tests, build, compose config, migration graph |
 | `npm run test:integration` | escrow/ledger invariants trên scratch DB (postgres container tự tạo + tự dọn) |
-| `npm run smoke` | production server (standalone) + scratch DB: health, cron 401, IPN 400 |
-| `npm run docker:smoke` | build image production + compose stack cô lập end-to-end |
+| `npm run smoke` | production server (standalone) + scratch DB: health, cron 401, mọi entry point finance deny typed 503 `FINANCIAL_FEATURES_DISABLED`, page finance retire 404 |
+| `npm run docker:smoke` | build image production + compose stack cô lập end-to-end (cùng hợp đồng finance-disabled) |
 
 Runbook đầy đủ (release/rollback/migration status/stop gates/backup): **docs/runbook.md** ·
 Triển khai: **docs/deployment.md** · Backup/restore: **docs/backup-restore.md**.
