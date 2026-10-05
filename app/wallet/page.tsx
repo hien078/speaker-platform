@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { WithdrawForm } from "@/src/components/withdraw-form";

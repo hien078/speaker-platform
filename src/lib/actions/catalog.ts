@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireAdmin } from "@/src/lib/auth";
 import { audit } from "@/src/lib/actions/helpers";
 import { slugify } from "@/src/lib/utils";

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { OfferCard, type OfferWithListing } from "@/src/components/offer-card";
 import { HandCoins } from "lucide-react";

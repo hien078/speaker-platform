@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { processWithdrawAction } from "@/src/lib/actions/withdraw";
 import { Banknote, LoaderCircle } from "lucide-react";

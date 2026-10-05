@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import {

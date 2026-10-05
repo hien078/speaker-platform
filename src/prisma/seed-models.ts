@@ -2,7 +2,7 @@
  * Seed Product Models (§5) — tạo catalog chuẩn hóa, link listings hiện có,
  * ghi PriceHistory. Chạy: npx tsx src/prisma/seed-models.ts
  */
-import { db } from "./db";
+import { db } from "./db.client";
 import { slugify } from "../lib/utils";
 
 type ModelSeed = {

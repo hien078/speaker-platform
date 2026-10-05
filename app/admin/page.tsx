@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
 import {

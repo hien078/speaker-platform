@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { CITIES, CONDITION_LABELS } from "@/src/lib/constants";
 import { ListingForm } from "@/src/components/listing-form";

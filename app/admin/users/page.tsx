@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";

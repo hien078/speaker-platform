@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { ListingCard, getListingCards } from "@/src/components/listing-card";
 import { Search, ArrowRight, ShieldCheck } from "lucide-react";
 

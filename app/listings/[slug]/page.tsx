@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";

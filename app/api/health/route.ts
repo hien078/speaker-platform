@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 /** GET /api/health — healthcheck cho Docker/K8s/uptime monitor */
 export async function GET() {

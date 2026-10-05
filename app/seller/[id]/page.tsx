@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import { BadgeCheck, MapPin, Star, Package, ShieldCheck } from "lucide-react";

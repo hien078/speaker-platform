@@ -1,6 +1,6 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 /**
  * Double-entry ledger (§17, §118) — mọi dòng tiền ghi 2 entry đối xứng,

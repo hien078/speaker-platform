@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 /**
  * Ví người bán — tính từ ledger thay vì lưu số dư mutable (§17, §120):

@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE, CONDITION_LABELS } from "@/src/lib/constants";
 import { approveListingAction, rejectListingAction } from "@/src/lib/actions/admin";

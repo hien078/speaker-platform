@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { DISPUTE_STATUS_LABELS } from "@/src/lib/constants";
 import { resolveDisputeAction } from "@/src/lib/actions/admin";

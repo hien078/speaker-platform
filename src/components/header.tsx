@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/src/lib/auth";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { Search, ShoppingCart, LogIn, MessageCircle, Bell } from "lucide-react";
 import { HeaderUserMenu } from "@/src/components/header-user-menu";
 import { unreadCount } from "@/src/lib/notify";

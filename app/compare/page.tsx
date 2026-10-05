@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, cn } from "@/src/lib/utils";
 import { tsquery } from "@prisma/orm-postgres/target/full-text";
 import { Scale, X, Plus } from "lucide-react";

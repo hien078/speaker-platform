@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireAdmin } from "@/src/lib/auth";
 import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";

@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 
 /** Lưu / bỏ lưu tin đăng (§28 — Wishlist) */

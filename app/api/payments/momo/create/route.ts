@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { createMomoPayment } from "@/src/lib/momo";
 import { rateLimitRequest } from "@/src/lib/rate-limit";

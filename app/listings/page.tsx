@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { ListingCard, type ListingSort } from "@/src/components/listing-card";
 import { CITIES, CONDITION_LABELS } from "@/src/lib/constants";
 import { websearchToTsquery } from "@prisma/orm-postgres/target/full-text";

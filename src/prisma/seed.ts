@@ -8,7 +8,7 @@
  * - Mật khẩu các tài khoản mẫu lấy từ env SEED_PASSWORD (≥ 8 ký tự) —
  *   không hardcode, không in ra console.
  */
-import { db } from "./db";
+import { db } from "./db.client";
 import bcrypt from "bcryptjs";
 import { slugify } from "../lib/utils";
 import { writeFileSync, mkdirSync } from "node:fs";

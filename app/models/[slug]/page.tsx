@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import {

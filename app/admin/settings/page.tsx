@@ -1,4 +1,4 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { updateCommissionAction, updateSettingAction } from "@/src/lib/actions/admin";
 import { Settings, Percent, SlidersHorizontal } from "lucide-react";
 

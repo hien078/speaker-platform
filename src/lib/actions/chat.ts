@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 
 /** Bắt đầu (hoặc mở lại) hội thoại với seller về một tin đăng */
