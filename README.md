@@ -77,11 +77,26 @@ app/                    # routes (buyer / seller / admin cùng codebase)
   admin/               # dashboard, duyệt tin, đơn, khiếu nại, users, cấu hình
   api/                 # upload, chat polling, logout
 src/
-  prisma/              # contract.prisma (schema), db.ts, seed.ts
+  prisma/              # contract.prisma (schema), db.client.ts (runtime), seed.ts
   lib/                 # auth, utils, constants
     actions/           # server actions theo domain (orders, listings, exchange, ...)
   components/          # UI dùng chung
 ```
+
+## Vận hành (ops)
+
+| Lệnh | Ý nghĩa |
+|---|---|
+| `npm run preflight` | 7 gate release: contract drift, lint, tsc, unit tests, build, compose config, migration graph |
+| `npm run test:integration` | escrow/ledger invariants trên scratch DB (postgres container tự tạo + tự dọn) |
+| `npm run smoke` | production server (standalone) + scratch DB: health, cron 401, IPN 400 |
+| `npm run docker:smoke` | build image production + compose stack cô lập end-to-end |
+
+Runbook đầy đủ (release/rollback/migration status/stop gates/backup): **docs/runbook.md** ·
+Triển khai: **docs/deployment.md** · Backup/restore: **docs/backup-restore.md**.
+
+> Lưu ý Prisma 8: `prisma contract emit` (chạy trong prebuild) ghi đè `src/prisma/db.ts`
+> về scaffold — mọi tuỳ biến runtime nằm ở `src/prisma/db.client.ts`, toàn app import từ đó.
 
 ## Kế hoạch tiếp theo (V2 — theo master plan)
 

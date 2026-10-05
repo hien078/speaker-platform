@@ -9,6 +9,8 @@
 services:
   db:
     image: postgres:16-alpine
+    # Tên cố định cho ops deterministic (backup cron: docker exec loaviet-db ...)
+    container_name: loaviet-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: loaviet
@@ -38,6 +40,7 @@ services:
 
   app:
     build: .
+    container_name: loaviet-app
     restart: unless-stopped
     ports:
       # CHỈ bind loopback — nginx (cùng host) proxy sang đây; KHÔNG expose

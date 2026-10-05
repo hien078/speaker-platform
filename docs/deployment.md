@@ -43,6 +43,8 @@ chmod 600 .env
 # 3. Build + khởi động
 #    Service 'migrate' áp migrations theo graph (migrations/app/) tới ref
 #    'production' TỰ ĐỘNG trước khi app start (app depends_on migrate).
+#    Trước đó chạy preflight trên máy dev/CI: scripts/preflight.sh
+#    (+ scripts/smoke.sh, scripts/docker-smoke.sh — xem docs/runbook.md).
 docker compose -f docker-compose.prod.yml up -d --build
 
 # 4. (Tuỳ chọn) Chạy tay migration khi cần — idempotent, chạy lại không áp lại
@@ -91,13 +93,17 @@ sudo certbot --nginx -d loaviet.vn
 
 ## 5. Backup database
 
+Chi tiết đầy đủ (verify/restore/retention): **docs/backup-restore.md** · Runbook tổng:
+**docs/runbook.md** (release/rollback/migration status/stop gates).
+
 ```bash
-# backup mỗi đêm 2h — crontab:
-0 2 * * * docker exec $(docker ps -qf name=loaviet-db) \
-  pg_dump -U loaviet loaviet | gzip > /backup/db-$(date +\%F).sql.gz
+# backup mỗi đêm 2h — crontab (container db có tên cố định loaviet-db):
+0 2 * * * docker exec loaviet-db pg_dump -U loaviet -Fc loaviet | gzip > /backup/db-$(date +\%F).dump
 
 # giữ 30 bản gần nhất:
-0 3 * * * find /backup -name "db-*.sql.gz" -mtime +30 -delete
+0 3 * * * find /backup -name "db-*.dump" -mtime +30 -delete
+
+# verify restore (non-destructive) 1 lần/tuần — xem docs/backup-restore.md mục 2
 ```
 
 ## 6. Vận hành thường ngày
