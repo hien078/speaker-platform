@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 /**
  * MoMo Payment Gateway v2 (developers.momo.vn)
@@ -41,6 +42,9 @@ export type CreatePaymentResult = {
 
 /** Tạo thanh toán MoMo → trả payUrl để redirect người mua */
 export async function createMomoPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
+  // Defense-in-depth: route đã guard, nhưng provider request creation là mutation
+  // tài chính reusable — caller tương lai không bypass được (plan Task 3, spec §4.1)
+  assertFinancialFeaturesEnabled();
   const { partnerCode, accessKey, secretKey, endpoint } = momoConfig();
   if (!partnerCode || !accessKey || !secretKey) {
     // Fail loud — không bao giờ ký bằng credential fallback: thiếu env là lỗi cấu hình

@@ -8,7 +8,7 @@
  * - markExchangeTopupPaid idempotent tương tự
  * - reconcileEscrow: tổng ledger escrow khớp tổng Payment held
  */
-import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -18,6 +18,19 @@ import { reconcileEscrow } from "../../src/lib/ledger";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
+
+// Private beta (plan Task 3): markEscrowPaid/markExchangeTopupPaid có
+// defense-in-depth assert tài chính. Bộ thuật toán legacy này bật tài chính
+// NGÔI LẬP (dev/test) để vẫn chứng minh invariant escrow — không yếu hóa
+// ranh giới (hành vi tắt mặc định: tests/unit/financial-shutdown-*.test.ts).
+beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("FINANCIAL_FEATURES_ENABLED", "true");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 let seq = 0;
 const uid = () => `it-${Date.now()}-${seq++}`;

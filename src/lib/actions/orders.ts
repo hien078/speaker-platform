@@ -8,6 +8,7 @@ import { generateOrderCode } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease, escrowRefund } from "@/src/lib/ledger";
 import { recordStatusChange, getAutoReleaseDays } from "@/src/lib/actions/helpers";
 import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
@@ -20,6 +21,7 @@ type CheckoutItem = { listingId: string; quantity: number };
  * - direct/cod: buyer trả seller trực tiếp, nền tảng ghi nhận hóa đơn hoa hồng
  */
 export async function createOrderAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
 
   const paymentMethod = String(formData.get("paymentMethod") ?? "escrow") as "escrow" | "direct" | "cod";
@@ -154,6 +156,7 @@ export async function createOrderAction(formData: FormData): Promise<void> {
 
 /** Mock thanh toán escrow: mô phỏng cổng VNPay/MoMo trả về thành công */
 export async function payEscrowAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // tài chính tắt → deny TRƯỚC mock guard (spec §4.1)
   assertMockPaymentsAllowed(); // guard server-side — UI ẩn nút không đủ (Next: action là entry point công khai)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
@@ -195,6 +198,7 @@ export async function payEscrowAction(formData: FormData): Promise<void> {
 
 /** Seller xác nhận đã nhận tiền (direct/cod) → chuyển sang chuẩn bị hàng */
 export async function sellerConfirmPaymentAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
 
@@ -231,6 +235,7 @@ export async function sellerConfirmPaymentAction(formData: FormData): Promise<vo
 
 /** Seller gửi hàng — nhập mã vận đơn */
 export async function shipOrderAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
   const tracking = String(formData.get("tracking") ?? "").trim();
@@ -276,6 +281,7 @@ async function recordSoldPrices(orderId: string): Promise<void> {
 
 /** Buyer xác nhận đã nhận hàng → giải ngân cho seller (trừ hoa hồng) */
 export async function confirmReceiptAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
 
@@ -332,6 +338,7 @@ export async function confirmReceiptAction(formData: FormData): Promise<void> {
 
 /** Buyer hủy đơn (chưa gửi hàng & chưa trả escrow) */
 export async function cancelOrderAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
 
@@ -375,6 +382,7 @@ export async function cancelOrderAction(formData: FormData): Promise<void> {
 
 /** Mở khiếu nại — đóng băng giải ngân tự động */
 export async function openDisputeAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // khiếu nại tài chính = finance mutation (spec §4.1)
   const user = await requireUser();
   const orderId = String(formData.get("orderId") ?? "");
   const reason = String(formData.get("reason") ?? "").trim();

@@ -1,6 +1,10 @@
 import { processAutoReleases } from "@/src/lib/actions/helpers";
 import { verifyCronAuth } from "@/src/lib/cron-auth";
 import { captureError } from "@/src/lib/observability";
+import {
+  FINANCIAL_FEATURES_DISABLED,
+  financialFeaturesEnabled,
+} from "@/src/lib/financial-features";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +22,8 @@ export const dynamic = "force-dynamic";
  *   nằm trong tập hợp cho tới khi được xử lý — không mất dữ liệu).
  * - Response: {"ok":true,"released":<số đơn đã giải ngân>} — released=0
  *   là bình thường (không có đơn quá hạn).
+ * - Private beta (spec §4.1): tài chính tắt → KHÔNG giải ngân — typed denial
+ *   sau fail-closed auth (caller chưa xác thực không biết trạng thái finance).
  */
 export async function POST(request: Request) {
   if (!process.env.CRON_SECRET) {
@@ -29,6 +35,14 @@ export async function POST(request: Request) {
   }
   if (!verifyCronAuth(request)) {
     return Response.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+  }
+  if (!financialFeaturesEnabled()) {
+    // Ranh giới tài chính: cron không phải escape hatch — không payout/ledger
+    // khi tắt (spec §4.1). processAutoReleases còn có assert riêng (defense-in-depth).
+    return Response.json(
+      { ok: false, error: FINANCIAL_FEATURES_DISABLED },
+      { status: 503 },
+    );
   }
 
   try {

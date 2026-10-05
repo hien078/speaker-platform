@@ -5,10 +5,12 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { getOrCreateCart } from "@/src/lib/actions/helpers";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 
 
 export async function addToCartAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const listingId = String(formData.get("listingId") ?? "");
 
@@ -39,6 +41,7 @@ export async function addToCartAction(formData: FormData): Promise<void> {
 }
 
 export async function updateCartItemAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const itemId = String(formData.get("itemId") ?? "");
   const quantity = Number(formData.get("quantity") ?? 1);
@@ -57,6 +60,7 @@ export async function updateCartItemAction(formData: FormData): Promise<void> {
 }
 
 export async function removeFromCartAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // ranh giới tài chính trước mọi read/mutation (spec §4.1)
   const user = await requireUser();
   const itemId = String(formData.get("itemId") ?? "");
 

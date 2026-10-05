@@ -6,6 +6,7 @@ import { requireUser, requireAdmin } from "@/src/lib/auth";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { audit } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, withdrawPaid } from "@/src/lib/ledger";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 export type WithdrawFormState = { error?: string };
@@ -20,6 +21,7 @@ export async function createWithdrawRequestAction(
   _prev: WithdrawFormState,
   formData: FormData,
 ): Promise<WithdrawFormState> {
+  assertFinancialFeaturesEnabled(); // rút tiền = wallet mutation — deny trước đọc ví (spec §4.1)
   const user = await requireUser();
 
   const amount = Math.round(Number(formData.get("amount") ?? 0));
@@ -65,6 +67,7 @@ export async function createWithdrawRequestAction(
 
 /** Admin xử lý: chuyển sang processing / paid / rejected */
 export async function processWithdrawAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // admin KHÔNG phải escape hatch (spec §4.10) — deny trước claim/ledger
   const admin = await requireAdmin();
   const withdrawId = String(formData.get("withdrawId") ?? "");
   const action = String(formData.get("action") ?? "");

@@ -6,6 +6,7 @@ import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { generateOrderCode, computeCommission } from "@/src/lib/utils";
 import { recordStatusChange } from "@/src/lib/actions/helpers";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 const OFFER_EXPIRY_DAYS = 3;
@@ -17,6 +18,7 @@ export async function createOfferAction(
   _prev: OfferFormState,
   formData: FormData,
 ): Promise<OfferFormState> {
+  assertFinancialFeaturesEnabled(); // trả giá = purchase-intent (accept tạo Order) — spec §4.1
   const user = await requireUser();
 
   const listingId = String(formData.get("listingId") ?? "");
@@ -56,6 +58,7 @@ export async function createOfferAction(
 
 /** Seller phản hồi: accept (tạo đơn escrow) / counter / reject */
 export async function respondOfferAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // accept tạo Order escrow — deny trước read/mutation (spec §4.1)
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
   const response = String(formData.get("response") ?? ""); // accept | counter | reject
@@ -149,6 +152,7 @@ export async function respondOfferAction(formData: FormData): Promise<void> {
 
 /** Buyer chấp nhận phản đề nghị của seller → đơn escrow tại giá counter */
 export async function acceptCounterAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // counter chấp nhận tạo Order escrow — spec §4.1
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 
@@ -209,6 +213,7 @@ export async function acceptCounterAction(formData: FormData): Promise<void> {
 
 /** Buyer rút đề nghị (chưa được phản hồi) */
 export async function cancelOfferAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // cùng ranh giới domain trả giá (spec §4.1)
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 

@@ -4,6 +4,11 @@
  * - body không phải JSON → 400 (không để throw thành 500 unhandled)
  * - chữ ký sai / thiếu → 401
  * - chưa cấu hình MoMo → 401 (fail closed, không verify bằng credential fallback)
+ *
+ * Private beta (plan Task 3): tài chính TẮT MẶC ĐỊNH → IPN deny typed 503
+ * TRƯỚC parse/verify (xem tests/unit/financial-shutdown-routes.test.ts). Bộ
+ * hardening này bật tài chính NGÔI LẬP (FINANCIAL_FEATURES_ENABLED=true,
+ * dev/test) để vẫn tập luyện đủ path 400/401 — không yếu hóa ranh giới.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
@@ -45,6 +50,10 @@ function ipnRequest(payload: unknown): Request {
 }
 
 beforeEach(() => {
+  // Bật tài chính NGÔI LẬP cho bộ hardening legacy (plan Task 3) —
+  // hành vi tắt mặc định được test riêng ở financial-shutdown-routes.test.ts
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("FINANCIAL_FEATURES_ENABLED", "true");
   vi.stubEnv("MOMO_PARTNER_CODE", "MOMO");
   vi.stubEnv("MOMO_ACCESS_KEY", TEST_ACCESS_KEY);
   vi.stubEnv("MOMO_SECRET_KEY", TEST_SECRET_KEY);

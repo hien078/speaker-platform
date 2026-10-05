@@ -3,6 +3,10 @@ import { verifyMomoCallback, type MomoCallbackBody } from "@/src/lib/momo";
 import { markEscrowPaid, markExchangeTopupPaid } from "@/src/lib/escrow";
 import { rateLimitRequest } from "@/src/lib/rate-limit";
 import { captureError } from "@/src/lib/observability";
+import {
+  FINANCIAL_FEATURES_DISABLED,
+  financialFeaturesEnabled,
+} from "@/src/lib/financial-features";
 
 /**
  * POST /api/payments/momo/ipn — webhook server-to-server từ MoMo.
@@ -10,6 +14,13 @@ import { captureError } from "@/src/lib/observability";
  * MoMo yêu cầu response 204 khi xử lý thành công.
  */
 export async function POST(request: Request) {
+  // Ranh giới tài chính TRƯỚC mọi thứ: khi tắt, KHÔNG parse payload provider
+  // (kể cả hợp lệ) rồi mutate escrow — typed fail closed (spec §4.1, §5.1).
+  // 503 + mã ổn định: provider retry an toàn, không ack công việc chưa làm.
+  if (!financialFeaturesEnabled()) {
+    return Response.json({ error: FINANCIAL_FEATURES_DISABLED }, { status: 503 });
+  }
+
   // MoMo retry khi lỗi — limit rộng, chỉ chặn flood (fail open theo rateLimitRequest)
   const limited = await rateLimitRequest(request, "momo:ipn", {
     limit: 60,

@@ -1,6 +1,7 @@
 import "server-only";
 import { db } from "@/src/prisma/db.client";
 import { recordLedgerTx, escrowIn } from "@/src/lib/ledger";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
@@ -22,6 +23,9 @@ export async function markEscrowPaid(
   providerTxnId: string,
   provider: string,
 ): Promise<boolean> {
+  // Defense-in-depth: IPN/return đã guard, nhưng thư viện này là mutation escrow
+  // reusable — caller tương lai không bypass được ranh giới (plan Task 3, spec §4.1)
+  assertFinancialFeaturesEnabled();
   const order = await db.orm.public.Order.first({ id: orderId });
   if (!order) return false;
   if (order.status !== "awaiting_payment") return false; // fast path — đã xử lý
@@ -77,6 +81,8 @@ export async function markExchangeTopupPaid(
   providerTxnId: string,
   provider: string,
 ): Promise<boolean> {
+  // Defense-in-depth — như markEscrowPaid (plan Task 3, spec §4.1)
+  assertFinancialFeaturesEnabled();
   const offer = await db.orm.public.ExchangeOffer.first({ id: offerId });
   if (!offer || offer.status !== "accepted" || offer.cashTopup <= 0) return false;
 

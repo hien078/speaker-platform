@@ -4,6 +4,7 @@
  * Mọi hàm ở đây chỉ được import bởi code server, không bao giờ gửi xuống client.
  */
 import { db } from "@/src/prisma/db.client";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -61,6 +62,9 @@ export async function getAutoReleaseDays(): Promise<number> {
  * Trả về số đơn đã xử lý.
  */
 export async function processAutoReleases(): Promise<number> {
+  // Defense-in-depth: cron route đã guard, nhưng hàm này là engine giải ngân
+  // reusable — caller tương lai không bypass được ranh giới (plan Task 3, spec §4.1)
+  assertFinancialFeaturesEnabled();
   const now = new Date().toISOString();
   const overdue = await db.orm.public.Order
     .where((o) => o.status.eq("shipped"))

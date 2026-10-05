@@ -44,6 +44,11 @@ const validBody: MomoCallbackBody = {
 };
 
 beforeEach(() => {
+  // Bật tài chính NGÔI LẬP cho bộ legacy (plan Task 3): createMomoPayment có
+  // defense-in-depth assert — hành vi tắt mặc định được test riêng ở
+  // tests/unit/financial-shutdown-routes.test.ts + financial-shutdown-actions.test.ts
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("FINANCIAL_FEATURES_ENABLED", "true");
   vi.stubEnv("MOMO_PARTNER_CODE", "MOMO");
   vi.stubEnv("MOMO_ACCESS_KEY", TEST_ACCESS_KEY);
   vi.stubEnv("MOMO_SECRET_KEY", TEST_SECRET_KEY);

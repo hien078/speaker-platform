@@ -1,8 +1,13 @@
 /**
  * Ledger double-entry — financial invariants (§17, §118).
  * recordLedgerTx là thuần đối với tx context → test với fake in-memory.
+ *
+ * Private beta (plan Task 3): recordLedgerTx có defense-in-depth assert —
+ * bộ invariant legacy này bật tài chính NGÔI LẬP (FINANCIAL_FEATURES_ENABLED=true,
+ * dev/test) để vẫn chứng minh thuật toán; hành vi tắt mặc định được test riêng
+ * ở tests/unit/financial-shutdown-actions.test.ts (không yếu hóa ranh giới).
  */
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   escrowIn,
   escrowRefund,
@@ -31,6 +36,15 @@ function fakeTx() {
   };
   return { tx: tx as never, created };
 }
+
+beforeEach(() => {
+  vi.stubEnv("NODE_ENV", "test");
+  vi.stubEnv("FINANCIAL_FEATURES_ENABLED", "true");
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 describe("recordLedgerTx — invariant tổng = 0", () => {
   it("ghi được các entry đối xứng (escrowIn)", async () => {

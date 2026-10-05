@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { db } from "@/src/prisma/db.client";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 /**
  * Double-entry ledger (§17, §118) — mọi dòng tiền ghi 2 entry đối xứng,
@@ -30,6 +31,9 @@ export async function recordLedgerTx(
   refId: string | null,
   entries: Entry[],
 ): Promise<string> {
+  // Defense-in-depth: mọi caller hiện tại là entry point đã guard, nhưng ledger
+  // là mutation tài chính reusable — caller tương lai không bypass được (plan Task 3)
+  assertFinancialFeaturesEnabled();
   const sum = entries.reduce((s, e) => s + e.amount, 0);
   if (sum !== 0) {
     throw new Error(

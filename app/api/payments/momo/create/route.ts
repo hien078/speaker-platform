@@ -2,6 +2,10 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { createMomoPayment } from "@/src/lib/momo";
 import { rateLimitRequest } from "@/src/lib/rate-limit";
+import {
+  FINANCIAL_FEATURES_DISABLED,
+  financialFeaturesEnabled,
+} from "@/src/lib/financial-features";
 
 function appUrl(): string {
   // Dev default khớp .env.example (port 3000); production đặt NEXT_PUBLIC_APP_URL
@@ -15,6 +19,12 @@ function appUrl(): string {
  * → tạo thanh toán MoMo, trả { payUrl } để client redirect.
  */
 export async function POST(request: Request) {
+  // Ranh giới tài chính TRƯỚC mọi thứ: không rate-limit/auth/đọc đơn/tạo
+  // provider request khi tài chính tắt — typed fail closed (spec §4.1, §5.1)
+  if (!financialFeaturesEnabled()) {
+    return Response.json({ error: FINANCIAL_FEATURES_DISABLED }, { status: 503 });
+  }
+
   // tạo thanh toán = endpoint nhạy cảm tiền — rate limit/IP trước mọi xử lý
   const limited = await rateLimitRequest(request, "payment:create", {
     limit: 10,

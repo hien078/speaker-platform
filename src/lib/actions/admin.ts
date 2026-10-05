@@ -5,6 +5,7 @@ import { db } from "@/src/prisma/db.client";
 import { requireAdmin } from "@/src/lib/auth";
 import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 
@@ -49,6 +50,7 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
 
 /** Xử lý khiếu nại: nghiêng về buyer (hoàn tiền) hoặc seller (giải ngân) */
 export async function resolveDisputeAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // khiếu nại tài chính = finance mutation — admin không phải escape hatch (spec §4.10)
   const admin = await requireAdmin();
   const disputeId = String(formData.get("disputeId") ?? "");
   const resolution = String(formData.get("resolution") ?? "").trim();
@@ -127,6 +129,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
 
 /** Cập nhật % hoa hồng danh mục */
 export async function updateCommissionAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // commission mutation — spec §4.1
   const admin = await requireAdmin();
   const categoryId = String(formData.get("categoryId") ?? "");
   const commissionRate = Math.min(30, Math.max(0, Number(formData.get("commissionRate") ?? 5)));
@@ -144,6 +147,7 @@ export async function updateCommissionAction(formData: FormData): Promise<void> 
 
 /** Cấu hình nền tảng (key-value) */
 export async function updateSettingAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // UI settings hôm nay chỉ còn finance keys (escrow/commission) — spec §4.1
   const admin = await requireAdmin();
   const key = String(formData.get("key") ?? "");
   const value = String(formData.get("value") ?? "").trim();
