@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { financialFeaturesEnabled } from "@/src/lib/financial-features";
 import { formatVND } from "@/src/lib/utils";
 import { CheckoutForm } from "@/src/components/checkout-form";
 import { ShieldCheck, Truck, HandCoins } from "lucide-react";
@@ -12,6 +13,11 @@ export const metadata = { title: "Thanh toán" };
 export default async function CheckoutPage({
   searchParams,
 }: PageProps<"/checkout">) {
+  // Private beta (Batch 0–1): tài chính tắt mặc định — finance-only page không còn
+  // reachable. Kiểm tra ranh giới TRƯỚC mọi read/mutation; code bên dưới giữ
+  // nguyên dormant (không xóa code/dữ liệu lịch sử).
+  if (!financialFeaturesEnabled()) notFound();
+
   const session = await getCurrentUser();
   if (!session) redirect("/login");
   // lấy phone/city đầy đủ từ DB (SessionUser chỉ mang thông tin cơ bản)

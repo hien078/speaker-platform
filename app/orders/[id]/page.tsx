@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { financialFeaturesEnabled } from "@/src/lib/financial-features";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import {
   ORDER_STATUS_LABELS,
@@ -40,6 +41,11 @@ const STEPS = ["awaiting_payment", "paid_escrow", "shipped", "completed"] as con
 export default async function OrderDetailPage({
   params,
 }: PageProps<"/orders/[id]">) {
+  // Private beta (Batch 0–1): tài chính tắt mặc định — finance-only page không còn
+  // reachable. Kiểm tra ranh giới TRƯỚC mọi read/mutation; code bên dưới giữ
+  // nguyên dormant (không xóa code/dữ liệu lịch sử).
+  if (!financialFeaturesEnabled()) notFound();
+
   const { id } = await params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");

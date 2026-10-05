@@ -5,7 +5,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE } from "@/src/lib/constants";
 import { toggleListingVisibilityAction, deleteListingAction } from "@/src/lib/actions/listings";
-import { Package, Eye, EyeOff, Trash2, Plus, Handshake, Pencil } from "lucide-react";
+import { Package, Eye, EyeOff, Trash2, Plus, Pencil } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Tin đăng của tôi" };
@@ -21,16 +21,10 @@ export default async function MyListingsPage({
   const listings = await db.orm.public.Listing
     .where({ sellerId: user.id })
     .include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1))
-    .include("category", (c) => c.select("name", "commissionRate"))
+    .include("category", (c) => c.select("name"))
     .include("brand", (b) => b.select("name"))
-    .include("targetOffers", (o) => o.select("id", "status"))
     .orderBy((l) => l.createdAt.desc())
     .all();
-
-  const pendingOffers = listings.reduce(
-    (s, l) => s + l.targetOffers.filter((o) => o.status === "proposed").length,
-    0,
-  );
 
   return (
     <main className="mx-auto max-w-4xl px-4 py-10 lg:px-8">
@@ -56,16 +50,6 @@ export default async function MyListingsPage({
         </div>
       )}
 
-      {pendingOffers > 0 && (
-        <Link
-          href="/exchange"
-          className="mt-5 flex items-center gap-2.5 rounded-xl border border-sky-500/30 bg-[#2563a8]/10 px-4 py-3 text-sm text-[#2563a8] transition hover:bg-[#eaf2fb]"
-        >
-          <Handshake className="size-4" />
-          Bạn có <b>{pendingOffers}</b> đề nghị trao đổi đang chờ phản hồi →
-        </Link>
-      )}
-
       {listings.length === 0 ? (
         <div className="card mt-8 grid place-items-center gap-3 p-16 text-center">
           <span className="text-5xl">📦</span>
@@ -76,7 +60,6 @@ export default async function MyListingsPage({
       ) : (
         <div className="mt-8 space-y-4">
           {listings.map((l) => {
-            const pendingOfferCount = l.targetOffers.filter((o) => o.status === "proposed").length;
             return (
               <div key={l.id} className="card flex flex-col gap-4 p-4 sm:flex-row">
                 <Link href={`/listings/${l.slug}`} className="relative size-28 shrink-0 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
@@ -95,11 +78,6 @@ export default async function MyListingsPage({
                     </span>
                     {l.acceptExchange && (
                       <span className="badge bg-[#eaf2fb] text-[#2563a8]">Trao đổi</span>
-                    )}
-                    {pendingOfferCount > 0 && (
-                      <Link href="/exchange" className="badge bg-[var(--accent-soft)] text-[var(--accent)] hover:bg-[var(--accent)]/25">
-                        {pendingOfferCount} đề nghị trao đổi
-                      </Link>
                     )}
                   </div>
                   <Link href={`/listings/${l.slug}`} className="mt-1.5 block line-clamp-1 font-semibold hover:text-[var(--accent)]">

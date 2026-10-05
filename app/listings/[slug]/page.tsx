@@ -6,20 +6,14 @@ import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDateShort, cn } from "@/src/lib/utils";
 import { CONDITION_LABELS } from "@/src/lib/constants";
-import { addToCartAction } from "@/src/lib/actions/cart";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
-import { OfferForm } from "@/src/components/offer-form";
 import {
   MapPin,
   Eye,
-  ShieldCheck,
   BadgeCheck,
   Handshake,
-  ShoppingCart,
   MessageCircle,
-  Banknote,
-  Zap,
   Package,
   Heart,
 } from "lucide-react";
@@ -35,7 +29,7 @@ export default async function ListingDetailPage({
   const listing = await db.orm.public.Listing
     .where({ slug })
     .include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()))
-    .include("category", (c) => c.select("id", "name", "slug", "commissionRate"))
+    .include("category", (c) => c.select("id", "name", "slug"))
     .include("brand", (b) => b.select("name"))
     .include("seller", (s) => s.select("id", "name", "city", "createdAt", "isVerifiedSeller", "avatarUrl"))
     .first();
@@ -52,7 +46,6 @@ export default async function ListingDetailPage({
   }
 
   const isOwner = user?.id === listing.seller!.id;
-  const commission = Math.round((listing.price * listing.category!.commissionRate) / 100);
 
   // đã lưu vào wishlist chưa?
   const saved = user
@@ -178,11 +171,11 @@ export default async function ListingDetailPage({
 
             <div className="mt-6 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] p-4">
               <p className="flex items-start gap-2.5 text-sm leading-relaxed text-[var(--ink-2)]">
-                <ShieldCheck className="mt-0.5 size-5 shrink-0 text-[var(--accent)]" />
+                <Handshake className="mt-0.5 size-5 shrink-0 text-[var(--accent)]" />
                 <span>
-                  Giao dịch qua LoaViet: bạn trả tiền vào nền tảng, người bán gửi hàng, bạn xác nhận
-                  nhận được loa rồi nền tảng mới giải ngân. Nếu có vấn đề, mở khiếu nại trong{" "}
-                  <b>7 ngày</b> — tiền vẫn đang được giữ.
+                  Thỏa thuận giá, hỏi tình trạng thật và hẹn xem hàng trực tiếp qua chat.
+                  Hẹn ở nơi công cộng, kiểm tra và test loa kỹ trước khi trả tiền; không
+                  chia sẻ OTP/mật khẩu và cẩn trọng với link thanh toán lạ.
                 </span>
               </p>
             </div>
@@ -221,36 +214,17 @@ export default async function ListingDetailPage({
             <div className="mt-4 space-y-2.5">
               {listing.status === "approved" && !isOwner ? (
                 <>
-                  <Link href={`/checkout?listing=${listing.slug}`} className="btn-primary w-full">
-                    <Zap className="size-4" />
-                    Mua ngay
-                  </Link>
-                  <form action={addToCartAction}>
-                    <input type="hidden" name="listingId" value={listing.id} />
-                    <button type="submit" className="btn-secondary w-full">
-                      <ShoppingCart className="size-4" />
-                      Thêm vào giỏ
-                    </button>
-                  </form>
-                  {listing.acceptExchange && (
-                    <Link
-                      href={`/listings/${listing.slug}/exchange`}
-                      className="btn w-full border border-sky-500/40 bg-[#2563a8]/10 text-[#2563a8] hover:bg-[#2563a8]/20"
-                    >
-                      <Handshake className="size-4" />
-                      Đề nghị trao đổi + tiền bù
-                    </Link>
-                  )}
                   <form action={startChat}>
                     <input type="hidden" name="listingId" value={listing.id} />
-                    <button type="submit" className="btn-ghost w-full">
+                    <button type="submit" className="btn-primary w-full">
                       <MessageCircle className="size-4" />
-                      Chat với người bán
+                      Nhắn người bán
                     </button>
                   </form>
-                  {listing.negotiable && (
-                    <OfferForm listingId={listing.id} listingPrice={listing.price} />
-                  )}
+                  <p className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+                    Thanh toán và giao nhận hàng do bạn và người bán tự thỏa thuận,
+                    diễn ra độc lập ngoài LoaViet. LoaViet không giữ tiền và không bảo đảm giao dịch.
+                  </p>
                 </>
               ) : listing.status === "sold" ? (
                 <p className="rounded-lg bg-[var(--paper)] py-3 text-center text-sm font-semibold text-[var(--ink-2)]">
@@ -266,17 +240,6 @@ export default async function ListingDetailPage({
                   {listing.status === "pending" ? "Tin đang chờ quản trị duyệt" : "Tin không còn hiển thị"}
                 </p>
               )}
-            </div>
-
-            <div className="mt-4 rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
-              <p className="flex items-center gap-1.5 font-semibold text-[var(--ink-2)]">
-                <Banknote className="size-3.5 text-[var(--accent)]" />
-                Hoa hồng nền tảng: {listing.category!.commissionRate}%
-              </p>
-              <p className="mt-1">
-                Khi giao dịch hoàn tất, LoaViet thu {formatVND(commission)} ({listing.category!.commissionRate}%)
-                từ người bán. Người mua không mất thêm phí.
-              </p>
             </div>
           </div>
 

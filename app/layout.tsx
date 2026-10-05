@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     template: "%s · LoaViet",
   },
   description:
-    "Mua bán loa secondhand và mới, kèm trao đổi. Tiền được giữ hộ đến khi bạn nhận hàng.",
+    "Chợ loa secondhand và mới — tìm kiếm, nhắn người bán và tự thỏa thuận. LoaViet không giữ tiền và không bảo đảm giao dịch.",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,

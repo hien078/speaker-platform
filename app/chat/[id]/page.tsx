@@ -4,7 +4,7 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ChatWindow } from "@/src/components/chat-window";
 import { formatVND } from "@/src/lib/utils";
-import { ArrowLeft, Handshake } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -72,19 +72,6 @@ export default async function ConversationPage({
             </Link>
           )}
         </div>
-
-        {/* CTA trao đổi */}
-        {listing && listing.acceptExchange && convo.buyerId === user.id && listing.status === "approved" && (
-          <div className="border-b border-[var(--line)] bg-[#2563a8]/5 px-4 py-2.5">
-            <Link
-              href={`/listings/${listing.slug}/exchange`}
-              className="flex items-center gap-2 text-xs font-semibold text-[#2563a8] hover:text-sky-200"
-            >
-              <Handshake className="size-3.5" />
-              Tin này nhận trao đổi — gửi đề nghị đổi loa + tiền bù
-            </Link>
-          </div>
-        )}
 
         {/* Cửa sổ chat */}
         <ChatWindow conversationId={convo.id} myUserId={user.id} />

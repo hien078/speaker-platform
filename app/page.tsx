@@ -3,7 +3,7 @@ import { db } from "@/src/prisma/db.client";
 import { ListingCard, getListingCards } from "@/src/components/listing-card";
 import { FeaturedSpeakersSection } from "@/src/components/featured-speakers";
 import { SecondhandModelsSection } from "@/src/components/secondhand-models";
-import { Search, ArrowRight, ShieldCheck } from "lucide-react";
+import { Search, ArrowRight, MessageCircle } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -31,12 +31,12 @@ export default async function HomePage() {
           </p>
           <h1 className="mt-3 text-[34px] font-extrabold leading-[1.12] tracking-tight text-[var(--ink)] sm:text-[42px]">
             Loa xịn, giá thật,<br />
-            giao dịch an toàn.
+            thỏa thuận trực tiếp.
           </h1>
           <p className="mt-4 max-w-lg text-[15px] leading-relaxed text-[var(--ink-2)]">
             Loa thùng, loa kéo, bookshelf, ampli — từ người bán đã xác minh.
-            Không lo dính hàng hỏng mô tả sai: bạn có 7 ngày kiểm tra hàng trước khi tiền
-            chuyển cho người bán.
+            Nhắn người bán để hỏi giá, xem tình trạng thật và hẹn gặp kiểm tra loa
+            trực tiếp.
           </p>
 
           {/* Tìm kiếm */}
@@ -54,7 +54,7 @@ export default async function HomePage() {
           </form>
 
           <p className="mt-3 text-[12px] text-[var(--muted)]">
-            {stats.count} tin đang bán · hoa hồng 4–8% chỉ tính khi bán được
+            {stats.count} tin đang bán · đăng tin miễn phí trong private beta
           </p>
         </div>
       </section>
@@ -108,7 +108,7 @@ export default async function HomePage() {
             <div>
               <h2 className="text-[17px] font-extrabold tracking-tight">Nhận đổi loa lấy loa</h2>
               <p className="mt-0.5 text-[13px] text-[var(--muted)]">
-                Đổi chéo sản phẩm, phần chênh lệch chuyển qua nền tảng
+                Đổi chéo sản phẩm — hai bên tự thỏa thuận qua chat
               </p>
             </div>
             <Link href="/listings?exchange=1" className="text-[13px] font-semibold text-[var(--accent)] hover:underline">
@@ -135,25 +135,25 @@ export default async function HomePage() {
         </section>
       )}
 
-      {/* ═══ Cách giữ tiền — giải thích thật, kẻ mảnh ═══ */}
+      {/* ═══ Vòng lặp beta: tìm → chat → gặp & thỏa thuận ═══ */}
       <section className="my-10 rounded-lg border border-[var(--line)] bg-white p-6 sm:p-8">
-        <p className="section-label">Giao dịch qua LoaViet</p>
+        <p className="section-label">Giao dịch trên LoaViet</p>
         <div className="mt-6 grid gap-8 sm:grid-cols-3">
           {[
             {
               n: "1",
-              title: "Bạn trả tiền vào nền tảng",
-              desc: "Chuyển qua MoMo hoặc thẻ. Tiền nằm ở đó, người bán thấy đơn đã thanh toán nhưng chưa nhận được tiền.",
+              title: "Tìm loa phù hợp",
+              desc: "Tìm kiếm, lọc theo dòng loa, hãng, giá và khu vực; so sánh giá tham chiếu từ catalog model.",
             },
             {
               n: "2",
-              title: "Người bán gửi loa cho bạn",
-              desc: "Nhập mã vận đơn trên hệ thống. Bạn theo dõi được đơn đang đi đâu, không phải hỏi qua Zalo.",
+              title: "Nhắn người bán",
+              desc: "Hỏi giá, tình trạng thật, phụ kiện đi kèm. Người bán đã xác minh và phản hồi qua chat trên nền tảng.",
             },
             {
               n: "3",
-              title: "Bạn nhận hàng, kiểm tra 7 ngày",
-              desc: "Loa đúng mô tả thì bấm xác nhận — tiền trừ hoa hồng chuyển cho người bán. Sai mô tả thì mở khiếu nại, tiền vẫn đang được giữ.",
+              title: "Gặp và thỏa thuận",
+              desc: "Hẹn xem và test loa trực tiếp. Thanh toán và giao nhận hàng do hai bên tự thỏa thuận, diễn ra độc lập ngoài LoaViet — nền tảng không giữ tiền.",
             },
           ].map((s) => (
             <div key={s.n}>
@@ -172,8 +172,8 @@ export default async function HomePage() {
 
         <div className="mt-6 flex flex-wrap items-center justify-between gap-4">
           <p className="flex items-center gap-2 text-[13px] text-[var(--ink-2)]">
-            <ShieldCheck className="size-4 text-[var(--green)]" />
-            Đăng tin miễn phí — hoa hồng chỉ trừ khi bán được hàng
+            <MessageCircle className="size-4 text-[var(--accent)]" />
+            Mọi thỏa thuận bắt đầu từ chat — LoaViet không giữ tiền và không bảo đảm giao dịch
           </p>
           <div className="flex gap-2">
             <Link href="/sell/new" className="btn-primary h-9 px-5 text-[13px]">

@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
-import { BadgeCheck, MapPin, Star, Package, ShieldCheck } from "lucide-react";
+import { BadgeCheck, MapPin, Star, Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -107,9 +107,10 @@ export default async function SellerProfilePage({
         </div>
 
         <p className="relative mt-6 flex items-start gap-2 rounded-xl border border-[var(--green)]/25 bg-[var(--green-soft)] px-4 py-2.5 text-xs leading-relaxed text-[var(--green)]/90">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-          Giao dịch với người bán này qua LoaViet để được escrow bảo vệ — nền tảng giữ tiền
-          của bạn cho đến khi nhận hàng và xác nhận.
+          <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+          Đã xác minh thông tin người bán theo yêu cầu hiện tại của LoaViet. Thanh
+          toán và giao nhận hàng do bạn và người bán tự thỏa thuận — LoaViet không giữ tiền
+          và không bảo đảm giao dịch.
         </p>
       </div>
 
