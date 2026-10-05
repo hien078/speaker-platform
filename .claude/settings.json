@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r \".tool_input.file_path // empty\"); case \"$f\" in *.env.example) ;; *.env|*.env.*|*.pem|*.key|*id_rsa*|*id_ed25519*|*credentials*) jq -n --arg f \"$f\" '{hookSpecificOutput:{hookEventName:\"PreToolUse\",permissionDecision:\"deny\",permissionDecisionReason:(\"Blocked: secret file \" + $f)}}';; esac",
+            "statusMessage": "Checking secret-file access"
+          }
+        ]
+      }
+    ]
+  }
+}
