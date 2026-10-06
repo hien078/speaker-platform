@@ -1,4 +1,7 @@
-import { db } from "@/src/prisma/db.client";
+// Review fix D1: import RELATIVE (KHÔNG alias `@/`) — chuỗi import của
+// scripts/admin-bootstrap.ts phải chạy dưới tsx trong container migrate
+// (Dockerfile stage migrate KHÔNG copy tsconfig.json → alias không resolve).
+import { db } from "../prisma/db.client";
 
 /**
  * Thu hồi session BÊN TRONG transaction — Batch 2 Task 11 tách từ

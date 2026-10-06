@@ -29,13 +29,14 @@
  * single-use; cùng pattern consume ATOMIC của otp.ts).
  */
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
-import { db } from "@/src/prisma/db.client";
-// Task 11: hkdfKey/captureError chuyển sang plain module (otp.ts/observability.ts
-// có "server-only" — offline bootstrap script tsx import admin-mfa.ts được).
-import { hkdfKey } from "@/src/lib/hkdf";
-import { captureError } from "@/src/lib/observability-core";
-import { generateTotpSecret, totpUri, verifyTotpStep } from "@/src/lib/totp";
-import { adminMfaKeyId, getAdminMfaEncryptionKey } from "@/src/lib/admin-mfa-key";
+// Review fix D1: import RELATIVE (KHÔNG alias `@/`) — chuỗi import của
+// scripts/admin-bootstrap.ts phải chạy dưới tsx trong container migrate
+// (Dockerfile stage migrate KHÔNG copy tsconfig.json → alias không resolve).
+import { db } from "../prisma/db.client";
+import { hkdfKey } from "./hkdf";
+import { captureError } from "./observability-core";
+import { generateTotpSecret, totpUri, verifyTotpStep } from "./totp";
+import { adminMfaKeyId, getAdminMfaEncryptionKey } from "./admin-mfa-key";
 
 export const RECOVERY_CODE_COUNT = 10;
 
@@ -150,56 +151,71 @@ export function decryptTotpSecret(enc: string, userId: string): string {
 
 // ─── Enrollment ───────────────────────────────────────────────────────────────
 
+/** Tx context của db.transaction — cùng shape src/lib/actions/helpers.ts. */
+type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 /**
- * Enroll MFA cho admin: sinh secret TOTP + 10 mã khôi phục, lưu secret ĐÃ MÃ HÓA
- * + hash mã khôi phục. Trả về `{ secretBase32, uri, recoveryCodes }` để caller
- * (bootstrap script Task 11) in MỘT LẦN — sau đó các giá trị thô này không còn
- * tồn tại đâu ngoài authenticator của admin.
+ * Enroll MFA cho admin BÊN TRONG transaction truyền vào (review fix D5 — tách
+ * từ enrollAdminMfa): caller (bootstrap script Task 11) gói enrollment + audit
+ * "admin.bootstrap.mfa_enrolled" vào CÙNG MỘT tx — không bao giờ "đã enroll mà
+ * không có audit". Sinh secret TOTP + 10 mã khôi phục, lưu secret ĐÃ MÃ HÓA +
+ * hash mã khôi phục. Trả về `{ secretBase32, uri, recoveryCodes }` để caller in
+ * MỘT LẦN — sau đó các giá trị thô này không còn tồn tại đâu ngoài authenticator.
  *
- * Refuse (trả null) khi: đã có AdminMfa cho user (reset qua bootstrap script,
- * Task 11 — không enroll đè) hoặc user không tồn tại (không row mồ côi).
- *
- * Atomic trong transaction: AdminMfa + 10 AdminRecoveryCode cùng nhau — không
- * enroll "nửa vời" (mã đã sinh mà row thiếu → mã mồ côi không ai dùng được).
+ * Refuse (trả null) khi: đã có AdminMfa cho user (reset qua bootstrap script —
+ * không enroll đè) hoặc user không tồn tại (không row mồ côi).
  */
-export async function enrollAdminMfa(userId: string): Promise<{
+export async function enrollAdminMfaTx(
+  tx: TxContext,
+  userId: string,
+): Promise<{
   secretBase32: string;
   uri: string;
   recoveryCodes: string[];
 } | null> {
-  const existing = await db.orm.public.AdminMfa.first({ userId });
+  const existing = await tx.orm.public.AdminMfa.first({ userId });
   if (existing) return null; // đã enroll — reset qua bootstrap script (Task 11)
 
-  const user = await db.orm.public.User.first({ id: userId });
+  const user = await tx.orm.public.User.first({ id: userId });
   if (!user) return null; // không có user → không có gì để enroll (fail closed)
 
   const secretBase32 = generateTotpSecret();
   const recoveryCodes = generateRecoveryCodes();
-  const nowIso = new Date().toISOString();
 
-  await db.transaction(async (tx) => {
-    const mfa = await tx.orm.public.AdminMfa.create({
-      userId,
-      totpSecretEnc: encryptTotpSecret(secretBase32, userId),
-      // Enrollment chỉ diễn ra qua bootstrap offline tin cậy (Task 11): operator
-      // nhận secret + mã khôi phục đúng MỘT LẦN — Batch 2 không có bước confirm
-      // UI riêng, nên enrollment = confirmed. Login chỉ đọc sự TỒN TẠI row.
-      totpConfirmedAt: nowIso,
-    });
-    for (const code of recoveryCodes) {
-      await tx.orm.public.AdminRecoveryCode.create({
-        mfaId: mfa.id,
-        codeHash: hashRecoveryCode(code),
-        usedAt: null, // explicit — single-use: chưa dùng
-      });
-    }
+  const mfa = await tx.orm.public.AdminMfa.create({
+    userId,
+    totpSecretEnc: encryptTotpSecret(secretBase32, userId),
+    // Enrollment chỉ diễn ra qua bootstrap offline tin cậy (Task 11): operator
+    // nhận secret + mã khôi phục đúng MỘT LẦN — Batch 2 không có bước confirm
+    // UI riêng, nên enrollment = confirmed. Login chỉ đọc sự TỒN TẠI row.
+    totpConfirmedAt: new Date().toISOString(),
   });
+  for (const code of recoveryCodes) {
+    await tx.orm.public.AdminRecoveryCode.create({
+      mfaId: mfa.id,
+      codeHash: hashRecoveryCode(code),
+      usedAt: null, // explicit — single-use: chưa dùng
+    });
+  }
 
   return {
     secretBase32,
     uri: totpUri(secretBase32, user.email, TOTP_ISSUER),
     recoveryCodes,
   };
+}
+
+/**
+ * Enroll MFA trong MỘT transaction riêng (app path — Task 8 behavior GIỮ
+ * NGUYÊN). Bootstrap script dùng enrollAdminMfaTx + audit trong tx của chính
+ * nó (D5).
+ */
+export async function enrollAdminMfa(userId: string): Promise<{
+  secretBase32: string;
+  uri: string;
+  recoveryCodes: string[];
+} | null> {
+  return db.transaction((tx) => enrollAdminMfaTx(tx, userId));
 }
 
 // ─── TOTP replay protection (RFC 6238 §5.2 — review fix #4) ──────────────────

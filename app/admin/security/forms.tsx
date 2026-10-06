@@ -4,18 +4,30 @@ import { useActionState } from "react";
 import {
   stepUpAction,
   regenerateRecoveryCodesAction,
+  setAdminRoleAction,
   type AdminSecurityFormState,
 } from "@/src/lib/actions/admin-identity";
+import {
+  ADMIN_ROLES,
+  ADMIN_ROLE_LABELS,
+  ADMIN_ROLE_REASON_CODES,
+  ADMIN_ROLE_REASON_LABELS,
+} from "@/src/lib/admin-roles";
 import { LoaderCircle, CheckCircle2 } from "lucide-react";
 
 /**
- * Form client của /admin/security (plan Task 9). Server component page giữ
- * guard + inventory (listUserSessions); hai form useActionState sống ở đây:
+ * Form client của /admin/security (plan Task 9 + Task 11). Server component
+ * page giữ guard + inventory (listUserSessions); các form useActionState sống ở đây:
  *
  * - StepUpForm: xác thực lại (TOTP/mã khôi phục) → markSessionSteppedUp —
  *   sau đó các capability step-up (rbac.requireCapabilityWithStepUp) cho qua.
  * - RegenerateRecoveryCodesForm: sinh lại 10 mã khôi phục (bắt buộc mã MFA
  *   đúng) — state.recoveryCodes hiển thị MỘT LẦN (DB chỉ lưu hash).
+ * - SetAdminRoleForm (Task 11): cấp/đổi/GỠ vai trò quản trị — lỗi typed
+ *   (STEP_UP_REQUIRED / MFA_CODE_INVALID / LAST_SUPER_ADMIN…) hiển thị qua
+ *   state cho operator (minor — không throw ra error page); role/reason
+ *   select sinh từ danh sách typed (ADMIN_ROLES/ADMIN_ROLE_REASON_CODES —
+ *   "none" = gỡ quyền quản trị, D6).
  */
 
 function FormMessage({ state }: { state: AdminSecurityFormState }) {
@@ -98,6 +110,57 @@ export function RegenerateRecoveryCodesForm() {
             ))}
           </ul>
         </div>
+      )}
+    </form>
+  );
+}
+
+/** Form cấp/đổi/gỡ vai trò quản trị (Task 11 — action tự guard admin.role_manage). */
+export function SetAdminRoleForm() {
+  const [state, action, pending] = useActionState(setAdminRoleAction, {});
+
+  return (
+    <form action={action} className="space-y-2.5">
+      <input
+        name="userId"
+        className="input text-sm"
+        placeholder="User ID cần cấp/đổi/gỡ (tìm trong /admin/users)"
+        required
+        aria-label="User ID cần cấp, đổi hoặc gỡ vai trò quản trị"
+      />
+      <div className="grid gap-2 sm:grid-cols-2">
+        <select name="role" className="input text-sm" required defaultValue="" aria-label="Vai trò quản trị">
+          <option value="" disabled>— Chọn vai trò —</option>
+          {ADMIN_ROLES.map((r) => (
+            <option key={r} value={r}>{ADMIN_ROLE_LABELS[r]}</option>
+          ))}
+          {/* D6 — gỡ quyền quản trị hoàn toàn (adminRole → null, restore role display) */}
+          <option value="none">Gỡ quyền quản trị</option>
+        </select>
+        <select name="reason" className="input text-sm" required defaultValue="" aria-label="Lý do (ghi audit)">
+          <option value="" disabled>— Lý do (ghi audit) —</option>
+          {ADMIN_ROLE_REASON_CODES.map((c) => (
+            <option key={c} value={c}>{ADMIN_ROLE_REASON_LABELS[c]}</option>
+          ))}
+        </select>
+      </div>
+      <input
+        name="totpCode"
+        className="input text-sm"
+        inputMode="text"
+        autoComplete="one-time-code"
+        placeholder="Mã TOTP / mã khôi phục (bắt buộc khi step-up hết hạn)"
+        aria-label="Mã xác thực cho step-up"
+      />
+      <button type="submit" disabled={pending} className="btn-primary text-sm">
+        {pending ? <LoaderCircle className="size-4 animate-spin" /> : null}
+        Đặt vai trò
+      </button>
+      <FormMessage state={state} />
+      {state.stepUpRequired && (
+        <p className="text-xs text-[var(--muted)]">
+          Nhập mã TOTP/mã khôi phục vào ô mã rồi gửi lại — step-up có hiệu lực 15 phút.
+        </p>
       )}
     </form>
   );

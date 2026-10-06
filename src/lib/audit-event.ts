@@ -31,6 +31,11 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   đổi khai báo (sellerType/tỉnh) khi verification đã verified → row chuyển
  *   needs_review (CAS) + audit trong cùng tx (reason typed
  *   identity_information_inconsistent, detail decision=needs_review).
+ *   (Task 11 review fix D3 — runbook §3/§6, last-resort THỦ CÔNG qua psql,
+ *   actor null, ghi tay TRONG CÙNG transaction với mutation +
+ *   ON_ERROR_STOP): admin.mfa_reset_manual — xoá MFA qua psql (lockout toàn
+ *   bộ, two-person rule); user.email_verified_manual — đánh dấu kênh email
+ *   đã verified qua psql để user tự phục vụ qua /recover (Ambiguity A3).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

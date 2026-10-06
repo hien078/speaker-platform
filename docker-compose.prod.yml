@@ -27,6 +27,12 @@ services:
 
   # One-shot: áp pending migrations tới ref 'production' rồi thoát.
   # Idempotent — chạy lại không áp lại migration đã chạy (marker trong DB).
+  # Cũng là image chạy admin bootstrap offline (Task 11 runbook §0):
+  #   docker compose -f docker-compose.prod.yml run --rm \
+  #     -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  #     migrate npx tsx scripts/admin-bootstrap.ts <subcommand> …
+  # (stage migrate có node_modules + tsx nhưng KHÔNG copy scripts/ + src/lib —
+  # mount từ repo trên VPS; db KHÔNG publish port nên phải đi qua network này.)
   migrate:
     build:
       context: .
@@ -37,6 +43,11 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+      # Task 11 runbook §0: admin bootstrap (tsx trong container migrate) cần
+      # key mã hóa TOTP secret + AUTH_SECRET (hash mã khôi phục derive HKDF).
+      # Compose nội suy từ .env — operator KHÔNG phải `set -a; source .env`.
+      ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?đặt ADMIN_MFA_ENCRYPTION_KEY trong .env (openssl rand -base64 32)}
+      AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
 
   app:
     build: .

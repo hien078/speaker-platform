@@ -28,6 +28,15 @@
  *     + thu hồi MỌI session (reason admin_mfa_reset) + audit → login chỉ mật
  *     khẩu bị chặn MFA_ENROLLMENT_REQUIRED (fail closed) → re-enroll hoạt
  *     động → login TOTP mới thành công (vòng lặp lockout → recovery ĐÓNG).
+ *  5. D2 race-safe guard: HAI demote chéo song song 2 super_admin cuối
+ *     (Promise.allSettled) → đúng MỘT thành công, ≥1 super_admin còn lại —
+ *     assertNotLastSuperAdminTx lock mọi row super_admin (no-op update),
+ *     tx sau unblock thấy row tx trước ĐÃ demote (Postgres re-eval WHERE).
+ *  6. D6 gỡ quyền quản trị (--role none): adminRole null + User.role restore
+ *     theo marker (SellerVerification row → "seller") + thu hồi session +
+ *     audit to=none; gỡ super_admin cuối bị guard chặn; idempotent no-op.
+ *  7. D5: mfa-enroll refuse user KHÔNG có adminRole (NOT_AN_ADMIN) —
+ *     enrollment + audit trong cùng tx chỉ dành cho tài khoản quản trị.
  *
  * `next/headers` mock (cookie store điều khiển được — createSession cần
  * cookies() ngoài request scope) + `next/navigation` mock (redirect throw
@@ -110,6 +119,8 @@ afterEach(async () => {
   for (const id of created.users) {
     await db.orm.public.AuditEvent.where({ actorId: id }).delete();
     await db.orm.public.AuditEvent.where({ subjectId: id }).delete();
+    // SellerVerification (Restrict FK) phải đi TRƯỚC user — D6 test tạo row marker
+    await db.orm.public.SellerVerification.where({ userId: id }).delete();
     await db.orm.public.User.where({ id }).delete();
   }
   created.users.length = 0;
@@ -399,5 +410,137 @@ d("admin bootstrap runbook — promote → enroll → login → lockout → rese
       .all();
     expect(rows).toHaveLength(1);
     expect(rows[0]!.isAdmin).toBe(true);
+  });
+
+  it("D2 race-safe guard: HAI demote chéo song song 2 super_admin cuối → đúng MỘT thành công, ≥1 super_admin còn lại (row-lock)", async () => {
+    const emailA = `${uid()}@integration.test`;
+    const emailB = `${uid()}@integration.test`;
+    const a = await db.orm.public.User.create({
+      email: emailA,
+      passwordHash: "x",
+      name: "B2 Race A",
+      role: "admin",
+      adminRole: "super_admin",
+    });
+    const b = await db.orm.public.User.create({
+      email: emailB,
+      passwordHash: "x",
+      name: "B2 Race B",
+      role: "admin",
+      adminRole: "super_admin",
+    });
+    created.users.push(a.id, b.id);
+
+    // TIỀN ĐIỀN: A và B là 2 super_admin DUY NHẤT (test khác đã dọn) — nếu có
+    // super_admin sót lại thì cả hai demote đều hợp lệ và test fail ồn đúng nghĩa.
+    const supersBefore = await db.orm.public.User.where({ adminRole: "super_admin" }).all();
+    expect(supersBefore.map((s) => s.id).sort()).toEqual([a.id, b.id].sort());
+
+    // Hai tx demote chéo CÙNG LÚC: A → operations_admin, B → moderator.
+    // Guard (assertNotLastSuperAdminTx) lock mọi row super_admin bằng no-op
+    // update → tx sau block; khi unblock, Postgres re-eval WHERE thấy row của
+    // tx trước ĐÃ demote → count 0 → LAST_SUPER_ADMIN → rollback.
+    const [rA, rB] = await Promise.allSettled([
+      promoteUser(emailA, "operations_admin", true),
+      promoteUser(emailB, "moderator", true),
+    ]);
+
+    const fulfilled = [rA, rB].filter((r) => r.status === "fulfilled");
+    const rejected = [rA, rB].filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1); // đúng MỘT thắng
+    expect(rejected).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(Error);
+    expect(((rejected[0] as PromiseRejectedResult).reason as Error).message).toContain("LAST_SUPER_ADMIN");
+
+    // ≥1 super_admin còn lại — đúng người demote THẤT BẠI (tx thắng đã hạ người kia)
+    const aAfter = await db.orm.public.User.first({ id: a.id });
+    const bAfter = await db.orm.public.User.first({ id: b.id });
+    const remaining = [aAfter!, bAfter!].filter((u) => u.adminRole === "super_admin");
+    expect(remaining).toHaveLength(1);
+    const loserId = remaining[0]!.id;
+    const loserEmail = loserId === a.id ? emailA : emailB;
+    // người còn lại chính là người bị từ chối (tx thắng đã demote người kia)
+    const winnerReport = (fulfilled[0] as PromiseFulfilledResult<Awaited<ReturnType<typeof promoteUser>>>).value;
+    expect(winnerReport.userId).not.toBe(loserId);
+    // và loser KHÔNG bị đụng gì (rollback sạch)
+    expect(loserId === a.id ? aAfter!.adminRole : bAfter!.adminRole).toBe("super_admin");
+    // chạy lại demote của loser giờ hợp lệ (còn đúng 1 super_admin khác? KHÔNG —
+    // loser là super_admin cuối → vẫn bị guard chặn)
+    await expect(promoteUser(loserEmail, "analyst", true)).rejects.toThrow("LAST_SUPER_ADMIN");
+  });
+
+  it("D6 gỡ quyền quản trị (--role none): adminRole null + role restore theo marker + thu hồi session + audit to=none; gỡ super_admin cuối bị guard chặn", async () => {
+    const emailSuper = `${uid()}@integration.test`;
+    const superAdmin = await db.orm.public.User.create({
+      email: emailSuper,
+      passwordHash: "x",
+      name: "B2 Remove Super",
+      role: "admin",
+      adminRole: "super_admin",
+    });
+    created.users.push(superAdmin.id);
+
+    // Legacy admin display "admin" + CÓ SellerVerification row → restore "seller"
+    const emailLegacy = `${uid()}@integration.test`;
+    const legacy = await db.orm.public.User.create({
+      email: emailLegacy,
+      passwordHash: "x",
+      name: "B2 Remove Legacy",
+      role: "admin",
+      adminRole: "moderator",
+    });
+    created.users.push(legacy.id);
+    await db.orm.public.SellerVerification.create({
+      userId: legacy.id,
+      status: "verified",
+      method: "operations_review",
+      policyVersion: "v1",
+    });
+    await createSession(legacy.id); // session sẽ bị thu hồi khi gỡ quyền
+
+    // ── gỡ quyền của legacy moderator (còn super_admin khác → cho qua) ──
+    const report = await promoteUser(emailLegacy, "none", true);
+    expect(report.mode).toBe("apply");
+    expect(report.changed).toBe(true);
+    expect(report.newRole).toBeNull();
+
+    const legacyAfter = await db.orm.public.User.first({ id: legacy.id });
+    expect(legacyAfter!.adminRole).toBeNull(); // hết quyền quản trị
+    expect(legacyAfter!.role).toBe("seller"); // restore theo marker (D6)
+    const legacySessions = await db.orm.public.UserSession.where({ userId: legacy.id }).all();
+    expect(legacySessions[0]!.revokedAt).not.toBeNull();
+    expect(legacySessions[0]!.revokedReason).toBe("admin_role_changed");
+    const audits = await db.orm.public.AuditEvent
+      .where({ action: "admin.bootstrap.promote", subjectId: legacy.id })
+      .all();
+    expect(audits[0]!.detail).toBe("from=moderator to=none;sessionsRevoked=1");
+
+    // ── idempotent: gỡ lại user không còn adminRole → no-op ──
+    const again = await promoteUser(emailLegacy, "none", true);
+    expect(again.changed).toBe(false);
+
+    // ── gỡ super_admin DUY NHẤT còn lại → guard chặn (D2 helper dùng chung) ──
+    await expect(promoteUser(emailSuper, "none", true)).rejects.toThrow("LAST_SUPER_ADMIN");
+    const superAfter = await db.orm.public.User.first({ id: superAdmin.id });
+    expect(superAfter!.adminRole).toBe("super_admin"); // KHÔNG mutation
+  });
+
+  it("D5: mfa-enroll refuse user KHÔNG có adminRole (NOT_AN_ADMIN) — enrollment chỉ dành cho tài khoản quản trị", async () => {
+    const email = `${uid()}@integration.test`;
+    const buyer = await db.orm.public.User.create({
+      email,
+      passwordHash: "x",
+      name: "B2 Not An Admin",
+      role: "buyer",
+      adminRole: null,
+    });
+    created.users.push(buyer.id);
+
+    await expect(enrollMfa(email, true)).rejects.toThrow("NOT_AN_ADMIN");
+    // KHÔNG enroll gì — fail closed
+    expect(await db.orm.public.AdminMfa.first({ userId: buyer.id })).toBeNull();
+    expect(
+      await db.orm.public.AuditEvent.where({ subjectId: buyer.id }).all(),
+    ).toEqual([]);
   });
 });

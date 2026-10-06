@@ -9,15 +9,9 @@ import {
 import {
   revokeUserSessionAction,
   revokeAllUserSessionsAction,
-  setAdminRoleAction,
 } from "@/src/lib/actions/admin-identity";
-import {
-  ADMIN_ROLES,
-  ADMIN_ROLE_LABELS,
-  ADMIN_ROLE_REASON_CODES,
-  ADMIN_ROLE_REASON_LABELS,
-} from "@/src/lib/admin-roles";
-import { StepUpForm, RegenerateRecoveryCodesForm } from "./forms";
+import { ADMIN_ROLE_LABELS } from "@/src/lib/admin-roles";
+import { StepUpForm, RegenerateRecoveryCodesForm, SetAdminRoleForm } from "./forms";
 import { formatDate, cn } from "@/src/lib/utils";
 import { ShieldCheck, MonitorSmartphone, KeyRound, UserCog } from "lucide-react";
 
@@ -60,8 +54,12 @@ export default async function AdminSecurityPage() {
   // Quản lý role (Task 11): CHỈ super_admin có admin.role_manage — lọc nút là
   // CONVENIENCE; setAdminRoleAction TỰ requireCapabilityWithStepUp (spec §4.5).
   const canManageRoles = capabilitiesOf(user.adminRole).includes("admin.role_manage");
+  // Minor (review): select field TƯỜNG MINH — không kéo hash mật khẩu ra render path.
   const adminRows = canManageRoles
-    ? await db.orm.public.User.where((u) => u.adminRole.isNotNull()).all()
+    ? await db.orm.public.User
+        .where((u) => u.adminRole.isNotNull())
+        .select("id", "name", "email", "role", "adminRole")
+        .all()
     : [];
   const admins = await Promise.all(
     adminRows.map(async (a) => ({
@@ -228,42 +226,14 @@ export default async function AdminSecurityPage() {
             )}
           </div>
 
-          {/* Cấp/đổi role — action tự guard requireCapabilityWithStepUp */}
-          <form action={setAdminRoleAction} className="mt-4 space-y-2.5 border-t border-[var(--line)] pt-4">
-            <p className="text-xs font-bold uppercase tracking-wider text-[var(--ink-2)]">
-              Cấp / đổi vai trò
+          {/* Cấp/đổi/gỡ role — client form useActionState (lỗi typed hiển thị
+              cho operator); action tự guard requireCapabilityWithStepUp */}
+          <div className="mt-4 border-t border-[var(--line)] pt-4">
+            <p className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--ink-2)]">
+              Cấp / đổi / gỡ vai trò
             </p>
-            <input
-              name="userId"
-              className="input text-sm"
-              placeholder="User ID cần cấp/đổi (tìm trong /admin/users)"
-              required
-              aria-label="User ID cần cấp hoặc đổi vai trò quản trị"
-            />
-            <div className="grid gap-2 sm:grid-cols-2">
-              <select name="role" className="input text-sm" required defaultValue="" aria-label="Vai trò quản trị">
-                <option value="" disabled>— Chọn vai trò —</option>
-                {ADMIN_ROLES.map((r) => (
-                  <option key={r} value={r}>{ADMIN_ROLE_LABELS[r]}</option>
-                ))}
-              </select>
-              <select name="reason" className="input text-sm" required defaultValue="" aria-label="Lý do (ghi audit)">
-                <option value="" disabled>— Lý do (ghi audit) —</option>
-                {ADMIN_ROLE_REASON_CODES.map((c) => (
-                  <option key={c} value={c}>{ADMIN_ROLE_REASON_LABELS[c]}</option>
-                ))}
-              </select>
-            </div>
-            <input
-              name="totpCode"
-              className="input text-sm"
-              inputMode="text"
-              autoComplete="one-time-code"
-              placeholder="Mã TOTP / mã khôi phục (bắt buộc khi step-up hết hạn)"
-              aria-label="Mã xác thực cho step-up"
-            />
-            <button type="submit" className="btn-primary text-sm">Đặt vai trò</button>
-          </form>
+            <SetAdminRoleForm />
+          </div>
         </div>
       )}
     </div>

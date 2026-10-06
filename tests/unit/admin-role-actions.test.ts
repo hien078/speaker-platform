@@ -1,39 +1,42 @@
 /**
  * Admin role management — unit tests (plan Task 11 — spec §5.4 "Manage admin
  * roles: Step-up", §5.4.1 matrix, §5.4.2 step-up + tránh khóa admin vĩnh viễn,
- * §4.5 backend authorization, §4.6 auditability, §8.5 adminRole là nguồn quyền
- * duy nhất).
+ * §4.5 backend authorization, §4.6 auditability, §7.6 revocation support,
+ * §8.5 adminRole là nguồn quyền duy nhất).
  *
  * Cơ chế mock giống tests/unit/admin-session-actions.test.ts: `server-only` +
  * next/cache + next/navigation (redirect throw NEXT_REDIRECT) + next/headers
  * (cookie store điều khiển được) + db.client in-memory (User/UserSession/
- * AdminMfa/AdminRecoveryCode/AuditEvent). session.ts / rbac.ts / admin-mfa.ts /
- * totp.ts / audit-event.ts / rate-limit.ts GIỮ BẢN THẬT — login qua COOKIE
- * THẬT (token → sha256 → row UserSession), guards chạy đúng code sẽ chạy ở
- * production; mutation thật mutate store (reset qua resetRateLimits +
- * resetTotpReplayProtection giữa các case).
+ * AdminMfa/AdminRecoveryCode/AuditEvent/SellerVerification/Listing). session.ts /
+ * rbac.ts / admin-mfa.ts / totp.ts / audit-event.ts / rate-limit.ts GIỮ BẢN
+ * THẬT — login qua COOKIE THẬT, guards chạy đúng code sẽ chạy ở production.
  *
- * Hợp đồng (plan Task 11 Step 1 + carried-over review items):
+ * Hợp đồng (plan Task 11 Step 1 + review fix D2/D6/minors):
  *  1. operations_admin → FORBIDDEN (chỉ super_admin có admin.role_manage —
  *     ma trận §5.4.1); support → FORBIDDEN (Review Focus 4 — gọi action trực
- *     tiếp, không qua UI).
- *  2. super_admin giữ session CONSUMER (isAdmin=false) → FORBIDDEN — admin
- *     authority cần session đã qua MFA (review fix #1 Task 8: isAdmin chỉ
- *     được set bởi login path MFA).
- *  3. super_admin chưa step-up + không totpCode → STEP_UP_REQUIRED, KHÔNG
- *     mutation (admin step-up gate — spec §5.4.2).
- *  4. super_admin + step-up tươi → role set + User.role="admin" (display) +
- *     MỌI session của đích bị thu hồi cùng tx (reason "admin_role_changed" —
- *     Task 8 review: buộc login lại qua MFA) + audit "admin.role_set"
- *     (from→to, reason typed, KHÔNG PII — spec §4.8).
- *  5. totpCode ĐÚNG trong cùng request (step-up cũ) → passes + session marked
- *     stepped-up; totpCode SAI → MFA_CODE_INVALID, không mutation.
- *  6. Last-super-admin guard: demote super_admin DUY NHẤT → LAST_SUPER_ADMIN
- *     (kể cả tự demote — không để lại zero super_admin); còn super_admin khác
- *     → cho qua (self-demotion hợp lệ, session chính mình cũng bị thu hồi).
- *  7. Compare-and-set trên adminRole TRƯỚC: read stale (request khác đổi role
- *     giữa chừng) → ADMIN_ROLE_CONFLICT, KHÔNG revoke, KHÔNG audit (tx
- *     rollback — không bao giờ "đã thu hồi session mà role không đổi").
+ *     tiếp, không qua UI); session CONSUMER của super_admin → FORBIDDEN (admin
+ *     authority cần session MFA — review fix #1 Task 8).
+ *  2. Step-up gate: thiếu step-up + không totpCode → state STEP_UP_REQUIRED
+ *     (KHÔNG throw — operator sửa được: nhập mã rồi gửi lại), KHÔNG mutation;
+ *     totpCode ĐÚNG trong cùng request → passes + session marked stepped-up;
+ *     totpCode SAI → state MFA_CODE_INVALID + audit admin.mfa_failed (KHÔNG
+ *     mã thô).
+ *  3. Grant/change: role set + MỌI session của đích thu hồi cùng tx (reason
+ *     admin_role_changed — Task 8 review) + audit admin.role_set (from→to,
+ *     reason typed, KHÔNG PII). KHÔNG đè role display "seller" (D6 — seller
+ *     visibility); buyer → "admin".
+ *  4. Idempotent (minor): đặt CÙNG role đang giữ → no-op — KHÔNG thu hồi
+ *     session, KHÔNG audit.
+ *  5. Last-super-admin guard (D2 — helper chia sẻ assertNotLastSuperAdminTx,
+ *     row-lock no-op update): demote/gỡ super_admin DUY NHẤT → state
+ *     LAST_SUPER_ADMIN, KHÔNG mutation; còn super_admin khác → cho qua.
+ *  6. Gỡ quyền quản trị (D6 — role="none" → adminRole null): cùng guard +
+ *     step-up + thu hồi session + audit (to=none); User.role restore từ
+ *     "admin" theo marker (SellerVerification row HOẶC listing → "seller",
+ *     else "buyer"); role "seller"/"buyer" hiện tại KHÔNG bị đụng.
+ *  7. Compare-and-set trên adminRole TRƯỚC: read stale → ADMIN_ROLE_CONFLICT
+ *     (throw — race hiếm, caller tải lại), KHÔNG revoke, KHÔNG audit (tx
+ *     rollback).
  *  8. Input typed: role/reason ngoài enum → typed error trước khi đụng db;
  *     userId rỗng → INVALID_USER; target không tồn tại → USER_NOT_FOUND.
  */
@@ -76,7 +79,7 @@ vi.mock("next/headers", () => ({
   })),
 }));
 
-// ─── db.client mock: in-memory 5 model (tx có ROLLBACK THẬT) ──────────────────
+// ─── db.client mock: in-memory 7 model (tx có ROLLBACK THẬT) ─────────────────
 
 const dbState = vi.hoisted(() => ({
   users: [] as Array<Record<string, unknown>>,
@@ -84,6 +87,8 @@ const dbState = vi.hoisted(() => ({
   mfas: [] as Array<Record<string, unknown>>,
   codes: [] as Array<Record<string, unknown>>,
   audits: [] as Array<Record<string, unknown>>,
+  sellerVerifications: [] as Array<Record<string, unknown>>,
+  listings: [] as Array<Record<string, unknown>>,
   /**
    * Seam CAS-conflict: ép `User.first` trả bản copy với adminRole GIẢ (mô phỏng
    * request khác đổi role SAU khi action đọc — read stale). CAS theo giá trị
@@ -216,6 +221,17 @@ vi.mock("@/src/prisma/db.client", () => {
       id: `audit-${dbState.audits.length + 1}`,
       createdAt: new Date().toISOString(),
     })),
+    // D6: resolveNonAdminRoleTx đọc marker seller (SellerVerification row / Listing)
+    SellerVerification: makeModel(dbState.sellerVerifications, () => ({
+      id: `sv-${dbState.sellerVerifications.length + 1}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })),
+    Listing: makeModel(dbState.listings, () => ({
+      id: `listing-${dbState.listings.length + 1}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })),
   };
   const orm = { public: models };
   return {
@@ -231,6 +247,8 @@ vi.mock("@/src/prisma/db.client", () => {
           mfas: dbState.mfas.map((r) => ({ ...r })),
           codes: dbState.codes.map((r) => ({ ...r })),
           audits: dbState.audits.map((r) => ({ ...r })),
+          sellerVerifications: dbState.sellerVerifications.map((r) => ({ ...r })),
+          listings: dbState.listings.map((r) => ({ ...r })),
         };
         try {
           return await fn({ orm: { public: { ...models } } });
@@ -247,6 +265,8 @@ vi.mock("@/src/prisma/db.client", () => {
           restore(dbState.mfas, snap.mfas);
           restore(dbState.codes, snap.codes);
           restore(dbState.audits, snap.audits);
+          restore(dbState.sellerVerifications, snap.sellerVerifications);
+          restore(dbState.listings, snap.listings);
           throw e;
         }
       },
@@ -296,6 +316,7 @@ const ADMIN_SUPER_2 = mkUser({ id: "admin-super-2", email: "super2@loaviet.test"
 const ADMIN_OPS = mkUser({ id: "admin-ops", email: "ops@loaviet.test", name: "Ops", role: "admin", adminRole: "operations_admin" });
 const ADMIN_SUPPORT = mkUser({ id: "admin-support", email: "support@loaviet.test", name: "Support", role: "admin", adminRole: "support" });
 const BUYER = mkUser({ id: "user-buyer", email: "buyer@loaviet.test", name: "Buyer" });
+const SELLER = mkUser({ id: "user-seller", email: "seller@loaviet.test", name: "Seller", role: "seller" });
 
 /**
  * Login THẬT qua cookie: tạo row UserSession + set cookie token — session.ts
@@ -366,6 +387,8 @@ beforeEach(() => {
   dbState.mfas.length = 0;
   dbState.codes.length = 0;
   dbState.audits.length = 0;
+  dbState.sellerVerifications.length = 0;
+  dbState.listings.length = 0;
   dbState.staleFirstReadAdminRole = null;
   dbState.users.push({ ...ADMIN_SUPER }, { ...ADMIN_OPS }, { ...ADMIN_SUPPORT }, { ...BUYER });
   cookieState.store.clear();
@@ -387,7 +410,7 @@ describe("setAdminRoleAction — requireCapabilityWithStepUp(admin.role_manage)"
     const target = seedSession("t-sess", BUYER.id);
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
     ).rejects.toThrow("FORBIDDEN");
 
     expect(userRow(BUYER.id)["adminRole"]).toBeNull(); // KHÔNG mutation
@@ -400,7 +423,7 @@ describe("setAdminRoleAction — requireCapabilityWithStepUp(admin.role_manage)"
     const target = seedSession("t-sess", BUYER.id);
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "analyst", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "analyst", reason: "onboarding" })),
     ).rejects.toThrow("FORBIDDEN");
 
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
@@ -414,7 +437,7 @@ describe("setAdminRoleAction — requireCapabilityWithStepUp(admin.role_manage)"
     login(ADMIN_SUPER, { isAdmin: false, steppedUpAt: null });
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
     ).rejects.toThrow("FORBIDDEN");
 
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
@@ -425,7 +448,7 @@ describe("setAdminRoleAction — requireCapabilityWithStepUp(admin.role_manage)"
     cookieState.store.clear();
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
     ).rejects.toThrow("FORBIDDEN");
 
     expect(dbState.audits).toHaveLength(0);
@@ -435,25 +458,32 @@ describe("setAdminRoleAction — requireCapabilityWithStepUp(admin.role_manage)"
 // ─── 2. Step-up gate (spec §5.4.2 — admin role modification) ──────────────────
 
 describe("setAdminRoleAction — step-up", () => {
-  it("super_admin CHƯA step-up + không totpCode → STEP_UP_REQUIRED, không mutation (admin step-up gate)", async () => {
+  it("super_admin CHƯA step-up + không totpCode → state STEP_UP_REQUIRED (không throw — operator nhập mã rồi gửi lại), không mutation", async () => {
     login(ADMIN_SUPER, { isAdmin: true, steppedUpAt: null });
     const target = seedSession("t-sess", BUYER.id);
 
-    await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
-    ).rejects.toThrow("STEP_UP_REQUIRED");
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" }),
+    );
 
+    expect(state.code).toBe("STEP_UP_REQUIRED");
+    expect(state.stepUpRequired).toBe(true);
+    expect(state.error).toBeTruthy();
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
     expect(target["revokedAt"]).toBeNull();
     expect(dbState.audits).toHaveLength(0);
   });
 
-  it("step-up CŨ (hơn 15 phút) + không totpCode → STEP_UP_REQUIRED", async () => {
+  it("step-up CŨ (hơn 15 phút) + không totpCode → state STEP_UP_REQUIRED", async () => {
     login(ADMIN_SUPER, { isAdmin: true, steppedUpAt: new Date(Date.now() - 16 * 60_000).toISOString() });
 
-    await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" })),
-    ).rejects.toThrow("STEP_UP_REQUIRED");
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" }),
+    );
+
+    expect(state.code).toBe("STEP_UP_REQUIRED");
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
   });
 
@@ -462,30 +492,37 @@ describe("setAdminRoleAction — step-up", () => {
     enrolled = await enrollAdminMfa(ADMIN_SUPER.id);
     expect(enrolled).not.toBeNull();
 
-    await setAdminRoleAction(fd({
-      userId: BUYER.id,
-      role: "moderator",
-      reason: "onboarding",
-      totpCode: currentTotp(),
-    }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({
+        userId: BUYER.id,
+        role: "moderator",
+        reason: "onboarding",
+        totpCode: currentTotp(),
+      }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(BUYER.id)["adminRole"]).toBe("moderator");
     expect(sessionRow(currentId)["steppedUpAt"]).not.toBeNull(); // guard đã đánh dấu
   });
 
-  it("totpCode SAI → MFA_CODE_INVALID, không mutation + audit admin.mfa_failed (KHÔNG chứa mã thô)", async () => {
+  it("totpCode SAI → state MFA_CODE_INVALID, không mutation + audit admin.mfa_failed (KHÔNG chứa mã thô)", async () => {
     login(ADMIN_SUPER, { isAdmin: true, steppedUpAt: null });
     enrolled = await enrollAdminMfa(ADMIN_SUPER.id);
 
-    await expect(
-      setAdminRoleAction(fd({
+    const state = await setAdminRoleAction(
+      {},
+      fd({
         userId: BUYER.id,
         role: "moderator",
         reason: "onboarding",
         totpCode: "000000",
-      })),
-    ).rejects.toThrow("MFA_CODE_INVALID");
+      }),
+    );
 
+    expect(state.code).toBe("MFA_CODE_INVALID");
+    expect(state.error).toBeTruthy();
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
     const failed = dbState.audits.find((r) => r["action"] === "admin.mfa_failed");
     expect(failed).toMatchObject({ actorId: ADMIN_SUPER.id, reason: "step_up_invalid_code" });
@@ -497,15 +534,19 @@ describe("setAdminRoleAction — step-up", () => {
 // ─── 3. Happy path — role set + revoke mọi session đích + audit (cùng tx) ────
 
 describe("setAdminRoleAction — grant/change role", () => {
-  it("super_admin + step-up tươi → role set + User.role='admin' + MỌI session đích thu hồi (reason admin_role_changed) + audit admin.role_set", async () => {
+  it("super_admin + step-up tươi → role set + User.role='admin' (buyer) + MỌI session đích thu hồi (reason admin_role_changed) + audit admin.role_set", async () => {
     login(ADMIN_SUPER, { isAdmin: true });
     const t1 = seedSession("t-sess-1", BUYER.id);
     const t2 = seedSession("t-sess-2", BUYER.id);
     const stranger = seedSession("stranger-sess", ADMIN_OPS.id);
 
-    await setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: BUYER.id, role: "moderator", reason: "onboarding" }),
+    );
 
-    // role set (adminRole = nguồn quyền; role display='admin' cho UI legacy)
+    expect(state.success).toBeTruthy();
+    // role set (adminRole = nguồn quyền; role display 'admin' cho buyer — D6)
     const target = userRow(BUYER.id);
     expect(target["adminRole"]).toBe("moderator");
     expect(target["role"]).toBe("admin");
@@ -529,13 +570,31 @@ describe("setAdminRoleAction — grant/change role", () => {
     expect(JSON.stringify(evt)).not.toContain(BUYER.email); // KHÔNG PII thô
   });
 
+  it("D6: grant KHÔNG đè role display 'seller' — seller visibility giữ nguyên (adminRole vẫn là nguồn quyền duy nhất)", async () => {
+    dbState.users.push({ ...SELLER });
+    login(ADMIN_SUPER, { isAdmin: true });
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: SELLER.id, role: "moderator", reason: "onboarding" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(userRow(SELLER.id)["adminRole"]).toBe("moderator");
+    expect(userRow(SELLER.id)["role"]).toBe("seller"); // KHÔNG đè thành "admin"
+  });
+
   it("CHANGE role (đã có adminRole) → from=<old> to=<new>, session đích cũng bị thu hồi hết", async () => {
     dbState.users.push({ ...ADMIN_SUPER_2 });
     login(ADMIN_SUPER, { isAdmin: true });
     const opsSession = seedSession("ops-sess", ADMIN_OPS.id);
 
-    await setAdminRoleAction(fd({ userId: ADMIN_OPS.id, role: "analyst", reason: "responsibility_change" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_OPS.id, role: "analyst", reason: "responsibility_change" }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(ADMIN_OPS.id)["adminRole"]).toBe("analyst");
     expect(opsSession["revokedAt"]).not.toBeNull();
     expect(opsSession["revokedReason"]).toBe("admin_role_changed");
@@ -548,8 +607,12 @@ describe("setAdminRoleAction — grant/change role", () => {
     const currentId = login(ADMIN_SUPER, { isAdmin: true });
     const otherDevice = seedSession("super-other", ADMIN_SUPER.id);
 
-    await setAdminRoleAction(fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(ADMIN_SUPER.id)["adminRole"]).toBe("operations_admin");
     // MỌI session của đích — kể cả session hiện tại của chính actor (role đổi
     // → quyền cũ của session không còn giá trị, login lại qua MFA)
@@ -559,18 +622,37 @@ describe("setAdminRoleAction — grant/change role", () => {
     const evt = dbState.audits.find((r) => r["action"] === "admin.role_set");
     expect(evt).toMatchObject({ actorId: ADMIN_SUPER.id, subjectId: ADMIN_SUPER.id });
   });
+
+  it("minor: đặt CÙNG role đang giữ → IDEMPOTENT no-op — KHÔNG thu hồi session, KHÔNG audit", async () => {
+    login(ADMIN_SUPER, { isAdmin: true });
+    const opsSession = seedSession("ops-sess", ADMIN_OPS.id);
+    const auditsBefore = dbState.audits.length;
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_OPS.id, role: "operations_admin", reason: "correction" }),
+    );
+
+    expect(state.success).toBeTruthy(); // không lỗi — no-op thành thật
+    expect(userRow(ADMIN_OPS.id)["adminRole"]).toBe("operations_admin"); // nguyên vẹn
+    expect(opsSession["revokedAt"]).toBeNull(); // KHÔNG thu hồi
+    expect(dbState.audits.length).toBe(auditsBefore); // KHÔNG audit mới
+  });
 });
 
-// ─── 4. Last-super-admin guard (spec §5.4.2 — tránh khóa admin vĩnh viễn) ─────
+// ─── 4. Last-super-admin guard (D2 — helper chia sẻ, row-lock) ────────────────
 
-describe("setAdminRoleAction — last-super-admin guard", () => {
-  it("demote super_admin DUY NHẤT (tự demote) → LAST_SUPER_ADMIN, không mutation", async () => {
+describe("setAdminRoleAction — last-super-admin guard (assertNotLastSuperAdminTx)", () => {
+  it("demote super_admin DUY NHẤT (tự demote) → state LAST_SUPER_ADMIN, không mutation", async () => {
     login(ADMIN_SUPER, { isAdmin: true }); // ADMIN_SUPER là super_admin duy nhất trong store
 
-    await expect(
-      setAdminRoleAction(fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" })),
-    ).rejects.toThrow("LAST_SUPER_ADMIN");
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" }),
+    );
 
+    expect(state.code).toBe("LAST_SUPER_ADMIN");
+    expect(state.error).toBeTruthy();
     expect(userRow(ADMIN_SUPER.id)["adminRole"]).toBe("super_admin"); // KHÔNG mutation
     expect(dbState.audits.filter((r) => r["action"] === "admin.role_set")).toHaveLength(0);
     expect(dbState.sessions.every((s) => s["revokedAt"] === null)).toBe(true); // không revoke gì
@@ -580,18 +662,26 @@ describe("setAdminRoleAction — last-super-admin guard", () => {
     dbState.users.push({ ...ADMIN_SUPER_2 });
     login(ADMIN_SUPER_2, { isAdmin: true }); // actor ≠ target, cả hai đều super_admin
 
-    await setAdminRoleAction(fd({ userId: ADMIN_SUPER.id, role: "moderator", reason: "offboarding" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_SUPER.id, role: "moderator", reason: "offboarding" }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(ADMIN_SUPER.id)["adminRole"]).toBe("moderator");
     expect(userRow(ADMIN_SUPER_2.id)["adminRole"]).toBe("super_admin"); // actor còn lại — không về 0
   });
 
-  it("còn super_admin KHÁC → demote cho qua (guard chỉ chặn khi về 0)", async () => {
+  it("còn super_admin KHÁC → tự demote cho qua (guard chỉ chặn khi về 0)", async () => {
     dbState.users.push({ ...ADMIN_SUPER_2 });
     login(ADMIN_SUPER, { isAdmin: true });
 
-    await setAdminRoleAction(fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_SUPER.id, role: "operations_admin", reason: "responsibility_change" }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(ADMIN_SUPER.id)["adminRole"]).toBe("operations_admin");
     expect(userRow(ADMIN_SUPER_2.id)["adminRole"]).toBe("super_admin"); // người còn lại nguyên vẹn
   });
@@ -599,16 +689,110 @@ describe("setAdminRoleAction — last-super-admin guard", () => {
   it("PROMOTE lên super_admin không bị guard chặn (đi lên không bao giờ về 0)", async () => {
     login(ADMIN_SUPER, { isAdmin: true }); // duy nhất — nhưng đang cấp THÊM
 
-    await setAdminRoleAction(fd({ userId: BUYER.id, role: "super_admin", reason: "onboarding" }));
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: BUYER.id, role: "super_admin", reason: "onboarding" }),
+    );
 
+    expect(state.error).toBeUndefined();
     expect(userRow(BUYER.id)["adminRole"]).toBe("super_admin");
+  });
+
+  it("GỠ quyền (role=none) super_admin DUY NHẤT → state LAST_SUPER_ADMIN — removal cũng qua guard (D6)", async () => {
+    login(ADMIN_SUPER, { isAdmin: true });
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: ADMIN_SUPER.id, role: "none", reason: "offboarding" }),
+    );
+
+    expect(state.code).toBe("LAST_SUPER_ADMIN");
+    expect(userRow(ADMIN_SUPER.id)["adminRole"]).toBe("super_admin"); // KHÔNG mutation
+    expect(dbState.audits.filter((r) => r["action"] === "admin.role_set")).toHaveLength(0);
   });
 });
 
-// ─── 5. Compare-and-set trên adminRole trước đó (concurrent role change) ─────
+// ─── 5. Gỡ quyền quản trị (D6 — role="none" → adminRole null) ────────────────
+
+describe("setAdminRoleAction — remove admin access (role=none)", () => {
+  it("gỡ quyền admin → adminRole null + role restore theo marker (SellerVerification row → 'seller') + thu hồi session + audit to=none", async () => {
+    dbState.users.push({ ...ADMIN_SUPER_2 });
+    login(ADMIN_SUPER, { isAdmin: true });
+    // Legacy admin: role display "admin" + có SellerVerification row → restore "seller"
+    dbState.users.push(mkUser({ id: "legacy-admin", email: "legacy@loaviet.test", name: "Legacy", role: "admin", adminRole: "moderator" }));
+    dbState.sellerVerifications.push({ id: "sv-1", userId: "legacy-admin" });
+    const legacySession = seedSession("legacy-sess", "legacy-admin");
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: "legacy-admin", role: "none", reason: "offboarding" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    const target = userRow("legacy-admin");
+    expect(target["adminRole"]).toBeNull(); // hết quyền quản trị
+    expect(target["role"]).toBe("seller"); // restore theo marker (D6)
+    expect(legacySession["revokedAt"]).not.toBeNull();
+    expect(legacySession["revokedReason"]).toBe("admin_role_changed");
+    const evt = dbState.audits.find((r) => r["action"] === "admin.role_set");
+    expect(evt!["detail"]).toBe("from=moderator to=none");
+    expect(evt).toMatchObject({ actorId: ADMIN_SUPER.id, subjectId: "legacy-admin", reason: "offboarding" });
+  });
+
+  it("gỡ quyền: KHÔNG có marker seller (không verification/listing) → role restore 'buyer'", async () => {
+    dbState.users.push({ ...ADMIN_SUPER_2 });
+    login(ADMIN_SUPER, { isAdmin: true });
+    // Buyer được promote (role display "admin") → gỡ → restore "buyer"
+    dbState.users.push(mkUser({ id: "promoted-buyer", email: "pb@loaviet.test", name: "PB", role: "admin", adminRole: "support" }));
+    const pbSession = seedSession("pb-sess", "promoted-buyer");
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: "promoted-buyer", role: "none", reason: "offboarding" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(userRow("promoted-buyer")["adminRole"]).toBeNull();
+    expect(userRow("promoted-buyer")["role"]).toBe("buyer"); // không marker → buyer
+    expect(pbSession["revokedAt"]).not.toBeNull();
+  });
+
+  it("gỡ quyền: role display hiện tại 'seller' → GIỮ NGUYÊN (restore chỉ áp dụng khi role='admin')", async () => {
+    dbState.users.push({ ...ADMIN_SUPER_2 });
+    login(ADMIN_SUPER, { isAdmin: true });
+    dbState.users.push(mkUser({ id: "seller-admin", email: "sa@loaviet.test", name: "SA", role: "seller", adminRole: "analyst" }));
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: "seller-admin", role: "none", reason: "offboarding" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(userRow("seller-admin")["adminRole"]).toBeNull();
+    expect(userRow("seller-admin")["role"]).toBe("seller"); // không đụng role seller
+  });
+
+  it("gỡ quyền của user KHÔNG có adminRole → IDEMPOTENT no-op (from=none to=none)", async () => {
+    login(ADMIN_SUPER, { isAdmin: true });
+    const buyerSession = seedSession("b-sess", BUYER.id);
+    const auditsBefore = dbState.audits.length;
+
+    const state = await setAdminRoleAction(
+      {},
+      fd({ userId: BUYER.id, role: "none", reason: "offboarding" }),
+    );
+
+    expect(state.success).toBeTruthy(); // no-op thành thật, không lỗi
+    expect(userRow(BUYER.id)["adminRole"]).toBeNull();
+    expect(buyerSession["revokedAt"]).toBeNull(); // KHÔNG thu hồi
+    expect(dbState.audits.length).toBe(auditsBefore); // KHÔNG audit
+  });
+});
+
+// ─── 6. Compare-and-set trên adminRole trước đó (concurrent role change) ─────
 
 describe("setAdminRoleAction — compare-and-set", () => {
-  it("read stale (request khác đổi role giữa chừng) → ADMIN_ROLE_CONFLICT, KHÔNG revoke, KHÔNG audit (tx rollback)", async () => {
+  it("read stale (request khác đổi role giữa chừng) → ADMIN_ROLE_CONFLICT (throw), KHÔNG revoke, KHÔNG audit (tx rollback)", async () => {
     login(ADMIN_SUPER, { isAdmin: true });
     // Target đang giữ operations_admin; seam ép bản đọc trả "moderator" —
     // CAS theo "moderator" không khớp row thật → 0 row → conflict typed.
@@ -616,7 +800,7 @@ describe("setAdminRoleAction — compare-and-set", () => {
     const targetSession = seedSession("ops-sess", ADMIN_OPS.id);
 
     await expect(
-      setAdminRoleAction(fd({ userId: ADMIN_OPS.id, role: "support", reason: "correction" })),
+      setAdminRoleAction({}, fd({ userId: ADMIN_OPS.id, role: "support", reason: "correction" })),
     ).rejects.toThrow("ADMIN_ROLE_CONFLICT");
 
     // ROLLBACK toàn bộ: role nguyên vẹn, session sống, không audit
@@ -627,14 +811,14 @@ describe("setAdminRoleAction — compare-and-set", () => {
   });
 });
 
-// ─── 6. Input typed — validate trước khi đụng db ─────────────────────────────
+// ─── 7. Input typed — validate trước khi đụng db ─────────────────────────────
 
 describe("setAdminRoleAction — input typed (fail closed trước khi đụng db)", () => {
   it("role ngoài enum → INVALID_ROLE, không mutation", async () => {
     login(ADMIN_SUPER, { isAdmin: true });
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "root", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "root", reason: "onboarding" })),
     ).rejects.toThrow("INVALID_ROLE");
 
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
@@ -645,7 +829,7 @@ describe("setAdminRoleAction — input typed (fail closed trước khi đụng d
     login(ADMIN_SUPER, { isAdmin: true });
 
     await expect(
-      setAdminRoleAction(fd({ userId: BUYER.id, role: "moderator", reason: "vì tôi muốn" })),
+      setAdminRoleAction({}, fd({ userId: BUYER.id, role: "moderator", reason: "vì tôi muốn" })),
     ).rejects.toThrow("INVALID_REASON");
 
     expect(userRow(BUYER.id)["adminRole"]).toBeNull();
@@ -655,34 +839,44 @@ describe("setAdminRoleAction — input typed (fail closed trước khi đụng d
     login(ADMIN_SUPER, { isAdmin: true });
 
     await expect(
-      setAdminRoleAction(fd({ userId: "", role: "moderator", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: "", role: "moderator", reason: "onboarding" })),
     ).rejects.toThrow("INVALID_USER");
 
     await expect(
-      setAdminRoleAction(fd({ userId: "khong-ton-tai", role: "moderator", reason: "onboarding" })),
+      setAdminRoleAction({}, fd({ userId: "khong-ton-tai", role: "moderator", reason: "onboarding" })),
     ).rejects.toThrow("USER_NOT_FOUND");
 
     expect(dbState.audits).toHaveLength(0);
   });
 });
 
-// ─── 7. Source contract — /admin/security role section (như finance-public-surface) ──
+// ─── 8. Source contract — /admin/security role section (như finance-public-surface) ──
 
-describe("source contract — app/admin/security/page.tsx (spec §4.5/§4.8)", () => {
-  const src = () => read("app/admin/security/page.tsx");
+describe("source contract — app/admin/security (spec §4.5/§4.8)", () => {
+  const pageSrc = () => read("app/admin/security/page.tsx");
+  const formsSrc = () => read("app/admin/security/forms.tsx");
 
-  it("tự guard server-side requireAdminUser + render role form qua setAdminRoleAction", () => {
-    expect(src()).toContain("requireAdminUser(");
-    expect(src()).toContain("setAdminRoleAction");
+  it("page tự guard server-side requireAdminUser + role section lọc theo admin.role_manage (convenience, spec §4.5)", () => {
+    expect(pageSrc()).toContain("requireAdminUser(");
+    expect(pageSrc()).toContain("capabilitiesOf(");
+    expect(pageSrc()).toContain('includes("admin.role_manage")');
   });
 
-  it("role section chỉ render khi role có admin.role_manage (capabilitiesOf — convenience, spec §4.5)", () => {
-    expect(src()).toContain("capabilitiesOf(");
-    expect(src()).toContain('includes("admin.role_manage")');
+  it("page KHÔNG select passwordHash — admin list chọn field tường minh (spec §4.8)", () => {
+    const src = pageSrc();
+    expect(src).toContain(".select(");
+    expect(src).not.toContain("passwordHash");
+  });
+
+  it("role form là client component useActionState — lỗi typed hiển thị cho operator (minor)", () => {
+    expect(formsSrc()).toContain("useActionState");
+    expect(formsSrc()).toContain("setAdminRoleAction");
   });
 
   it("role select + reason select sinh từ danh sách typed (ADMIN_ROLES/ADMIN_ROLE_REASON_CODES — không tự chế giá trị)", () => {
-    expect(src()).toContain("ADMIN_ROLES");
-    expect(src()).toContain("ADMIN_ROLE_REASON_CODES");
+    const src = formsSrc();
+    expect(src).toContain("ADMIN_ROLES");
+    expect(src).toContain("ADMIN_ROLE_REASON_CODES");
+    expect(src).toContain('value="none"'); // D6 — gỡ quyền quản trị
   });
 });

@@ -211,6 +211,19 @@ describe("requireCapability — deny/grant (spec §4.5 — backend authorization
     await expect(requireCapability("seller.verify")).rejects.toThrowError(/^FORBIDDEN$/);
   });
 
+  it("mọi role KHÔNG phải super_admin gọi admin.role_manage (guard của setAdminRoleAction — Task 11) → FORBIDDEN (Review Focus 4)", async () => {
+    // Task 11 review minor: quản lý role admin chỉ super_admin (ma trận §5.4.1
+    // "Manage admin roles: Step-up" — cột super) — operations_admin/moderator/
+    // support/analist gọi TRỰC TIẾP action (không qua UI) đều bị guard chặn.
+    for (const role of ["operations_admin", "moderator", "support", "analyst"] as const) {
+      login(userWith(role));
+      await expect(
+        requireCapability("admin.role_manage"),
+        `${role} × admin.role_manage`,
+      ).rejects.toThrowError(/^FORBIDDEN$/);
+    }
+  });
+
   it("analyst gọi beta_cohort.manage → FORBIDDEN", async () => {
     login(userWith("analyst"));
     await expect(requireCapability("beta_cohort.manage")).rejects.toThrowError(/^FORBIDDEN$/);
