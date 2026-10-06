@@ -1,27 +1,31 @@
 /**
  * Seller Verification Policy v1 — publication gate (plan Task 10, spec §5.3.3
- * + §4.4/§4.9/§2.1) — unit tests.
+ * + §4.4/§4.9/§2.1; Batch 3 Task 5 mở rộng 8 yêu cầu — spec §7.8) — unit tests.
  *
- * Bảy yêu cầu tối thiểu để MỘT tin đăng chuyển vào duyệt/công khai:
+ * Tám yêu cầu tối thiểu để MỘT tin đăng chuyển vào duyệt/công khai:
  *   verified email + verified phone + declared seller type + canonical
  *   operating location + Seller Rules accepted (v1) + active founding_seller
- *   membership + operations review = verified.
+ *   membership + operations review = verified + TÀI KHOẢN KHÔNG BỊ ĐÌNH CHỈ
+ *   (Batch 3 — account_not_suspended, spec §7.8 suspension).
  *
- * Hợp đồng (plan Task 10 Step 1 — seller publication-gate gate):
- *  1. check ok chỉ khi CẢ BẢY yêu cầu giữ — table-driven: bỏ đúng MỘT
+ * Hợp đồng (plan Task 10 Step 1 — seller publication-gate gate; Batch 3
+ * Task 5 Step 1 mở rộng):
+ *  1. check ok chỉ khi CẢ TÁM yêu cầu giữ — table-driven: bỏ đúng MỘT
  *     fixture field → đúng requirement đó (và chỉ nó) xuất hiện trong missing.
  *  2. founding_seller membership SUSPENDED → missing founding_seller_membership_active
  *     (beta-cohort bypass, spec §7.3/§2.1).
  *  3. SellerVerification REVOKED → missing operations_review_verified
  *     (revoked-seller bypass, spec §7.3).
- *  4. assertSellerPublicationAllowed throw SELLER_PUBLICATION_BLOCKED:<missing>
+ *  4. UserSuspension ACTIVE → missing account_not_suspended (spec §7.8);
+ *     episode LIFTED → KHÔNG missing (chỉ active chặn).
+ *  5. assertSellerPublicationAllowed throw SELLER_PUBLICATION_BLOCKED:<missing>
  *     với đủ danh sách missing.
- *  5. Legacy User.isVerifiedSeller=true KHÔNG thỏa mãn yêu cầu nào (spec §8.2 —
+ *  6. Legacy User.isVerifiedSeller=true KHÔNG thỏa mãn yêu cầu nào (spec §8.2 —
  *     boolean legacy chỉ hiển thị, workflow là canonical).
  *
  * Cơ chế mock: server-only + db.client in-memory (User/PolicyAcceptance/
- * BetaCohortMembership/SellerVerification) — policy module chạy THẬT, đọc
- * FRESH từ store mỗi lần gọi.
+ * BetaCohortMembership/SellerVerification/UserSuspension) — policy module chạy
+ * THẬT, đọc FRESH từ store mỗi lần gọi.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -34,6 +38,7 @@ const dbState = vi.hoisted(() => ({
   acceptances: [] as Array<Record<string, unknown>>,
   memberships: [] as Array<Record<string, unknown>>,
   verifications: [] as Array<Record<string, unknown>>,
+  suspensions: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -78,6 +83,7 @@ vi.mock("@/src/prisma/db.client", () => {
     PolicyAcceptance: makeModel(dbState.acceptances),
     BetaCohortMembership: makeModel(dbState.memberships),
     SellerVerification: makeModel(dbState.verifications),
+    UserSuspension: makeModel(dbState.suspensions),
   };
   return { db: { orm: { public: models } } };
 });
@@ -144,6 +150,7 @@ const seedFull = (over?: {
   dbState.acceptances.length = 0;
   dbState.memberships.length = 0;
   dbState.verifications.length = 0;
+  dbState.suspensions.length = 0;
   dbState.users.push({ ...fullSeller(), ...over?.seller });
   if (over?.acceptance !== null) dbState.acceptances.push(over?.acceptance ?? fullAcceptance());
   if (over?.membership !== null) dbState.memberships.push(over?.membership ?? fullMembership());
@@ -194,7 +201,7 @@ describe("policy constants (spec §5.3.3)", () => {
 
 // ─── 1. Table-driven: bỏ đúng 1 yêu cầu → đúng requirement đó missing ────────
 
-describe("checkSellerPublicationRequirements — 7 yêu cầu (spec §5.3.3)", () => {
+describe("checkSellerPublicationRequirements — 8 yêu cầu (spec §5.3.3 + §7.8 Batch 3)", () => {
   const cases: Array<{ name: string; mutate: () => void; missing: string }> = [
     {
       name: "email chưa xác minh → missing email_verified",
@@ -236,6 +243,18 @@ describe("checkSellerPublicationRequirements — 7 yêu cầu (spec §5.3.3)", (
       mutate: () => dbState.verifications.length = 0,
       missing: "operations_review_verified",
     },
+    {
+      // Batch 3 Task 5 (spec §7.8): suspension là yêu cầu publication thứ 8
+      name: "đang bị đình chỉ (episode active) → missing account_not_suspended",
+      mutate: () =>
+        void dbState.suspensions.push({
+          id: "susp-1",
+          userId: SELLER_ID,
+          status: "active",
+          reasonCode: "confirmed_abuse",
+        }),
+      missing: "account_not_suspended",
+    },
   ];
 
   // mỗi case bỏ ĐÚNG 1 mảnh → missing chứa ĐÚNG requirement đó (không thừa)
@@ -247,7 +266,7 @@ describe("checkSellerPublicationRequirements — 7 yêu cầu (spec §5.3.3)", (
     expect(check.missing).toEqual([missing]);
   });
 
-  it("đủ cả 7 → { ok: true, missing: [] }", async () => {
+  it("đủ cả 8 → { ok: true, missing: [] }", async () => {
     seedFull();
     const check = await checkSellerPublicationRequirements(SELLER_ID);
     expect(check).toEqual({ ok: true, missing: [] });
@@ -258,6 +277,12 @@ describe("checkSellerPublicationRequirements — 7 yêu cầu (spec §5.3.3)", (
       seller: { emailVerifiedAt: null, phoneVerifiedAt: null, sellerType: null },
       verification: null,
     });
+    dbState.suspensions.push({
+      id: "susp-1",
+      userId: SELLER_ID,
+      status: "active",
+      reasonCode: "confirmed_abuse",
+    });
     const check = await checkSellerPublicationRequirements(SELLER_ID);
     expect(check.ok).toBe(false);
     expect(check.missing).toEqual([
@@ -265,15 +290,45 @@ describe("checkSellerPublicationRequirements — 7 yêu cầu (spec §5.3.3)", (
       "phone_verified",
       "seller_type_declared",
       "operations_review_verified",
+      "account_not_suspended",
     ]);
   });
 
-  it("seller KHÔNG tồn tại → fail closed: thiếu cả 7", async () => {
+  it("seller KHÔNG tồn tại → fail closed: thiếu cả 8", async () => {
     seedFull();
     dbState.users.length = 0;
     const check = await checkSellerPublicationRequirements("khong-ton-tai");
     expect(check.ok).toBe(false);
-    expect(check.missing).toHaveLength(7);
+    expect(check.missing).toHaveLength(8);
+  });
+});
+
+// ─── 1b. Suspension — yêu cầu thứ 8 (Batch 3 Task 5, spec §7.8) ───────────────
+
+describe("UserSuspension — chỉ episode ACTIVE chặn publication (spec §7.8)", () => {
+  it("episode LIFTED → KHÔNG missing (lift khôi phục quyền publication NGAY)", async () => {
+    seedFull();
+    dbState.suspensions.push({
+      id: "susp-1",
+      userId: SELLER_ID,
+      status: "lifted",
+      reasonCode: "confirmed_abuse",
+      liftReasonCode: "other_reviewed_reason",
+    });
+    const check = await checkSellerPublicationRequirements(SELLER_ID);
+    expect(check).toEqual({ ok: true, missing: [] });
+  });
+
+  it("suspension của user KHÁC → KHÔNG ảnh hưởng seller này", async () => {
+    seedFull();
+    dbState.suspensions.push({
+      id: "susp-1",
+      userId: "seller-khac",
+      status: "active",
+      reasonCode: "confirmed_abuse",
+    });
+    const check = await checkSellerPublicationRequirements(SELLER_ID);
+    expect(check).toEqual({ ok: true, missing: [] });
   });
 });
 
@@ -347,7 +402,7 @@ describe("assertSellerPublicationAllowed — throw SELLER_PUBLICATION_BLOCKED:<m
 // ─── 5. Legacy boolean không cấp quyền gì (spec §8.2) ─────────────────────────
 
 describe("legacy User.isVerifiedSeller KHÔNG thỏa yêu cầu nào (spec §8.2)", () => {
-  it("isVerifiedSeller=true một mình → thiếu cả 7 (boolean chỉ hiển thị)", async () => {
+  it("isVerifiedSeller=true một mình → thiếu cả 7 yêu cầu Batch 2 (boolean chỉ hiển thị; yêu cầu thứ 8 — không bị đình chỉ — vẫn THỎA vì user tồn tại và không có suspension)", async () => {
     seedFull({
       seller: {
         emailVerifiedAt: null,
@@ -362,6 +417,9 @@ describe("legacy User.isVerifiedSeller KHÔNG thỏa yêu cầu nào (spec §8.2
     });
     const check = await checkSellerPublicationRequirements(SELLER_ID);
     expect(check.ok).toBe(false);
+    // 7 yêu cầu Batch 2 đều thiếu; account_not_suspended KHÔNG thiếu (không có
+    // suspension nào — absence là bằng chứng thỏa yêu cầu thứ 8)
     expect(check.missing).toHaveLength(7);
+    expect(check.missing).not.toContain("account_not_suspended");
   });
 });

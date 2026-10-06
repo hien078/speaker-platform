@@ -160,6 +160,10 @@ export async function requireCapability(cap: Capability): Promise<AdminContext> 
  *   NHẤT: MỌI quyết định verification thủ công đều cần step-up. Quyết định
  *   có thể đảo ngược bởi founder (bỏ khỏi danh sách này) — không phải mặc
  *   định im lặng.
+ * - `user.suspend`: Batch 3 (A9) — spec §5.4.2 "destructive account action":
+ *   đình chỉ user chặn platform participation qua actor-side guards (§7.8)
+ *   → đòi step-up. LIFT (hướng khôi phục) KHÔNG nằm trong list — recorded
+ *   decision (Batch 3 Scope Decisions), reversible by founder ruling.
  * - `pii.export` KHÔNG ở đây vì không được cấp cho ai (A2) — guard sẽ FORBIDDEN
  *   ở requireCapability trước khi đụng step-up.
  */
@@ -169,6 +173,7 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
   "security.config",
   "seller.verify",
   "seller.verification.revoke",
+  "user.suspend",
 ];
 
 /**

@@ -27,8 +27,9 @@ export const metadata = { title: "Xác minh người bán" };
  * KHÔNG thu thập giấy tờ danh tính ở bất kỳ đâu (spec §5.3.2). Copy §6.2 trung
  * tính — không ngôn ngữ bảo đảm/đảm bảo/chứng nhận.
  *
- * Yêu cầu publication (7) hiển thị dạng checklist — trạng thái derive từ
- * checkSellerPublicationRequirements (đọc FRESH từ DB).
+ * Yêu cầu publication (8 — Batch 3 Task 5 thêm yêu cầu thứ 8, spec §7.8)
+ * hiển thị dạng checklist — trạng thái derive từ
+ * checkSellerPublicationRequirements (đọc FRESH từ DB, kể cả UserSuspension).
  */
 
 const REQUIREMENT_CHECKLIST: ReadonlyArray<{ key: SellerPublicationRequirement; label: string }> = [
@@ -39,6 +40,9 @@ const REQUIREMENT_CHECKLIST: ReadonlyArray<{ key: SellerPublicationRequirement; 
   { key: "seller_rules_accepted", label: "Đồng ý Quy tắc người bán (v1)" },
   { key: "founding_seller_membership_active", label: "Thành viên founding_seller còn hoạt động" },
   { key: "operations_review_verified", label: "Operations review xác minh" },
+  // Batch 3 Task 5 (spec §7.8): suspension là yêu cầu publication thứ 8 —
+  // trạng thái derive từ check FRESH (UserSuspension active), KHÔNG cache.
+  { key: "account_not_suspended", label: "Tài khoản không bị đình chỉ" },
 ] as const;
 
 export default async function SellVerificationPage() {
@@ -106,7 +110,7 @@ export default async function SellVerificationPage() {
           </p>
         )}
 
-        {/* Checklist 7 yêu cầu (derive từ check FRESH) */}
+        {/* Checklist 8 yêu cầu (derive từ check FRESH — kể cả suspension §7.8) */}
         <ul className="mt-4 space-y-1.5">
           {REQUIREMENT_CHECKLIST.map((req) => {
             const ok = !missing.has(req.key);

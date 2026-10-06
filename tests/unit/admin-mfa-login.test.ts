@@ -495,10 +495,37 @@ describe("requireCapabilityWithStepUp — step-up gate (spec §5.4.2)", () => {
     expect(enrolled).not.toBeNull();
   });
 
-  it("STEP_UP_CAPABILITIES đúng danh sách plan (kể cả seller.verify + revoke — A5)", () => {
+  it("STEP_UP_CAPABILITIES đúng danh sách plan (kể cả seller.verify + revoke — A5; user.suspend — Batch 3 A9)", () => {
     expect([...STEP_UP_CAPABILITIES].sort()).toEqual(
-      ["pii.view_sensitive", "admin.role_manage", "security.config", "seller.verify", "seller.verification.revoke"].sort(),
+      [
+        "pii.view_sensitive",
+        "admin.role_manage",
+        "security.config",
+        "seller.verify",
+        "seller.verification.revoke",
+        // Batch 3 (A9): đình chỉ user = "destructive account action" (spec
+        // §5.4.2) — đọc chặn platform participation qua actor-side guards.
+        "user.suspend",
+      ].sort(),
     );
+  });
+
+  it("Batch 3 (A9): user.suspend stale không code → STEP_UP_REQUIRED; stale + code ĐÚNG → pass + đánh dấu stepped-up", async () => {
+    const stale = () => sessionOf(ADMIN.id, "super_admin", new Date(Date.now() - 16 * 60_000).toISOString());
+    sessionState.current = stale();
+    await expect(requireCapabilityWithStepUp("user.suspend")).rejects.toThrowError(
+      /^STEP_UP_REQUIRED$/,
+    );
+    expect(sessionState.steppedUp).toHaveLength(0);
+
+    sessionState.current = stale();
+    const ctx = await requireCapabilityWithStepUp("user.suspend", currentTotp());
+    expect(ctx.user.id).toBe(ADMIN.id);
+    expect(ctx.session.id).toBe("sess-1");
+    expect(sessionState.steppedUp).toEqual(["sess-1"]);
+    const audits = dbState.audits.filter((a) => a.action === "admin.step_up");
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({ actorId: ADMIN.id, sessionId: "sess-1" });
   });
 
   it("step-up TƯƠI (trong 15 phút) → pass, không đòi mã lại", async () => {

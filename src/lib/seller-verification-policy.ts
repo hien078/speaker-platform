@@ -4,7 +4,7 @@ import { isProvinceCode, PROVINCE_CODES } from "@/src/lib/provinces";
 
 /**
  * Seller Verification Policy v1 (Batch 2 Task 10 — spec §5.3.3, §4.4, §4.9,
- * §2.1) — cổng publication của người bán: MỘT tin đăng không thể chuyển vào
+ * §2.1; Batch 3 Task 5 mở rộng yêu cầu thứ 8 — spec §7.8) — cổng publication của người bán: MỘT tin đăng không thể chuyển vào
  * trạng thái duyệt/công khai (pending/approved) trừ khi người bán thỏa MÃN
  * yêu cầu hiện hành của chính sách. Đọc FRESH từ DB mỗi lần gọi — KHÔNG tin
  * cache session (spec §4.4; revoked/suspended phải chặn NGAY cả khi session
@@ -15,16 +15,17 @@ import { isProvinceCode, PROVINCE_CODES } from "@/src/lib/provinces";
  * §6.2: "Đã xác minh thông tin người bán theo yêu cầu hiện tại của LoaViet."
  * — không bao giờ ngôn ngữ bảo đảm/đảm bảo/chứng nhận.
  *
- * Bảy yêu cầu tối thiểu (spec §5.3.3):
+ * Tám yêu cầu tối thiểu (spec §5.3.3 + §7.8):
  *   verified email + verified phone + declared seller type + canonical
  *   operating location (mã 34 đơn vị — FD-1) + Seller Rules v1 accepted +
  *   active founding_seller membership (controlled beta, spec §2.1/§4.9) +
- *   operations review = verified.
+ *   operations review = verified + TÀI KHOẢN KHÔNG BỊ ĐÌNH CHỈ
+ *   (Batch 3 — account_not_suspended; suspension là moderation sanction).
  *
  * Nguồn quyền duy nhất: các bảng workflow (SellerVerification /
- * BetaCohortMembership / PolicyAcceptance / User.emailVerifiedAt…).
- * Legacy `User.isVerifiedSeller` và `User.role` KHÔNG cấp gì (spec §8.2/§8.5)
- * — boolean legacy chỉ hiển thị.
+ * BetaCohortMembership / PolicyAcceptance / User.emailVerifiedAt… /
+ * UserSuspension). Legacy `User.isVerifiedSeller` và `User.role` KHÔNG cấp gì
+ * (spec §8.2/§8.5) — boolean legacy chỉ hiển thị.
  *
  * Mọi caller (createListingAction / updateListingAction /
  * toggleListingVisibilityAction hidden→approved / admin approveListingAction)
@@ -161,7 +162,7 @@ function isMembershipActive(
   return Date.parse(expiresAt) > Date.now();
 }
 
-/** Bảy yêu cầu publication (spec §5.3.3) — thứ tự ổn định cho thông báo lỗi. */
+/** Tám yêu cầu publication (spec §5.3.3 + §7.8) — thứ tự ổn định cho thông báo lỗi. */
 export type SellerPublicationRequirement =
   | "email_verified"
   | "phone_verified"
@@ -169,7 +170,8 @@ export type SellerPublicationRequirement =
   | "operating_location_declared"
   | "seller_rules_accepted"
   | "founding_seller_membership_active"
-  | "operations_review_verified";
+  | "operations_review_verified"
+  | "account_not_suspended"; // Batch 3 (spec §7.8) — suspension chặn publication
 
 export type SellerPublicationCheck = {
   ok: boolean;
@@ -185,6 +187,7 @@ export const SELLER_PUBLICATION_REQUIREMENT_LABELS: Record<SellerPublicationRequ
   seller_rules_accepted: "đồng ý Quy tắc người bán",
   founding_seller_membership_active: "thành viên founding_seller còn hoạt động",
   operations_review_verified: "được operations review xác minh",
+  account_not_suspended: "Tài khoản đang bị đình chỉ", // Batch 3 — label cho gate catch (spec §7.8)
 };
 
 /** Danh sách missing → text tiếng Việt (dùng trong thông báo lỗi user-facing). */
@@ -193,18 +196,19 @@ export function formatMissingRequirements(missing: SellerPublicationRequirement[
 }
 
 /**
- * Kiểm MỌI yêu cầu publication của một seller — đọc FRESH từ DB (4 lookup
+ * Kiểm MỌI yêu cầu publication của một seller — đọc FRESH từ DB (5 lookup
  * song song: User + PolicyAcceptance(seller_rules,v1) +
- * BetaCohortMembership(founding_seller) + SellerVerification).
+ * BetaCohortMembership(founding_seller) + SellerVerification +
+ * UserSuspension(active) — Batch 3 Task 5, spec §7.8).
  *
- * Fail closed: seller không tồn tại → thiếu cả 7 (không có đường "ok" nào
+ * Fail closed: seller không tồn tại → thiếu cả 8 (không có đường "ok" nào
  * không đi qua DB); mã tỉnh không hợp lệ (vd giá trị 63 tỉnh cũ) → coi như
  * chưa khai báo vị trí.
  */
 export async function checkSellerPublicationRequirements(
   sellerId: string,
 ): Promise<SellerPublicationCheck> {
-  const [user, rulesAcceptance, foundingMembership, verification] = await Promise.all([
+  const [user, rulesAcceptance, foundingMembership, verification, suspension] = await Promise.all([
     db.orm.public.User.first({ id: sellerId }),
     db.orm.public.PolicyAcceptance.first({
       userId: sellerId,
@@ -213,6 +217,8 @@ export async function checkSellerPublicationRequirements(
     }),
     db.orm.public.BetaCohortMembership.first({ userId: sellerId, cohort: "founding_seller" }),
     db.orm.public.SellerVerification.first({ userId: sellerId }),
+    // Batch 3 (spec §7.8): chỉ episode ACTIVE chặn — lifted = đã khôi phục
+    db.orm.public.UserSuspension.first({ userId: sellerId, status: "active" }),
   ]);
 
   const missing: SellerPublicationRequirement[] = [];
@@ -226,6 +232,7 @@ export async function checkSellerPublicationRequirements(
       "seller_rules_accepted",
       "founding_seller_membership_active",
       "operations_review_verified",
+      "account_not_suspended",
     ] };
   }
 
@@ -241,6 +248,11 @@ export async function checkSellerPublicationRequirements(
   }
   if (verification === null || verification.status !== "verified") {
     missing.push("operations_review_verified");
+  }
+  if (suspension !== null) {
+    // Batch 3 Task 5 (spec §7.8): suspension chặn MỌI transition vào
+    // duyệt/công khai — đọc FRESH mỗi lần gọi (lift → chặn NGAY được gỡ).
+    missing.push("account_not_suspended");
   }
 
   return { ok: missing.length === 0, missing };
