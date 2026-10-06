@@ -1,4 +1,5 @@
 /** Nhãn tiếng Việt cho các enum — dùng chung toàn app */
+import type { ReportReasonCode } from "@/src/lib/moderation-vocab";
 
 export const ROLE_LABELS: Record<string, string> = {
   buyer: "Người mua",
@@ -102,3 +103,24 @@ export const CITIES = [
   "Thừa Thiên Huế",
   "Khác",
 ];
+
+/**
+ * Nhãn tiếng Việt cho chín lý do báo cáo lạm dụng — spec §5.5 verbatim
+ * (Batch 3 Task 4; client-safe: type từ moderation-vocab — KHÔNG import
+ * moderation.ts vì module đó đọc db).
+ *
+ * PROVISIONAL (A8/FD-3): label là founder-authored content pending — Batch 8
+ * Founder Decision Register; giá trị hiện tại là placeholder rõ ràng, founder
+ * có thể đổi qua thay đổi additive trước beta.
+ */
+export const REPORT_REASON_LABELS: Record<ReportReasonCode, string> = {
+  suspected_scam: "Nghi lừa đảo",
+  harassment: "Quấy rối",
+  spam: "Spam",
+  counterfeit_claim: "Nghi hàng giả",
+  misleading_listing: "Tin đăng sai sự thật",
+  prohibited_content: "Nội dung bị cấm",
+  unsafe_behavior: "Hành vi không an toàn",
+  identity_impersonation: "Mạo danh",
+  other: "Khác",
+};

@@ -4,6 +4,7 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { getBlockState, isUserSuspended } from "@/src/lib/moderation";
 import { unblockUserAction } from "@/src/lib/actions/blocks";
+import { ReportDialog } from "@/src/components/report-dialog";
 import { ChatWindow } from "@/src/components/chat-window";
 import { formatVND } from "@/src/lib/utils";
 import { ArrowLeft, Ban, ShieldX } from "lucide-react";
@@ -78,6 +79,16 @@ export default async function ConversationPage({
                   Bỏ chặn
                 </button>
               </form>
+            )}
+            {/* Báo cáo người đối thoại (Batch 3 Task 4 — spec §5.5) — UI
+                convenience; action tự enforce auth + self-report server-side. */}
+            {other.id !== user.id && (
+              <ReportDialog
+                targetType="user"
+                targetId={other.id}
+                triggerLabel="Báo cáo"
+                className="btn-secondary h-8 px-3 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
+              />
             )}
             {listing && (
               <Link

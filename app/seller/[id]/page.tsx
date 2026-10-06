@@ -3,6 +3,7 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { getBlockState } from "@/src/lib/moderation";
 import { blockUserAction, unblockUserAction } from "@/src/lib/actions/blocks";
+import { ReportDialog } from "@/src/components/report-dialog";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import {
@@ -151,6 +152,18 @@ export default async function SellerProfilePage({
                 Bỏ chặn
               </button>
             </form>
+          )}
+
+          {/* Báo cáo người bán (Batch 3 Task 4 — spec §5.5) — chỉ render cho
+              người đã đăng nhập khác chính seller (UI convenience; action tự
+              enforce auth + self-report checks server-side). */}
+          {viewer !== null && viewer.id !== seller.id && (
+            <ReportDialog
+              targetType="user"
+              targetId={seller.id}
+              triggerLabel="Báo cáo"
+              className="btn-secondary h-9 px-3.5 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
+            />
           )}
         </div>
 
