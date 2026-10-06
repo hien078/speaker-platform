@@ -5,31 +5,39 @@
 **Spec:** `docs/superpowers/specs/2026-10-06-private-beta-marketplace-reset-design.md`
 **Worktree:** `batch2-implementation` (branch `opencode/batch2-implementation`)
 
-> ## ⛔ OVERALL VERDICT: **GATE FAIL** — 1 blocker
+> ## ✅ OVERALL VERDICT: **GATE PASS** — after blocker B1 fix (§5)
 >
-> Every unit/integration gate suite, the source-scan classification, lint, typegen,
-> typecheck, build, preflight (7/7), `npm audit`, the migration graph, and the real-DB
-> `db verify` are **green**. **`npm run smoke` FAILS** (§5): `scripts/smoke.sh` boots the
-> production standalone server without `ADMIN_MFA_ENCRYPTION_KEY`, which Batch 2 Task 8
-> made a production-required key with fail-fast `process.exit(1)`
-> (`src/lib/env.ts:26` → `instrumentation.ts:27`). The server exits before serving;
-> `/api/health` never returns `200 db=up`; smoke exits 1.
+> **History (first pass, commit `80d0db6`):** **GATE FAIL** — every unit/integration gate
+> suite, the source-scan classification, lint, typegen, typecheck, build, preflight (7/7),
+> `npm audit`, the migration graph, and the real-DB `db verify` were green, but
+> **`npm run smoke` FAILED**: `scripts/smoke.sh` booted the production standalone server
+> without `ADMIN_MFA_ENCRYPTION_KEY`, which Batch 2 Task 8 made a production-required key
+> with fail-fast `process.exit(1)` (`src/lib/env.ts:26` → `instrumentation.ts:27`). The
+> server exited before serving; `/api/health` never returned `200 db=up`; smoke exited 1.
 >
-> Per the Task 12 contract this task **verifies and does not fix**: the defect is recorded
-> here as a blocker with evidence (§5) and the remediation is left for a follow-up commit
-> (one line in `scripts/smoke.sh`, then re-run `npm run smoke`). **Batch 2 is not accepted
-> until the blocker is closed and smoke re-runs green.** No "PASS" is claimed anywhere in
-> this document.
+> **Fix (commit `676646e` `fix(smoke): provide admin MFA key to production smoke boot`):**
+> a random test key — **plain base64 of exactly 32 random bytes** (`openssl rand -base64 32`,
+> no prefix: `admin-mfa-key.ts` validates strict RFC 4648 → 32 bytes) — is now provided to
+> the `scripts/smoke.sh` export block + build placeholder, `scripts/docker-smoke.sh`, and
+> the compose-smoke app service (`tests/docker/docker-compose.smoke.yml`); the same omission
+> existed in the docker-smoke stack (`Dockerfile:43` `NODE_ENV=production`). Scripts only —
+> zero product-code changes.
+>
+> **Re-verification (all green):** `npm run smoke` → **SMOKE PASS** (health `200 db=up`,
+> every finance-shutdown check green); `npm run preflight` → **7/7 gates PASS**;
+> `npm run docker:smoke` → **DOCKER SMOKE PASS** (isolated compose stack, migrate marker
+> present). Full evidence in §5.
 
 ---
 
 ## 1. Commits
 
-Base: `e13f65e` (Batch 1 complete). Pre-doc HEAD: `effc70b`. This document is committed as
-the Task 12 commit (`test(batch2): verify identity & security gate`).
+Base: `e13f65e` (Batch 1 complete). Task 12 produced three commits on top of `effc70b`
+(Tasks 1–11 + review fixes): the first-pass verification doc (`80d0db6`, GATE FAIL record),
+the B1 fix (`676646e`), and this amendment recording the re-verified **GATE PASS**.
 
 ```
-$ git log --oneline e13f65e..HEAD
+$ git log --oneline e13f65e..HEAD   (at first pass; +80d0db6 +676646e + this doc commit after)
 effc70b fix(admin): make bootstrap runbook production-safe
 3c46c7d feat(admin): role management, bootstrap, recovery runbook
 ec40ef1 fix(seller): close verification workflow gaps
@@ -52,7 +60,9 @@ d46b328 fix(identity): harden account recovery
 42e9639 feat(db): add batch 2 identity & security contract
 ```
 
-21 commits = Tasks 1–11 (11 feature commits) + 10 independent-review fix commits.
+The 21 commits above = Tasks 1–11 (11 feature commits) + 10 independent-review fix
+commits. Task 12 added: `80d0db6` (first-pass verification doc — GATE FAIL record),
+`676646e` (B1 fix — §5), and the doc amendment recording GATE PASS.
 No push/merge/deploy performed at any point.
 
 **OpenCode metadata:** model `home-gateway/OneNexus/glm-5.3#max` (OneNexus GLM 5.3).
@@ -224,8 +234,9 @@ enforced by review + this scan.
 | 4 | `npm test` (full unit) | **PASS** — **682/682, 38 files** (Batch 1 finance suites + all Batch 2 suites green) |
 | 5 | `npm run test:integration` | **PASS** — 50/50, 7 files (§2 gate 9; scratch container cleaned) |
 | 6 | `npm run build` | **PASS** — exit 0; routes `/recover`, `/sell/verification`, `/admin/security`, `/admin/seller-verification`, `/admin/audit` present; **1 pre-existing warning only** (`instrumentation.ts:27` `process.exit` in Edge Runtime — from Batch 0/1 commit `b8e1c85`, untouched by Batch 2: `git log e13f65e..HEAD -- instrumentation.ts` is empty) |
-| 7 | `npm run preflight` | **PREFLIGHT PASS — 7/7 gates**: contract-emit-drift, lint, typecheck, unit-tests, production-build (placeholder env), compose-config (incl. `ADMIN_MFA_ENCRYPTION_KEY` placeholder), migration-graph |
-| 8 | `npm run smoke` | ❌ **FAIL — BLOCKER** (§5) |
+| 7 | `npm run preflight` | **PREFLIGHT PASS — 7/7 gates**: contract-emit-drift, lint, typecheck, unit-tests, production-build (placeholder env), compose-config (incl. `ADMIN_MFA_ENCRYPTION_KEY` placeholder), migration-graph — re-run after the B1 fix: **7/7 PASS again** |
+| 8 | `npm run smoke` | First pass: ❌ **FAIL — blocker B1** (§5). **After fix `676646e`: ✅ SMOKE PASS** (exit 0) — health `200 db=up`; home/login 200; chat 401; momo create/ipn 503 typed; cron wrong-secret 401 / correct-secret 503 typed; 9 retired finance pages 404; momo return 500 unavailable |
+| 8b | `npm run docker:smoke` (compose-smoke stack — same omission fixed) | **DOCKER SMOKE PASS** (exit 0, after fix) — isolated project `sp-smoke-<ts>`: health 200 + `db=up`, all finance-shutdown checks green, `prisma_contract.marker` present (migrate service ran), `down -v` teardown |
 | 9 | `npm audit --omit=dev` | **Recorded** — `otpauth`/`@noble/hashes` add **no findings**; 1 pre-existing high (`source-map-js@1.2.1`, GHSA-68fv-2mgg-jv7q, event-loop DoS) via dev toolchains only (`@prisma/cli-engine`→c12→magicast, `@tailwindcss/*`, `next`→postcss) — present before Batch 2 (verified in Task 8 by stashing), **not** reachable from `otpauth`; dev-only chain, no runtime path from Batch 2 code |
 
 **Dependency pinning (Global Constraints):** `package.json:31` `"otpauth": "9.5.2"`
@@ -235,9 +246,9 @@ new dependency.
 
 ---
 
-## 5. ⛔ Blocker: `npm run smoke` FAILS — production boot env missing `ADMIN_MFA_ENCRYPTION_KEY`
+## 5. Blocker B1 — `npm run smoke` FAILED on first pass; **RESOLVED by fix `676646e`** (re-verified green)
 
-**Evidence** (`scripts/smoke.sh` run of 2026-10-06 20:41, log `/tmp/loaviet/batch2-task12-smoke.log`):
+### 5.1 What failed (first pass, 2026-10-06 20:41 — log `/tmp/loaviet/batch2-task12-smoke.log`)
 
 ```
 ── start standalone server (parity Docker: node server.js) — PID được track
@@ -254,36 +265,62 @@ FAIL: /api/health không lên 200 db=up sau 60s
 
 1. Task 8 added `ADMIN_MFA_ENCRYPTION_KEY` to the production-required set —
    `src/lib/env.ts:21-27` (`REQUIRED_KEYS`), validated base64-of-exactly-32-bytes
-   (`src/lib/env.ts:98-109`).
+   (`src/lib/env.ts:98-109` + `src/lib/admin-mfa-key.ts:39-43` strict RFC 4648).
 2. `instrumentation.ts:24-27` fail-fasts in production: missing key → `console.error` +
    `process.exit(1)` **before the first request**.
-3. `scripts/smoke.sh:94-105` boots the standalone server with `NODE_ENV=production` and
-   exports `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET`, `FINANCIAL_FEATURES_ENABLED`,
-   `NEXT_PUBLIC_APP_URL`, `TRUST_PROXY_HEADERS`, `PORT`, `HOSTNAME` — **but not
-   `ADMIN_MFA_ENCRYPTION_KEY`** (repo `.env` also lacks it; standalone does not load repo
-   env files).
-4. The server exits during instrumentation startup → the health loop never sees
+3. `scripts/smoke.sh` (pre-fix export block) booted the standalone server with
+   `NODE_ENV=production` and exported `DATABASE_URL`, `AUTH_SECRET`, `CRON_SECRET`,
+   `FINANCIAL_FEATURES_ENABLED`, `NEXT_PUBLIC_APP_URL`, `TRUST_PROXY_HEADERS`, `PORT`,
+   `HOSTNAME` — **but not `ADMIN_MFA_ENCRYPTION_KEY`** (repo `.env` also lacks it;
+   standalone does not load repo env files).
+4. The server exited during instrumentation startup → the health loop never saw
    `200 {"db":"up"}` → `SMOKE FAIL` exit 1.
 
-**Scope of the defect:** `scripts/smoke.sh` was last touched in Batch 1
-(`git log e13f65e..HEAD -- scripts/smoke.sh` is empty). The plan's Task 8 Files list named
-`.env.example`, `docker-compose.prod.yml`, `scripts/preflight.sh` — **not** `scripts/smoke.sh`;
-the preflight compose gate got its placeholder, the smoke production boot did not. This is a
-plan-level omission that the Task 12 gate exists to catch. The fail-fast itself is **correct
-production behavior** (a production deploy without the key must refuse to start); only the
-smoke harness env is wrong.
+**Root cause / scope:** a **plan-level omission** — the plan's Task 8 Files list named
+`.env.example`, `docker-compose.prod.yml`, `scripts/preflight.sh` — **not**
+`scripts/smoke.sh` (untouched since Batch 1: `git log e13f65e..HEAD -- scripts/smoke.sh`
+was empty pre-fix). The preflight compose gate got its placeholder; the smoke production
+boot did not. The fail-fast itself is **correct production behavior** (a production deploy
+without the key must refuse to start — `docker-compose.prod.yml:49,73` already interpolates
+it); only the smoke harness env was wrong. The **same omission existed in the docker-smoke
+stack**: `tests/docker/docker-compose.smoke.yml` app service had no
+`ADMIN_MFA_ENCRYPTION_KEY` while `Dockerfile:43` sets `NODE_ENV=production` → the app
+container would fail-fast identically.
 
-**Remediation (NOT applied here — this task verifies and must not fix):** one follow-up
-commit adding a random test value to `scripts/smoke.sh`'s export block, mirroring the
-`AUTH_SECRET`/`CRON_SECRET` pattern:
+### 5.2 The fix — commit `676646e` `fix(smoke): provide admin MFA key to production smoke boot`
+
+3 files, +20 lines, scripts/compose only — **zero product-code changes**. The test value is
+**plain base64 of exactly 32 random bytes** (`openssl rand -base64 32` → 44 chars,
+decodes to 32 bytes, passes `isValidAdminMfaKeyEnv`) — **no `smoke-` prefix** (unlike
+`AUTH_SECRET`/`CRON_SECRET`, a prefix would break the strict RFC 4648 → 32-byte validation
+in `admin-mfa-key.ts:27,39-43`):
 
 ```bash
-export ADMIN_MFA_ENCRYPTION_KEY="smoke-$(openssl rand -base64 32 | tr -d '\n')"
+export ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 ```
 
-…then re-run `npm run smoke` (expected: health 200 db=up; the finance-shutdown checks
-re-verified green) and re-record this section. Until then **the Batch 2 acceptance gate is
-FAIL**.
+| File | Change |
+|---|---|
+| `scripts/smoke.sh` | export block gains the key (random base64-32, comment explains the no-prefix rule); the build-placeholder env also gains it for consistency (build does **not** run the fail-fast — preflight's production-build gate passes without it — but the env stays complete) |
+| `scripts/docker-smoke.sh` | export block gains the same random key (feeds compose interpolation) |
+| `tests/docker/docker-compose.smoke.yml` | app service environment gains `ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?docker-smoke.sh set}` (required interpolation, same pattern as `AUTH_SECRET`/`CRON_SECRET`) |
+
+Checked for the same omission, **no change needed**: `scripts/preflight.sh:55` already
+passes `ADMIN_MFA_ENCRYPTION_KEY="preflight-placeholder"` to the compose-**config** gate
+(file interpolation validation only — no server boot); `docker-compose.prod.yml:49,73`
+already interpolates the real key (Task 8/11).
+
+### 5.3 Re-verification evidence (all green, 2026-10-06 after `676646e`)
+
+| Command | Result |
+|---|---|
+| `npm run smoke` (log `/tmp/loaviet/batch2-task12-smoke-rerun.log`) | **SMOKE PASS — exit 0**: `✔ /api/health → 200 db=up`; home/login 200; chat 401; momo create + ipn 503 `FINANCIAL_FEATURES_DISABLED`; cron correct-secret 503 typed / wrong-secret 401; 9 retired finance pages 404; momo return 500 unavailable — no `ENV_VALIDATION_FAILED` line |
+| `npm run preflight` (log `/tmp/loaviet/batch2-task12-preflight-rerun.log`) | **PREFLIGHT PASS — 7/7 gates** (contract-emit-drift, lint, typecheck, unit-tests, production-build, compose-config, migration-graph) |
+| `npm run docker:smoke` (log `/tmp/loaviet/batch2-task12-docker-smoke.log`) | **DOCKER SMOKE PASS — exit 0**: isolated project `sp-smoke-<ts>`; health 200 + body `db=up`; all finance-shutdown checks green; `prisma_contract.marker` present (migrate service ran); teardown `down -v` |
+
+The fix touches only smoke harness scripts/compose — no gate suite, no product code, no
+migration — so the §2/§3/§4/§6 first-pass results remain valid; smoke/preflight/docker-smoke
+were re-run in full as shown above.
 
 ---
 
@@ -455,11 +492,16 @@ server actions are POST-only with built-in origin protection; no custom token la
 | Batch 1 preserved (finance shutdown + additive migration) | ✅ all finance suites green; `FINANCIAL_FEATURES_ENABLED=false` everywhere; 0 destructive ops |
 | Gate scope explicit (A1 verbatim) | ✅ §7.3 |
 | Preflight (7 gates), integration suite, `npm audit` (new dep clean) | ✅ §4 |
-| **Safe smoke** | ❌ **FAIL — §5 blocker** |
+| **Safe smoke** | ✅ **PASS after fix `676646e`** — first run ❌ FAIL (blocker B1, §5); re-run **SMOKE PASS** (health 200 db=up + all finance checks); `npm run docker:smoke` → **DOCKER SMOKE PASS** (§5.3) |
 | Diff/status audit clean | ✅ §6 |
 
-**GATE FAIL — one blocker (`npm run smoke`, §5).** All other acceptance bullets pass.
-Batch 2 is **not accepted** until the smoke harness env is fixed (one line in
-`scripts/smoke.sh`, follow-up commit) and `npm run smoke` re-runs green; this document must
-then be amended with the re-run result. Nothing in this task changed product code: the only
-commit is this document.
+**GATE PASS — blocker B1 resolved (§5).** Every acceptance bullet is green. History: the
+first verification pass (`80d0db6`) recorded GATE FAIL on `npm run smoke` (missing
+`ADMIN_MFA_ENCRYPTION_KEY` in the smoke production boot env — a plan-level Task 8 omission);
+fix `676646e` provides a random plain-base64-32 test key to `scripts/smoke.sh`,
+`scripts/docker-smoke.sh`, and `tests/docker/docker-compose.smoke.yml` (scripts only, zero
+product-code changes), and smoke + preflight + docker-smoke were re-run green (§5.3).
+**Batch 2 is accepted.** The A1 gate-scope distinction stands (§7.3): the implementation
+gate passes in every environment without a production OTP provider; beta launch
+additionally requires the founder to configure one — a launch prerequisite, not a Batch 2
+gate failure.
