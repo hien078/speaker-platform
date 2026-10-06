@@ -97,13 +97,12 @@ Chi tiết đầy đủ (verify/restore/retention): **docs/backup-restore.md** �
 **docs/runbook.md** (release/rollback/migration status/stop gates).
 
 ```bash
-# backup mỗi đêm 2h — crontab (container db có tên cố định loaviet-db):
-0 2 * * * docker exec loaviet-db pg_dump -U loaviet -Fc loaviet | gzip > /backup/db-$(date +\%F).dump
+# backup mỗi đêm 2h, giữ 30 bản gần nhất — crontab của user sở hữu /opt/loaviet
+# (db không publish port; scripts/db-ops.sh chạy pg_dump trong container tạm cùng network):
+0 2 * * * cd /opt/loaviet && ./scripts/db-ops.sh backup --keep 30 >> backups/backup.log 2>&1
 
-# giữ 30 bản gần nhất:
-0 3 * * * find /backup -name "db-*.dump" -mtime +30 -delete
-
-# verify restore (non-destructive) 1 lần/tuần — xem docs/backup-restore.md mục 2
+# verify restore (non-destructive) 1 lần/tuần:
+0 4 * * 0 cd /opt/loaviet && ./scripts/db-ops.sh verify "$(ls -t backups/db-loaviet-*.dump | head -1)" >> backups/verify.log 2>&1
 ```
 
 ## 6. Vận hành thường ngày

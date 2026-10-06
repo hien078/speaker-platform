@@ -43,7 +43,7 @@ Stop gates bổ sung (thủ công, trên server):
 
 - [ ] `.env` production: `DB_PASSWORD`, `AUTH_SECRET`, `CRON_SECRET` (32+ hex), `NEXT_PUBLIC_APP_URL=https://<domain>`, MoMo credentials thật
 - [ ] `docker compose -f docker-compose.prod.yml config` không lỗi (compose fail-fast khi thiếu env)
-- [ ] Backup đêm đã chạy ít nhất 1 lần và **verify restore** qua `scripts/restore-db.sh --verify` (docs/backup-restore.md)
+- [ ] Backup đêm đã chạy ít nhất 1 lần (`ls -lt backups/ | head`) và **verify restore** qua `./scripts/db-ops.sh verify <file>` (docs/backup-restore.md)
 - [ ] Cron escrow auto-release đã cài (mục 5) và test 401/200
 - [ ] `npm audit` đã triage (mục 7) — không có critical chưa xử lý
 
@@ -86,10 +86,13 @@ trên schema mới. Các migration hiện tại đều additive (baseline) nên 
 # 1) dừng app (KHÔNG dừng db)
 docker compose -f docker-compose.prod.yml stop app
 # 2) restore backup vào DB MỚI (script từ chối đè — docs/backup-restore.md)
-./scripts/restore-db.sh --file backups/db-loaviet-<ts>.dump \
-  --url "postgresql://loaviet:$DB_PASSWORD@localhost:5432/postgres" --into loaviet_restored
+./scripts/db-ops.sh restore backups/db-loaviet-<ts>.dump loaviet_restored
 # 3) kiểm tra dữ liệu trong loaviet_restored
-# 4) đổi DATABASE_URL sang loaviet_restored trong .env, up lại
+docker exec loaviet-db psql -U loaviet -d loaviet_restored -c 'select count(*) from "User"'
+# 4) DATABASE_URL trong compose trỏ cố định DB "loaviet" → đổi tên DB (giữ bản cũ), up lại
+docker exec loaviet-db psql -U loaviet -d postgres \
+  -c 'ALTER DATABASE loaviet RENAME TO loaviet_old_<ts>' \
+  -c 'ALTER DATABASE loaviet_restored RENAME TO loaviet'
 docker compose -f docker-compose.prod.yml up -d
 ```
 
@@ -133,16 +136,16 @@ Chẩn đoán (xem .agents/skills/prisma-8/references/migration-review.md):
 ## 6. Backup — thiết kế lịch (đã xác minh)
 
 ```
-0 2 * * *  backup  (pg_dump custom format, nén)     ──► backups/db-loaviet-<UTC>.dump
-0 3 * * *  prune   (giữ 30 bản gần nhất)
-0 4 * * *  verify  (restore --verify vào DB mới)    ──► khuyến nghị 1 lần/tuần
-0 5 1 * *  copy    (rclone/s3 sync 1 bản/tháng ra object storage ngoài VPS)
+0 2 * * *  backup + prune  (db-ops.sh backup --keep 30)  ──► backups/db-loaviet-<UTC>.dump
+0 4 * * 0  verify          (db-ops.sh verify <mới nhất>) ──► restore vào DB mới, 1 lần/tuần
+0 5 1 * *  copy            (rclone/s3 sync 1 bản/tháng ra object storage ngoài VPS)
 ```
 
-- Backup chạy **trên host** (không trong container app) qua `docker exec loaviet-db pg_dump`
-  hoặc `scripts/backup-db.sh --url ...` (docs/backup-restore.md).
+- Cron chạy **trên host** qua `scripts/db-ops.sh` (docs/backup-restore.md): db không publish
+  port, nên script chạy `backup-db.sh`/`restore-db.sh` trong container tạm `postgres:16-alpine`
+  cùng network với `loaviet-db`. Không dùng `--url ...@localhost:5432` trên production.
 - **VPS chết không kéo theo backup**: bắt buộc có bản sao ngoài VPS (rclone/S3).
-- Test restore sau mỗi migration destructive (verify mode rẻ: `restore-db.sh --verify`).
+- Test restore sau mỗi migration destructive (verify mode rẻ: `db-ops.sh verify`).
 
 ## 7. npm audit — triage hiện tại (2026-10-05)
 

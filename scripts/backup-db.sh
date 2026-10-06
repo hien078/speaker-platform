@@ -48,12 +48,19 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 FILE="$OUT_DIR/db-${NAME}-${TS}.dump"
 
 echo "→ pg_dump custom format → $FILE"
-pg_dump "$URL" --format=custom --file="$FILE"
+# Dump vào file tạm, chỉ đổi tên thành .dump khi dump + kiểm tra TOC thành công.
+# Dump lỗi không được để lại file .dump rỗng/dở: retention (--keep) đếm theo
+# *.dump nên file hỏng sẽ đẩy các bản backup tốt ra ngoài.
+PART="$FILE.partial"
+trap 'rm -f "$PART"' EXIT
+pg_dump "$URL" --format=custom --file="$PART"
 
 # Kiểm tra tính toàn vẹn KHÔNG phá hủy: đọc TOC từ archive.
 # sed -n '1,5p' đọc TOÀN BỘ input (không đóng pipe sớm như head —
 # pg_restore bị SIGPIPE dưới 'set -o pipefail' sẽ giết script ở đây).
-TOC="$(pg_restore --list "$FILE")"
+TOC="$(pg_restore --list "$PART")"
+mv "$PART" "$FILE"
+trap - EXIT
 echo "→ Verify archive (pg_restore --list):"
 printf '%s\n' "$TOC" | sed -n '1,5p'
 echo "  … ($(printf '%s\n' "$TOC" | grep -c 'TABLE DATA') bảng dữ liệu trong archive)"
