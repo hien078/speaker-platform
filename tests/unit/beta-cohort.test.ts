@@ -284,6 +284,19 @@ describe("setBetaMembershipAction — requireCapability(beta_cohort.manage)", ()
       setBetaMembershipAction(fd({ userId: BUYER.id, cohort: "founding_seller", status: "active" })),
     ).rejects.toThrow("FORBIDDEN");
   });
+
+  it("(M3) admin tự cấp/sửa membership CỦA CHÍNH MÌNH → SELF_GRANT_FORBIDDEN, không mutation", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+
+    await expect(
+      setBetaMembershipAction(
+        fd({ userId: ADMIN_OPS.id, cohort: "founding_seller", status: "active" }),
+      ),
+    ).rejects.toThrow("SELF_GRANT_FORBIDDEN");
+
+    expect(dbState.memberships).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
 });
 
 // ─── 2. Upsert + audit ────────────────────────────────────────────────────────

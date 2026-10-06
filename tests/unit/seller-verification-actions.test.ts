@@ -92,6 +92,8 @@ vi.mock("@/src/prisma/db.client", () => {
           lte: (v: unknown) => (row[field] as number) <= (v as number),
           gt: (v: unknown) => (row[field] as number) > (v as number),
           gte: (v: unknown) => (row[field] as number) >= (v as number),
+          // IN ở cấp FIELD — đúng signature thật: .where((v) => v.status.in([...]))
+          in: (values: readonly unknown[]) => Array.isArray(values) && values.includes(row[field]),
           isNull: () => row[field] === null,
           isNotNull: () => row[field] !== null,
         }),
@@ -442,6 +444,115 @@ describe("declareSellerProfileAction — khai báo seller type + mã tỉnh (FD-
 
     expect(dbState.audits).toHaveLength(0);
   });
+
+  // ─── Review fix M2 — khai báo đổi sau khi verified ─────────────────────────
+
+  it("(M2) khai báo KHÔNG đổi → no-op: không update, không đụng verification, không audit", async () => {
+    const seller = seedSeller({ sellerType: "individual", sellerOperatingProvinceCode: "ha-noi" });
+    const row = seedVerification("verified", { reasonCode: "requirements_met" });
+    login(seller);
+    const auditsBefore = dbState.audits.length;
+
+    const state = await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "individual", operatingProvinceCode: "ha-noi" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(row.status).toBe("verified"); // KHÔNG bị chuyển needs_review
+    expect(dbState.audits).toHaveLength(auditsBefore); // không audit mới
+  });
+
+  it("(M2) đổi sellerType khi đang verified → verification chuyển needs_review (CAS) + audit + notify", async () => {
+    const seller = seedSeller({ sellerType: "individual", sellerOperatingProvinceCode: "ha-noi" });
+    const row = seedVerification("verified", { reasonCode: "requirements_met", reviewedAt: "2026-10-01T00:00:00.000Z" });
+    login(seller);
+
+    const state = await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "business", operatingProvinceCode: "ha-noi" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(dbState.users.find((u) => u.id === seller.id)!.sellerType).toBe("business");
+    // verification: verified → needs_review (fail closed — gate chặn tới khi ops quyết lại)
+    expect(row.status).toBe("needs_review");
+    expect(row.reasonCode).toBe("identity_information_inconsistent");
+    const evt = dbState.audits.find((r) => r.action === "seller_verification.declaration_changed");
+    expect(evt).toMatchObject({
+      actorId: seller.id,
+      subjectId: seller.id,
+      resourceType: "SellerVerification",
+      resourceId: row.id,
+      reason: "identity_information_inconsistent",
+      policyVersion: "v1",
+    });
+    // seller được báo (notify) — không bị bỏ mặc trong bóng tối
+    const notif = dbState.notifications.find((r) => r.userId === seller.id);
+    expect(notif).toBeTruthy();
+    expect(notif!.link).toBe("/sell/verification");
+  });
+
+  it("(M2) đổi mã tỉnh khi đang verified → cũng chuyển needs_review", async () => {
+    const seller = seedSeller({ sellerType: "individual", sellerOperatingProvinceCode: "ha-noi" });
+    const row = seedVerification("verified", { reasonCode: "requirements_met" });
+    login(seller);
+
+    await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "individual", operatingProvinceCode: "da-nang" }),
+    );
+
+    expect(row.status).toBe("needs_review");
+  });
+
+  it("(M2) đổi khai báo khi CHƯA verified → verification không bị đụng (không có gì để invalidate)", async () => {
+    const seller = seedSeller({ sellerType: "individual", sellerOperatingProvinceCode: "ha-noi" });
+    const row = seedVerification("pending");
+    login(seller);
+
+    await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "business", operatingProvinceCode: "ho-chi-minh" }),
+    );
+
+    expect(row.status).toBe("pending"); // pending không phải verified — không chuyển
+  });
+
+  it("(M2) gate CHẶN ngay sau khi khai báo đổi (fail closed — needs_review ≠ verified)", async () => {
+    // dùng policy thật: sau khi declare đổi + verification needs_review →
+    // checkSellerPublicationRequirements thiếu operations_review_verified
+    const { checkSellerPublicationRequirements } = await import("@/src/lib/seller-verification-policy");
+    const seller = seedSeller({
+      sellerType: "individual",
+      sellerOperatingProvinceCode: "ha-noi",
+      emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+      phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+    });
+    dbState.acceptances.push({
+      id: `pa-${dbState.acceptances.length + 1}`,
+      userId: seller.id,
+      policyKey: "seller_rules",
+      policyVersion: "v1",
+      acceptedAt: new Date().toISOString(),
+    });
+    seedVerification("verified", { reasonCode: "requirements_met" });
+    login(seller);
+
+    // trước khi đổi: đủ cả 7
+    const before = await checkSellerPublicationRequirements(seller.id);
+    expect(before.ok).toBe(true);
+
+    await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "business", operatingProvinceCode: "ha-noi" }),
+    );
+
+    // sau khi đổi: gate chặn (operations_review_verified thiếu)
+    const after = await checkSellerPublicationRequirements(seller.id);
+    expect(after.ok).toBe(false);
+    expect(after.missing).toEqual(["operations_review_verified"]);
+  });
 });
 
 // ─── 2. submitSellerVerificationAction ───────────────────────────────────────
@@ -741,5 +852,154 @@ describe("reviewSellerVerificationAction — quyết định (spec §5.3.3)", ()
         fd({ userId: seller.id, decision: "verified", reasonCode: "requirements_met" }),
       ),
     ).rejects.toThrow("FORBIDDEN");
+  });
+});
+
+// ─── 3b. Review fix M1 — needs_review không còn ngõ chết ─────────────────────
+
+describe("reviewSellerVerificationAction — needs_review có đường ra (M1)", () => {
+  it("quyết định CUỐI (verified) claim từ row needs_review", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("needs_review", { reasonCode: "business_claim_needs_evidence" });
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await reviewSellerVerificationAction(
+      fd({ userId: seller.id, decision: "verified", reasonCode: "requirements_met" }),
+    );
+
+    expect(row.status).toBe("verified");
+    expect(row.reasonCode).toBe("requirements_met");
+  });
+
+  it("quyết định CUỐI (rejected) claim từ row needs_review", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("needs_review");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await reviewSellerVerificationAction(
+      fd({ userId: seller.id, decision: "rejected", reasonCode: "duplicate_account_risk" }),
+    );
+
+    expect(row.status).toBe("rejected");
+  });
+
+  it("decision=needs_review CHỈ claim từ pending (đánh dấu lại needs_review → ALREADY_REVIEWED)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("needs_review");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: seller.id, decision: "needs_review", reasonCode: "manual_risk_review" }),
+      ),
+    ).rejects.toThrow("VERIFICATION_ALREADY_REVIEWED");
+
+    expect(row.status).toBe("needs_review"); // giữ nguyên
+  });
+
+  it("revoked vẫn CHỈ claim từ verified (không phải từ needs_review)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("needs_review");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: seller.id, decision: "revoked", reasonCode: "abuse_case_unresolved" }),
+      ),
+    ).rejects.toThrow("VERIFICATION_ALREADY_REVIEWED");
+
+    expect(row.status).toBe("needs_review");
+  });
+});
+
+// ─── 3c. Review fix M3 — tự duyệt / tự cấp ────────────────────────────────────
+
+describe("reviewSellerVerificationAction — SELF-REVIEW bị chặn (M3)", () => {
+  it("admin duyệt CHÍNH MÌNH → SELF_REVIEW_FORBIDDEN, không mutation, không audit", async () => {
+    // admin-ops cũng là một seller có hồ sơ pending
+    const opsAsSeller = mkUser({
+      id: "admin-ops",
+      email: "ops@loaviet.test",
+      name: "Ops",
+      role: "admin",
+      adminRole: "operations_admin",
+      emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+      phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+      sellerType: "individual",
+      sellerOperatingProvinceCode: "ha-noi",
+    });
+    dbState.users.length = 0;
+    dbState.users.push(opsAsSeller);
+    const row = seedVerification("pending");
+    dbState.memberships.length = 0;
+    login(opsAsSeller, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: "admin-ops", decision: "verified", reasonCode: "requirements_met" }),
+      ),
+    ).rejects.toThrow("SELF_REVIEW_FORBIDDEN");
+
+    expect(row.status).toBe("pending");
+    expect(dbState.audits.filter((r) => r.action === "seller_verification.reviewed")).toHaveLength(0);
+  });
+});
+
+// ─── 3d. Review fix L2 — reason code tương thích quyết định ───────────────────
+
+describe("reviewSellerVerificationAction — reason code map (L2, PROVISIONAL)", () => {
+  it("migrated_legacy_verified bị từ chối khỏi MỌI quyết định người (chỉ backfill dùng)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("pending");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: seller.id, decision: "verified", reasonCode: "migrated_legacy_verified" }),
+      ),
+    ).rejects.toThrow("REASON_CODE_INCOMPATIBLE");
+
+    expect(row.status).toBe("pending"); // không mutation
+  });
+
+  it("verified + duplicate_account_risk → REASON_CODE_INCOMPATIBLE (cặp vô nghĩa)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("pending");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: seller.id, decision: "verified", reasonCode: "duplicate_account_risk" }),
+      ),
+    ).rejects.toThrow("REASON_CODE_INCOMPATIBLE");
+
+    expect(row.status).toBe("pending");
+  });
+
+  it("rejected + requirements_met → REASON_CODE_INCOMPATIBLE (requirements_met chỉ dành verified)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("pending");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      reviewSellerVerificationAction(
+        fd({ userId: seller.id, decision: "rejected", reasonCode: "requirements_met" }),
+      ),
+    ).rejects.toThrow("REASON_CODE_INCOMPATIBLE");
+
+    expect(row.status).toBe("pending");
+  });
+
+  it("cặp HỢP LỆ theo map vẫn pass (needs_review + business_claim_needs_evidence)", async () => {
+    const seller = seedSeller();
+    const row = seedVerification("pending");
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await reviewSellerVerificationAction(
+      fd({ userId: seller.id, decision: "needs_review", reasonCode: "business_claim_needs_evidence" }),
+    );
+
+    expect(row.status).toBe("needs_review");
+    expect(row.reasonCode).toBe("business_claim_needs_evidence");
   });
 });

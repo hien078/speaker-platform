@@ -365,4 +365,106 @@ d("revoke → gate blocks → re-submit → re-verify → gate passes", () => {
     expect(row!.reasonCode).toBe("requirements_met");
     expect(row!.reviewerId).toBe(admin); // quyết định ĐẦU giữ nguyên
   });
+
+  it("(review fix M1) needs_review KHÔNG ngõ chết — quyết định cuối claim được từ needs_review (DB thật, IN query)", async () => {
+    const seller = await mkUser("seller");
+    const admin = await mkUser("admin", { adminRole: "operations_admin" });
+    created.users.push(seller, admin);
+
+    await db.orm.public.User.where({ id: seller }).update({
+      emailVerifiedAt: new Date().toISOString(),
+      phoneVerifiedAt: new Date().toISOString(),
+    });
+    await login(seller);
+    await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "individual", operatingProvinceCode: "hue" }),
+    );
+    await login(admin, { isAdmin: true });
+    await setBetaMembershipAction(
+      fd({ userId: seller, cohort: "founding_seller", status: "active" }),
+    );
+    await login(seller);
+    await submitSellerVerificationAction({}, fd({ acceptSellerRules: "on" }));
+
+    // pending → needs_review
+    await login(admin, { isAdmin: true });
+    await stepUpCurrentSession(admin);
+    await reviewSellerVerificationAction(
+      fd({ userId: seller, decision: "needs_review", reasonCode: "business_claim_needs_evidence" }),
+    );
+    expect((await db.orm.public.SellerVerification.first({ userId: seller }))!.status).toBe("needs_review");
+
+    // needs_review → verified (quyết định cuối — claim IN (pending, needs_review))
+    await reviewSellerVerificationAction(
+      fd({ userId: seller, decision: "verified", reasonCode: "requirements_met" }),
+    );
+    const row = await db.orm.public.SellerVerification.first({ userId: seller });
+    expect(row!.status).toBe("verified");
+    expect(row!.reasonCode).toBe("requirements_met");
+    expect((await checkSellerPublicationRequirements(seller)).ok).toBe(true);
+  });
+
+  it("(review fix L4 — Review Focus 5) HAI quyết định ĐỒNG THỜI (Promise.allSettled) — đúng MỘT thắng, MỘT typed error, MỘT audit", async () => {
+    const seller = await mkUser("seller");
+    const admin = await mkUser("admin", { adminRole: "operations_admin" });
+    created.users.push(seller, admin);
+
+    await db.orm.public.User.where({ id: seller }).update({
+      emailVerifiedAt: new Date().toISOString(),
+      phoneVerifiedAt: new Date().toISOString(),
+    });
+    await login(seller);
+    await declareSellerProfileAction(
+      {},
+      fd({ sellerType: "individual", operatingProvinceCode: "can-tho" }),
+    );
+    await login(admin, { isAdmin: true });
+    await setBetaMembershipAction(
+      fd({ userId: seller, cohort: "founding_seller", status: "active" }),
+    );
+    await login(seller);
+    await submitSellerVerificationAction({}, fd({ acceptSellerRules: "on" }));
+
+    // MỘT admin, MỘT session step-up tươi, HAI request review ĐỒNG THỜI
+    // (double-submit) trên cùng row pending — atomic claim phải để đúng MỘT
+    // thắng; request thua thấy typed VERIFICATION_ALREADY_REVIEWED.
+    await login(admin, { isAdmin: true });
+    await stepUpCurrentSession(admin);
+
+    const review = (decision: string, reason: string) =>
+      reviewSellerVerificationAction(fd({ userId: seller, decision, reasonCode: reason }))
+        .then(() => "fulfilled" as const)
+        .catch((e: unknown) => `rejected:${(e as Error).message}` as const);
+
+    const [a, b] = await Promise.all([
+      review("verified", "requirements_met"),
+      review("rejected", "duplicate_account_risk"),
+    ]);
+
+    const outcomes = [a, b];
+    expect(outcomes.filter((o) => o === "fulfilled")).toHaveLength(1);
+    const rejected = outcomes.filter((o) => o !== "fulfilled");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toBe("rejected:VERIFICATION_ALREADY_REVIEWED");
+
+    // row: đúng MỘT quyết định thắng — KHÔNG ghi đè lẫn nhau
+    const row = await db.orm.public.SellerVerification.first({ userId: seller });
+    expect(row!.reviewerId).toBe(admin);
+    if (row!.status === "verified") {
+      expect(row!.reasonCode).toBe("requirements_met");
+    } else {
+      expect(row!.status).toBe("rejected");
+      expect(row!.reasonCode).toBe("duplicate_account_risk");
+    }
+
+    // audit: đúng MỘT event reviewed cho row này (claim + auditEventTx cùng
+    // tx — request thua rollback sạch, KHÔNG ghi vết quyết định mình không có)
+    const events = await db.orm.public.AuditEvent
+      .where({ action: "seller_verification.reviewed", subjectId: seller })
+      .all();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.reason).toBe(row!.reasonCode);
+    expect(events[0]!.actorId).toBe(admin);
+  });
 });

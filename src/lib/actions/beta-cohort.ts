@@ -51,6 +51,13 @@ export async function setBetaMembershipAction(formData: FormData): Promise<void>
   if (!userId) throw new Error("INVALID_USER");
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
+  // Review fix M3 (fail closed — FD-3): admin KHÔNG được tự cấp/sửa membership
+  // CỦA CHÍNH MÌNH — founding_seller active là điều kiện publication, tự cấp
+  // là đường leo thang đặc quyền (dùng admin KHÁC hoặc bootstrap script).
+  if (admin.user.id === userId) {
+    throw new Error("SELF_GRANT_FORBIDDEN");
+  }
+
   const existing = await db.orm.public.BetaCohortMembership.first({
     userId,
     cohort: cohortParsed.data,

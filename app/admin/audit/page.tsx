@@ -14,8 +14,9 @@ export const metadata = { title: "Quản trị — Nhật ký audit" };
  *
  * PII (spec §4.8): bảng render đúng những gì đã ghi — detail theo quy ước
  * KHÔNG chứa email/phone/OTP/secret (enforced bởi review + Task 12 scan);
- * ipHash hiển thị RÚT GỌN (không phải giá trị dùng để truy vết). Không có
- * surface export ở đây (pii.export không cấp cho ai — Ambiguities A2).
+ * ipHash KHÔNG được render ở đây (keyed hash nội bộ phục vụ truy vết —
+ * không mang giá trị hiển thị). Không có surface export ở đây (pii.export
+ * không cấp cho ai — Ambiguities A2).
  */
 
 const PAGE_SIZE = 50;

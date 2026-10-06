@@ -59,6 +59,53 @@ export type SellerVerificationReasonCode = (typeof SELLER_VERIFICATION_REASON_CO
 export const SELLER_VERIFICATION_DECISIONS = ["verified", "needs_review", "rejected", "revoked"] as const;
 export type SellerVerificationDecision = (typeof SELLER_VERIFICATION_DECISIONS)[number];
 
+/**
+ * PROVISIONAL (review fix L2 — FD-3 fail-closed default, ghi cho Batch 8
+ * register): map quyết định → reason code ĐƯỢC PHÉP kèm theo đó. Plan/spec
+ * không định nghĩa độ tương thích decision×reason — map này chặn các cặp vô
+ * nghĩa (vd `verified` kèm `duplicate_account_risk`) và các cặp mâu thuẫn
+ * (`requirements_met` chỉ dành cho `verified`). `migrated_legacy_verified`
+ * KHÔNG thuộc quyết định người nào — CHỈ backfill script được dùng (spec §8.2).
+ *
+ * Chính sách đã chọn (PROVISIONAL — founder có thể đảo ngược):
+ *  - verified: requirements_met | other_reviewed_reason (kết luận dương tính)
+ *  - needs_review: tín hiệu cần bổ sung/soi thêm (trừ 2 tín hiệu đinh đóng)
+ *  - rejected/revoked: tín hiệu tiêu cực (trừ business_claim_needs_evidence —
+ *    khiếu nại doanh nghiệp cần bằng chứng là việc cần SOI THÊM, không phải từ chối)
+ */
+export const SELLER_VERIFICATION_DECISION_REASON_CODES: Record<
+  SellerVerificationDecision,
+  readonly SellerVerificationReasonCode[]
+> = {
+  verified: ["requirements_met", "other_reviewed_reason"],
+  needs_review: [
+    "duplicate_account_risk",
+    "identity_information_inconsistent",
+    "business_claim_needs_evidence",
+    "abuse_case_unresolved",
+    "manual_risk_review",
+    "other_reviewed_reason",
+  ],
+  rejected: [
+    "duplicate_account_risk",
+    "active_suspension",
+    "prior_verification_revoked",
+    "identity_information_inconsistent",
+    "abuse_case_unresolved",
+    "manual_risk_review",
+    "other_reviewed_reason",
+  ],
+  revoked: [
+    "duplicate_account_risk",
+    "active_suspension",
+    "prior_verification_revoked",
+    "identity_information_inconsistent",
+    "abuse_case_unresolved",
+    "manual_risk_review",
+    "other_reviewed_reason",
+  ],
+};
+
 /** Trạng thái workflow (enum seller_verification_status — spec §5.3.2). */
 export type SellerVerificationStatus =
   | "not_started"
@@ -98,6 +145,21 @@ export const SELLER_VERIFICATION_REASON_LABELS: Record<SellerVerificationReasonC
  * import được bởi client + script; thay cho danh sách 63 tỉnh cũ của plan).
  */
 export { PROVINCE_CODES };
+
+/**
+ * founding_seller membership còn hoạt động không? (review fix L4 — spec §2.1)
+ * active + CHƯA hết hạn: expiresAt đặt mà đã qua → coi như inactive (gate chặn
+ * NGAY — membership hết hạn không còn là điều kiện publication). expiresAt
+ * null/undefined = không giới hạn (Batch 7 invitation flow mới đặt hạn).
+ */
+function isMembershipActive(
+  membership: { status: string; expiresAt: string | null | undefined } | null,
+): boolean {
+  if (membership === null || membership.status !== "active") return false;
+  const { expiresAt } = membership;
+  if (expiresAt === null || expiresAt === undefined) return true;
+  return Date.parse(expiresAt) > Date.now();
+}
 
 /** Bảy yêu cầu publication (spec §5.3.3) — thứ tự ổn định cho thông báo lỗi. */
 export type SellerPublicationRequirement =
@@ -174,7 +236,7 @@ export async function checkSellerPublicationRequirements(
     missing.push("operating_location_declared");
   }
   if (rulesAcceptance === null) missing.push("seller_rules_accepted");
-  if (foundingMembership === null || foundingMembership.status !== "active") {
+  if (!isMembershipActive(foundingMembership)) {
     missing.push("founding_seller_membership_active");
   }
   if (verification === null || verification.status !== "verified") {

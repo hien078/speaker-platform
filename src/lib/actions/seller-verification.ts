@@ -5,7 +5,7 @@ import { z } from "zod";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { requireCapabilityWithStepUp } from "@/src/lib/rbac";
-import { auditEvent, auditEventTx } from "@/src/lib/audit-event";
+import { auditEventTx } from "@/src/lib/audit-event";
 import { notify } from "@/src/lib/notify";
 import {
   SELLER_VERIFICATION_POLICY_VERSION,
@@ -13,8 +13,10 @@ import {
   SELLER_RULES_POLICY_VERSION,
   SELLER_VERIFICATION_REASON_CODES,
   SELLER_VERIFICATION_DECISIONS,
+  SELLER_VERIFICATION_DECISION_REASON_CODES,
   checkSellerPublicationRequirements,
   formatMissingRequirements,
+  type SellerVerificationStatus,
 } from "@/src/lib/seller-verification-policy";
 import { isProvinceCode } from "@/src/lib/provinces";
 
@@ -69,6 +71,16 @@ const provinceCodeSchema = z.string().trim().min(1).refine(isProvinceCode, {
  * canonical (FD-1 — registry 34 đơn vị, src/lib/provinces.ts). requireUser;
  * validate; update User.sellerType/sellerOperatingProvinceCode + audit
  * "seller_profile.declared". KHÔNG thu thập giấy tờ tùy thân (spec §5.3.2).
+ *
+ * Review fix M2 (fail closed — FD-3): khai báo ĐỔI sau khi verification đã
+ * `verified` làm quyết định trước đó hết căn cứ → chuyển verification sang
+ * `needs_review` bằng COMPARE-AND-SET (chỉ khi vẫn còn `verified`) trong CÙNG
+ * transaction với update User — gate chặn publication NGAY cho tới khi ops
+ * quyết lại (needs_review ≠ verified). Khai báo KHÔNG đổi → no-op (không
+ * update, không đụng verification). Audit
+ * "seller_verification.declaration_changed" (reason typed
+ * identity_information_inconsistent) + notify seller — seller không bị bỏ
+ * mặc không hiểu sao hồ sơ rơi vào needs_review.
  */
 export async function declareSellerProfileAction(
   _prev: SellerVerificationFormState,
@@ -85,21 +97,70 @@ export async function declareSellerProfileAction(
     return { error: provinceParsed.error.issues[0]?.message ?? "Khu vực hoạt động không hợp lệ.", code: "INVALID_PROVINCE" };
   }
 
-  await db.orm.public.User.where({ id: user.id }).updateAll({
-    sellerType: typeParsed.data,
-    sellerOperatingProvinceCode: provinceParsed.data,
+  // Row HIỆN TẠI để so sánh — khai báo không đổi → no-op (M2).
+  const current = await db.orm.public.User.first({ id: user.id });
+  if (current === null) {
+    return { error: "Không tìm thấy tài khoản — đăng nhập lại.", code: "USER_NOT_FOUND" };
+  }
+  if (current.sellerType === typeParsed.data && current.sellerOperatingProvinceCode === provinceParsed.data) {
+    return { success: "Khai báo không thay đổi." };
+  }
+
+  let movedToNeedsReview = false;
+  await db.transaction(async (tx) => {
+    await tx.orm.public.User.where({ id: user.id }).updateAll({
+      sellerType: typeParsed.data,
+      sellerOperatingProvinceCode: provinceParsed.data,
+    });
+    await auditEventTx(tx, {
+      actorId: user.id,
+      subjectId: user.id,
+      action: "seller_profile.declared",
+      resourceType: "User",
+      resourceId: user.id,
+      sessionId: user.sessionId,
+      // typed values — KHÔNG PII (spec §4.8)
+      detail: `sellerType=${typeParsed.data};province=${provinceParsed.data}`,
+    });
+
+    // M2: verification đang verified → needs_review (CAS — chỉ khi VẪN còn
+    // verified; request khác đã quyết thì quyết định đó thắng, không ghi đè).
+    const verification = await tx.orm.public.SellerVerification.first({ userId: user.id });
+    if (verification !== null && verification.status === "verified") {
+      const claimed = await tx.orm.public.SellerVerification
+        .where({ id: verification.id, status: "verified" })
+        .updateAll({
+          status: "needs_review",
+          reasonCode: "identity_information_inconsistent",
+          note: "seller changed declaration after verification — re-review required",
+        });
+      movedToNeedsReview = claimed.length > 0;
+      if (movedToNeedsReview) {
+        await auditEventTx(tx, {
+          actorId: user.id,
+          subjectId: user.id,
+          action: "seller_verification.declaration_changed",
+          resourceType: "SellerVerification",
+          resourceId: verification.id,
+          reason: "identity_information_inconsistent",
+          policyVersion: SELLER_VERIFICATION_POLICY_VERSION,
+          sessionId: user.sessionId,
+          detail: "decision=needs_review", // typed — KHÔNG PII (spec §4.8)
+        });
+      }
+    }
   });
 
-  await auditEvent({
-    actorId: user.id,
-    subjectId: user.id,
-    action: "seller_profile.declared",
-    resourceType: "User",
-    resourceId: user.id,
-    sessionId: user.sessionId,
-    // typed values — KHÔNG PII (spec §4.8)
-    detail: `sellerType=${typeParsed.data};province=${provinceParsed.data}`,
-  });
+  // Notify seller (best-effort — không sống chết với khai báo đã commit).
+  if (movedToNeedsReview) {
+    await notify(
+      user.id,
+      "security",
+      "Khai báo hồ sơ người bán đã thay đổi",
+      "Khai báo của bạn thay đổi sau khi đã được xác minh — hồ sơ chuyển sang cần xem xét lại theo yêu cầu hiện hành của LoaViet.",
+      "/sell/verification",
+    );
+  }
 
   revalidatePath("/sell/verification");
   return { success: "Đã lưu khai báo hồ sơ người bán." };
@@ -220,8 +281,10 @@ const DECISION_NOTIFY: Record<
     body: "Đã xác minh thông tin người bán theo yêu cầu hiện tại của LoaViet.",
   },
   needs_review: {
+    // Review fix M1: needs_review là MỘT QUYẾT ĐỊNH (ops cần soi thêm/bổ sung),
+    // KHÔNG phải "đang xem xét" — copy phải chính xác để seller biết phải hành động.
     title: "Hồ sơ người bán cần xem xét thêm",
-    body: "Hồ sơ của bạn đang được operations xem xét thêm theo yêu cầu hiện hành của LoaViet.",
+    body: "Operations đánh dấu hồ sơ của bạn cần xem xét thêm theo yêu cầu hiện hành của LoaViet — bổ sung thông tin nếu được yêu cầu, hồ sơ sẽ được duyệt lại.",
   },
   rejected: {
     title: "Hồ sơ xác minh người bán chưa được duyệt",
@@ -241,14 +304,30 @@ const DECISION_NOTIFY: Record<
  *  - verified|needs_review|rejected → seller.verify
  *  - revoked                        → seller.verification.revoke
  *
- * ATOMIC CLAIM (Review Focus 5 — spec §10.1 concurrent update): MỘT
- * updateAll có điều kiện status — pending → verified|needs_review|rejected;
- * verified → revoked. 0 row (đã có quyết định khác / row không tồn tại) →
- * Error("VERIFICATION_ALREADY_REVIEWED") — quyết định thứ hai KHÔNG BAO GIỜ
- * ghi đè quyết định đầu. KHÔNG đọc-then-write: claim là compare-and-set.
+ * Review fix M3: admin KHÔNG được duyệt CHÍNH MÌNH (self-review) — typed
+ * SELF_REVIEW_FORBIDDEN, không mutation (một admin tự xác minh mình là đường
+ * leo thang đặc quyền; ghi cho Batch 8 register).
  *
- * Sau claim: audit "seller_verification.reviewed" (reason + policyVersion) +
- * notify seller (copy §6.2 trung tính).
+ * Review fix L2: reason code phải nằm trong map
+ * SELLER_VERIFICATION_DECISION_REASON_CODES[decision] (PROVISIONAL) —
+ * `migrated_legacy_verified` KHÔNG bao giờ hợp lệ ở quyết định người (chỉ
+ * backfill); cặp vô nghĩa (verified + duplicate_account_risk) bị từ chối.
+ *
+ * ATOMIC CLAIM (Review Focus 5 — spec §10.1 concurrent update; review fix M1
+ * — needs_review không còn ngõ chết): MỘT updateAll có điều kiện status IN:
+ *  - verified|rejected (quyết định cuối) ← status IN (pending, needs_review)
+ *  - needs_review (đánh dấu soi thêm)    ← status = pending
+ *  - revoked (thu hồi)                   ← status = verified
+ * 0 row (đã có quyết định khác / row không tồn tại) → throw
+ * Error("VERIFICATION_ALREADY_REVIEWED") RA KHỎI callback → tx rollback —
+ * quyết định thứ hai KHÔNG BAO GIỜ ghi đè quyết định đầu.
+ *
+ * Review fix L1: claim + audit "seller_verification.reviewed" TRONG CÙNG
+ * db.transaction (auditEventTx) — quyết định và vết audit sống chết với nhau;
+ * KHÔNG catch constraint/lỗi nào bên trong callback (Postgres abort tx —
+ * lỗi được ném ra ngoài, caller thấy lỗi thật).
+ *
+ * Sau tx: notify seller (copy §6.2 trung tính, best-effort).
  */
 export async function reviewSellerVerificationAction(formData: FormData): Promise<void> {
   const decisionParsed = z.enum(SELLER_VERIFICATION_DECISIONS).safeParse(
@@ -260,6 +339,12 @@ export async function reviewSellerVerificationAction(formData: FormData): Promis
   );
   if (!reasonParsed.success) throw new Error("INVALID_REASON_CODE");
 
+  // L2 — reason code phải tương thích với quyết định (map PROVISIONAL).
+  const allowedReasons = SELLER_VERIFICATION_DECISION_REASON_CODES[decisionParsed.data];
+  if (!allowedReasons.includes(reasonParsed.data)) {
+    throw new Error("REASON_CODE_INCOMPATIBLE");
+  }
+
   const userId = String(formData.get("userId") ?? "").trim();
   if (!userId) throw new Error("INVALID_USER");
   const note = String(formData.get("note") ?? "").trim() || null;
@@ -270,33 +355,48 @@ export async function reviewSellerVerificationAction(formData: FormData): Promis
   const cap = decisionParsed.data === "revoked" ? "seller.verification.revoke" : "seller.verify";
   const admin = await requireCapabilityWithStepUp(cap, totpCode);
 
-  // ATOMIC CLAIM — compare-and-set theo status, KHÔNG read-then-write.
-  const expectedCurrent = decisionParsed.data === "revoked" ? "verified" : "pending";
-  const claimed = await db.orm.public.SellerVerification
-    .where({ userId, status: expectedCurrent })
-    .updateAll({
-      status: decisionParsed.data,
-      reviewedAt: new Date().toISOString(),
-      reviewerId: admin.user.id,
-      reasonCode: reasonParsed.data,
-      note,
-      policyVersion: SELLER_VERIFICATION_POLICY_VERSION,
-    });
-  if (claimed.length === 0) {
-    // row đã được quyết định bởi request khác (hoặc không tồn tại) — KHÔNG ghi đè
-    throw new Error("VERIFICATION_ALREADY_REVIEWED");
+  // M3 — tự duyệt bị chặn (sau guard: role sai thấy FORBIDDEN trước, không leak).
+  if (admin.user.id === userId) {
+    throw new Error("SELF_REVIEW_FORBIDDEN");
   }
 
-  await auditEvent({
-    actorId: admin.user.id,
-    subjectId: userId,
-    action: "seller_verification.reviewed",
-    resourceType: "SellerVerification",
-    resourceId: claimed[0]!.id,
-    reason: reasonParsed.data,
-    policyVersion: SELLER_VERIFICATION_POLICY_VERSION,
-    sessionId: admin.session.id,
-    detail: `decision=${decisionParsed.data}`, // typed — KHÔNG PII (spec §4.8)
+  // M1 — status có thể claim THEO quyết định (compare-and-set, KHÔNG read-then-write).
+  const claimableStatuses: readonly SellerVerificationStatus[] =
+    decisionParsed.data === "revoked"
+      ? ["verified"]
+      : decisionParsed.data === "needs_review"
+        ? ["pending"]
+        : ["pending", "needs_review"];
+
+  // L1 — claim + audit trong MỘT transaction; throw RA KHỎI callback khi 0 row
+  // (tx rollback — không có gì được ghi; KHÔNG catch bên trong).
+  await db.transaction(async (tx) => {
+    const claimed = await tx.orm.public.SellerVerification
+      .where({ userId })
+      .where((v) => v.status.in(claimableStatuses))
+      .updateAll({
+        status: decisionParsed.data,
+        reviewedAt: new Date().toISOString(),
+        reviewerId: admin.user.id,
+        reasonCode: reasonParsed.data,
+        note,
+        policyVersion: SELLER_VERIFICATION_POLICY_VERSION,
+      });
+    if (claimed.length === 0) {
+      // row đã được quyết định bởi request khác (hoặc không tồn tại) — KHÔNG ghi đè
+      throw new Error("VERIFICATION_ALREADY_REVIEWED");
+    }
+    await auditEventTx(tx, {
+      actorId: admin.user.id,
+      subjectId: userId,
+      action: "seller_verification.reviewed",
+      resourceType: "SellerVerification",
+      resourceId: claimed[0]!.id,
+      reason: reasonParsed.data,
+      policyVersion: SELLER_VERIFICATION_POLICY_VERSION,
+      sessionId: admin.session.id,
+      detail: `decision=${decisionParsed.data}`, // typed — KHÔNG PII (spec §4.8)
+    });
   });
 
   const notifyCopy = DECISION_NOTIFY[decisionParsed.data];

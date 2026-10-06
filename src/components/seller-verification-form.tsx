@@ -85,8 +85,9 @@ export function SellerVerificationForm({ sellerType, operatingProvinceCode }: Fo
             >
               <option value="" disabled>— Chọn tỉnh/thành —</option>
               {PROVINCES.map((p) => (
+                // displayName đã mang tiền tố chính thức ("TP. Hồ Chí Minh") —
+                // KHÔNG thêm "TP." nữa (review fix L4: tránh "TP. TP. Hồ Chí Minh").
                 <option key={p.code} value={p.code}>
-                  {p.kind === "thanh_pho" ? "TP. " : "Tỉnh "}
                   {p.displayName}
                 </option>
               ))}

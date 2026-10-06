@@ -132,6 +132,19 @@ describe("resolveLegacyProvince — chuẩn hóa đầu vào", () => {
     expect(resolveLegacyProvince("TP. Hồ Chí Minh")).toBe("ho-chi-minh");
     expect(resolveLegacyProvince("tp. ho chi minh")).toBe("ho-chi-minh");
   });
+
+  it("bỏ prefix 'TP' KHÔNG DẤU CHẤM (review fix — 'TP Hồ Chí Minh' khớp)", () => {
+    expect(resolveLegacyProvince("TP Hồ Chí Minh")).toBe("ho-chi-minh");
+    expect(resolveLegacyProvince("tp ho chi minh")).toBe("ho-chi-minh");
+    expect(resolveLegacyProvince("Tp. Ho Chi Minh")).toBe("ho-chi-minh");
+  });
+
+  it("chuẩn hóa khoảng trắng quanh dấu gạch — 'Bà Rịa-Vũng Tàu' == 'Bà Rịa - Vũng Tàu'", () => {
+    expect(resolveLegacyProvince("Bà Rịa-Vũng Tàu")).toBe("ho-chi-minh");
+    expect(resolveLegacyProvince("Bà Rịa - Vũng Tàu")).toBe("ho-chi-minh");
+    expect(resolveLegacyProvince("Bà Rịa -  Vũng Tàu")).toBe("ho-chi-minh"); // khoảng trắng thừa
+    expect(resolveLegacyProvince("ba ria-vung tau")).toBe("ho-chi-minh");
+  });
 });
 
 // ─── 4. Fail closed — không bịa phép ghép (spec §8.3: không fabricate) ────────
@@ -168,5 +181,14 @@ describe("resolveLegacyProvince — không khớp → null (fail closed)", () =>
   it("mã slug canonical KHÔNG là legacy name → null (chỉ tên khớp)", () => {
     expect(resolveLegacyProvince("ha-noi")).toBeNull();
     expect(resolveLegacyProvince("ho-chi-minh")).toBeNull();
+  });
+
+  it("viết tắt/tên không nằm trong bảng nguồn → null THEO THIẾT KẾ (unresolved-by-design)", () => {
+    // KHÔNG thêm viết tắt hay tên ngoài bảng founder-approved (FD-1) —
+    // "HCM"/"TP.HCM"/"Sài Gòn" không phải legacy name trong NQ 202/2025/QH15.
+    expect(resolveLegacyProvince("HCM")).toBeNull();
+    expect(resolveLegacyProvince("TP.HCM")).toBeNull();
+    expect(resolveLegacyProvince("Sài Gòn")).toBeNull();
+    expect(resolveLegacyProvince("Sai Gon")).toBeNull();
   });
 });

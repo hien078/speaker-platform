@@ -40,6 +40,16 @@ const VerifiedBadge = ({ ok }: { ok: boolean }) => (
   </span>
 );
 
+/**
+ * Quyết định từ audit detail (review fix L4) — detail của
+ * "seller_verification.reviewed" ghi `decision=<verified|needs_review|…>`
+ * (typed, do chính action này ghi) — hiển thị kèm reason cho đủ ngữ cảnh.
+ */
+const decisionOfAuditDetail = (detail: string | null | undefined): string | null => {
+  const match = /decision=([a-z_]+)/.exec(detail ?? "");
+  return match === null ? null : match[1]!;
+};
+
 export default async function AdminSellerVerificationPage({
   searchParams,
 }: PageProps<"/admin/seller-verification">) {
@@ -47,9 +57,11 @@ export default async function AdminSellerVerificationPage({
   const sp = (await searchParams) as { q?: string };
   const q = sp.q?.trim() ?? "";
 
-  // Hàng đợi: pending cũ nhất trước (FIFO review).
+  // Hàng đợi (review fix M1): pending + needs_review — needs_review là MỘT
+  // quyết định chờ xử lý tiếp (ops soi thêm/bổ sung), KHÔNG phải ngõ chết:
+  // quyết định cuối (verified/rejected) claim được từ cả hai trạng thái.
   const queue = await db.orm.public.SellerVerification
-    .where({ status: "pending" })
+    .where((v) => v.status.in(["pending", "needs_review"]))
     .include("user")
     .orderBy((v) => v.updatedAt.asc())
     .limit(50)
@@ -139,6 +151,9 @@ export default async function AdminSellerVerificationPage({
                 )}>
                   {SELLER_VERIFICATION_STATUS_LABELS[row.status as keyof typeof SELLER_VERIFICATION_STATUS_LABELS] ?? row.status}
                 </span>
+                {row.status === "needs_review" && (
+                  <span className="badge bg-sky-500/15 text-sky-600">cần xử lý tiếp — quyết định cuối claim được từ đây</span>
+                )}
                 {focused && row.id === focused.id && (
                   <span className="badge bg-[var(--accent-soft)] text-[var(--accent)]">Hồ sơ đang xem</span>
                 )}
@@ -176,7 +191,10 @@ export default async function AdminSellerVerificationPage({
                   {signals.priorDecisions.length === 0
                     ? "chưa có"
                     : signals.priorDecisions
-                        .map((d) => d.reason ?? "?")
+                        .map((d) => {
+                          const decision = decisionOfAuditDetail(d.detail);
+                          return decision === null ? (d.reason ?? "?") : `${decision} · ${d.reason ?? "?"}`;
+                        })
                         .slice(0, 3)
                         .join(", ")}
                 </p>
@@ -237,6 +255,7 @@ export default async function AdminSellerVerificationPage({
                   <th>Thời điểm</th>
                   <th>Reviewer</th>
                   <th>Người bán</th>
+                  <th>Quyết định</th>
                   <th>Lý do (typed)</th>
                   <th>Chính sách</th>
                 </tr>
@@ -257,6 +276,7 @@ export default async function AdminSellerVerificationPage({
                         </Link>
                       ) : null}
                     </td>
+                    <td className="font-mono text-xs">{decisionOfAuditDetail(e.detail) ?? "—"}</td>
                     <td className="text-xs">
                       {e.reason && (SELLER_VERIFICATION_REASON_LABELS[e.reason as SellerVerificationReasonCode] ?? e.reason)}
                     </td>

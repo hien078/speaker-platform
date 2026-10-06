@@ -90,6 +90,7 @@ import {
   SELLER_RULES_POLICY_VERSION,
   SELLER_VERIFICATION_REASON_CODES,
   SELLER_VERIFICATION_DECISIONS,
+  SELLER_VERIFICATION_DECISION_REASON_CODES,
   PROVINCE_CODES,
 } from "@/src/lib/seller-verification-policy";
 
@@ -172,6 +173,22 @@ describe("policy constants (spec §5.3.3)", () => {
   it("PROVINCE_CODES delegate sang registry 34 đơn vị (FD-1)", () => {
     expect(Object.keys(PROVINCE_CODES)).toHaveLength(34);
     expect(PROVINCE_CODES["ho-chi-minh"]).toBe("TP. Hồ Chí Minh");
+  });
+
+  it("PROVISIONAL map decision→reason (review fix L2): migrated_legacy_verified KHÔNG thuộc quyết định người nào", () => {
+    for (const decision of SELLER_VERIFICATION_DECISIONS) {
+      expect(SELLER_VERIFICATION_DECISION_REASON_CODES[decision]).not.toContain("migrated_legacy_verified");
+    }
+  });
+
+  it("PROVISIONAL map: verified không mang reason tiêu cực; requirements_met chỉ dành cho verified", () => {
+    expect(SELLER_VERIFICATION_DECISION_REASON_CODES.verified).not.toContain("duplicate_account_risk");
+    expect(SELLER_VERIFICATION_DECISION_REASON_CODES.verified).not.toContain("active_suspension");
+    for (const decision of SELLER_VERIFICATION_DECISIONS) {
+      if (decision !== "verified") {
+        expect(SELLER_VERIFICATION_DECISION_REASON_CODES[decision]).not.toContain("requirements_met");
+      }
+    }
   });
 });
 
@@ -278,6 +295,19 @@ describe("founding_seller membership — trạng thái khác active đều chặ
     const check = await checkSellerPublicationRequirements(SELLER_ID);
     expect(check.ok).toBe(false);
     expect(check.missing).toEqual(["founding_seller_membership_active"]);
+  });
+
+  it("membership expiresAt ĐÃ QUA HẠN → inactive (review fix L4 — hết hạn = không còn hoạt động)", async () => {
+    seedFull({ membership: { ...fullMembership(), expiresAt: "2020-01-01T00:00:00.000Z" } });
+    const check = await checkSellerPublicationRequirements(SELLER_ID);
+    expect(check.ok).toBe(false);
+    expect(check.missing).toEqual(["founding_seller_membership_active"]);
+  });
+
+  it("membership expiresAt còn hạn → active (gate không chặn hạn còn sống)", async () => {
+    seedFull({ membership: { ...fullMembership(), expiresAt: new Date(Date.now() + 86_400_000).toISOString() } });
+    const check = await checkSellerPublicationRequirements(SELLER_ID);
+    expect(check).toEqual({ ok: true, missing: [] });
   });
 });
 

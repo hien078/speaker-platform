@@ -95,8 +95,9 @@ export function isProvinceCode(code: string): boolean {
 /**
  * Chuẩn hóa tên để so sánh diacritic-insensitive: NFC + trim + case-fold +
  * bỏ dấu (NFD strip combining marks) + đ/Đ → d (NFD KHÔNG tách được đ) +
- * collapse khoảng trắng + bỏ prefix hành chính "Thành phố"/"Tỉnh"/"TP."
- * (dạng không dấu, lặp tới ổn định).
+ * collapse khoảng trắng + chuẩn hóa khoảng trắng quanh dấu gạch ("A - B" ==
+ * "A-B") + bỏ prefix hành chính "Thành phố"/"Tỉnh"/"TP."/"TP" (dạng không dấu,
+ * lặp tới ổn định — "TP" không dấu chấm cũng là prefix phổ biến).
  */
 function foldProvinceName(raw: string): string {
   let s = raw
@@ -106,12 +107,13 @@ function foldProvinceName(raw: string): string {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
-    .replace(/\s+/g, " ");
+    .replace(/\s+/g, " ")
+    .replace(/\s*-\s*/g, "-");
 
-  // Bỏ prefix hành chính — fold của "Thành phố"/"Tỉnh"/"TP." (kèm tùy chọn
+  // Bỏ prefix hành chính — fold của "Thành phố"/"Tỉnh"/"TP."/"TP" (kèm tùy chọn
   // khoảng trắng theo sau). Lặp: "Thành phố Tỉnh X" không tồn tại nhưng vòng
   // lặp giữ quy tắc tổng quát và vô hại với dữ liệu thật.
-  const prefixes = ["thanh pho", "tinh", "tp."] as const;
+  const prefixes = ["thanh pho", "tinh", "tp.", "tp"] as const;
   let changed = true;
   while (changed) {
     changed = false;

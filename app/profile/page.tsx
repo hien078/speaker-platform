@@ -2,6 +2,10 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { listUserSessions } from "@/src/lib/session";
+import {
+  SELLER_VERIFIED_BADGE_LABEL,
+  isVerifiedSellerStatus,
+} from "@/src/lib/seller-verification-status";
 import { ProfileForm } from "@/src/components/profile-form";
 import { VerificationPanel } from "@/src/components/verification-panel";
 import { formatDateShort } from "@/src/lib/utils";
@@ -17,6 +21,10 @@ export default async function ProfilePage() {
 
   const user = await db.orm.public.User.first({ id: session.id });
   if (!user) redirect("/login");
+
+  // Badge "đã xác minh" đọc WORKFLOW (SellerVerification.status — spec §8.2),
+  // không còn boolean legacy isVerifiedSeller (đã đóng băng từ Task 10).
+  const verification = await db.orm.public.SellerVerification.first({ userId: user.id });
 
   // Inventory phiên active của chính mình (Task 9 — spec §5.4.2): user xem và
   // tự thu hồi MỌI session KHÁC (revokeMyOtherSessionsAction — verification.ts).
@@ -46,10 +54,10 @@ export default async function ProfilePage() {
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-lg font-extrabold">
             {user.name}
-            {user.isVerifiedSeller && (
+            {isVerifiedSellerStatus(verification?.status) && (
               <span className="badge bg-[var(--green-soft)] text-[var(--green)]">
                 <BadgeCheck className="size-3" />
-                Đã xác minh
+                {SELLER_VERIFIED_BADGE_LABEL}
               </span>
             )}
           </p>

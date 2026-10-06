@@ -6,6 +6,10 @@ import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDateShort, cn } from "@/src/lib/utils";
 import { CONDITION_LABELS } from "@/src/lib/constants";
+import {
+  SELLER_VERIFIED_BADGE_LABEL,
+  isVerifiedSellerStatus,
+} from "@/src/lib/seller-verification-status";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
 import {
@@ -31,7 +35,11 @@ export default async function ListingDetailPage({
     .include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()))
     .include("category", (c) => c.select("id", "name", "slug"))
     .include("brand", (b) => b.select("name"))
-    .include("seller", (s) => s.select("id", "name", "city", "createdAt", "isVerifiedSeller", "avatarUrl"))
+    // Badge "đã xác minh" đọc WORKFLOW (SellerVerification.status — spec §8.2),
+    // không còn boolean legacy isVerifiedSeller (đã đóng băng từ Task 10).
+    .include("seller", (s) =>
+      s.select("id", "name", "city", "createdAt", "avatarUrl")
+        .include("sellerVerification", (v) => v.select("status")))
     .first();
 
   if (!listing || (listing.status !== "approved" && listing.sellerId !== user?.id && user?.role !== "admin")) {
@@ -255,13 +263,15 @@ export default async function ListingDetailPage({
               <div className="min-w-0">
                 <p className="flex items-center gap-1.5 truncate text-sm font-bold hover:text-amber-200">
                   {listing.seller!.name}
-                  {listing.seller!.isVerifiedSeller && (
+                  {isVerifiedSellerStatus(listing.seller!.sellerVerification?.status) && (
                     <BadgeCheck className="size-4 shrink-0 text-[var(--green)]" />
                   )}
                 </p>
                 <p className="text-xs text-[var(--muted)]">
-                  {listing.seller!.isVerifiedSeller ? "Đã xác minh" : "Chưa xác minh"} · từ{" "}
-                  {formatDateShort(listing.seller!.createdAt)}
+                  {isVerifiedSellerStatus(listing.seller!.sellerVerification?.status)
+                    ? SELLER_VERIFIED_BADGE_LABEL
+                    : "Chưa xác minh"}{" "}
+                  · từ {formatDateShort(listing.seller!.createdAt)}
                 </p>
               </div>
             </Link>

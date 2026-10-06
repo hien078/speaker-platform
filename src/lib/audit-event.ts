@@ -27,6 +27,10 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   khôi phục của chính mình sau khi verify mã MFA (reason = factor
  *   "totp"|"recovery_code", detail count — KHÔNG chứa mã thô); ghi qua
  *   auditEventTx TRONG cùng transaction xoá/tạo mã (audit fail → rollback).
+ *   (Task 10 review fix M2): seller_verification.declaration_changed — seller
+ *   đổi khai báo (sellerType/tỉnh) khi verification đã verified → row chuyển
+ *   needs_review (CAS) + audit trong cùng tx (reason typed
+ *   identity_information_inconsistent, detail decision=needs_review).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

@@ -19,25 +19,28 @@
  * Yêu cầu backfill (spec §8.6):
  *   - dry-run mặc định: in count + danh sách id ứng viên (isVerifiedSeller=true
  *     CHƯA có row SellerVerification) — KHÔNG mutate gì.
- *   - --apply: tạo row cho từng ứng viên; idempotent (bỏ qua ai đã có row;
- *     unique violation userId → skip); ghi AuditEvent
- *     "seller_verification.backfill" (actor null — system/offline script).
+ *   - --apply: in ĐÍCH (host/db — KHÔNG password) trước khi chạy, tạo row cho
+ *     từng ứng viên; idempotent (bỏ qua ai đã có row; unique violation userId →
+ *     skip row đó qua isUniqueConstraintViolation — KHÔNG message matching);
+ *     ghi AuditEvent "seller_verification.backfill" (actor null — system).
  *   - Rollback (đã chứng minh qua integration test):
  *       DELETE FROM "SellerVerification" WHERE "reasonCode" = 'migrated_legacy_verified';
  *   - Post-migration verification: tests/integration/seller-verification.test.ts
  *     (dry-run → apply → idempotent) + `npx prisma db verify`.
  *
+ * Review fix L3: DATABASE_URL phải có trong MÔI TRƯỜNG THẬT (process.env)
+ * TRƯỚC khi db.client/dotenv được nạp — dynamic import, KHÔNG top-level import
+ * (dotenv chỉ được phép BỔ SUNG config, không được là nguồn ngầm định đích).
  * Script import CHỈ plain module (KHÔNG server-only — audit-event.ts là
- * server-only): db từ src/prisma/db.client (plain), AuditEvent ghi TRỰC TIẾP
- * qua db.orm với cùng shape auditEvent dùng (spec §4.6/§4.8 — detail chỉ
- * count, KHÔNG PII).
+ * server-only): AuditEvent ghi TRỰC TIẾP qua db.orm với cùng shape auditEvent
+ * dùng (spec §4.6/§4.8 — detail chỉ count, KHÔNG PII).
  *
  * Usage:
- *   npx tsx scripts/backfill-seller-verification.ts            # dry-run (mặc định)
- *   npx tsx scripts/backfill-seller-verification.ts --apply   # chạy thật
- *   (từ chối chạy khi thiếu DATABASE_URL)
+ *   DATABASE_URL=… npx tsx scripts/backfill-seller-verification.ts            # dry-run (mặc định)
+ *   DATABASE_URL=… npx tsx scripts/backfill-seller-verification.ts --apply   # chạy thật
+ *   (từ chối chạy khi process.env thiếu DATABASE_URL — kể cả khi .env có)
  */
-import { db } from "../src/prisma/db.client";
+import { isUniqueConstraintViolation } from "@prisma/orm-family-sql/errors";
 
 export type BackfillReport = {
   mode: "dry-run" | "apply";
@@ -51,9 +54,18 @@ export type BackfillReport = {
  * Chạy backfill. `isApply=false` → dry-run (chỉ đọc + báo cáo);
  * `isApply=true` → tạo row + audit. Idempotent: ứng viên đã bị loại bởi
  * chính truy vấn ứng viên; race create đồng thời → unique violation 23505
- * trên SellerVerification.userId → skip row đó (không abort cả batch).
+ * trên SellerVerification.userId phân loại qua isUniqueConstraintViolation
+ * (KHÔNG message matching) → skip row đó (không abort cả batch); lỗi khác →
+ * ném (fail closed, không im lặng mất row).
  */
 export async function backfill(isApply: boolean): Promise<BackfillReport> {
+  // L3 — fail closed khi thiếu cấu hình đích (cả khi gọi trực tiếp từ test).
+  if (!process.env.DATABASE_URL) {
+    throw new Error("DATABASE_URL chưa đặt trong môi trường — script offline cần DB rõ ràng.");
+  }
+  // Dynamic import: db.client (kèm dotenv) chỉ nạp SAU khi đích đã được xác nhận.
+  const { db } = await import("../src/prisma/db.client");
+
   // Ứng viên: isVerifiedSeller=true (legacy) CHƯA có row SellerVerification.
   const [legacySellers, existingRows] = await Promise.all([
     db.orm.public.User.where({ isVerifiedSeller: true }).select("id").all(),
@@ -85,8 +97,7 @@ export async function backfill(isApply: boolean): Promise<BackfillReport> {
     } catch (e) {
       // Unique violation (userId) = row được tạo đồng thời bởi lần chạy khác —
       // skip (idempotent). Lỗi khác → ném (fail closed, không im lặng mất row).
-      const message = e instanceof Error ? e.message : String(e);
-      if (!message.includes("unique") && !message.includes("23505")) throw e;
+      if (!isUniqueConstraintViolation(e)) throw e;
     }
   }
 
@@ -110,16 +121,33 @@ export async function backfill(isApply: boolean): Promise<BackfillReport> {
 
 // ─── CLI (chỉ chạy khi được gọi trực tiếp — integration test import backfill) ──
 
+/** Đích hiển thị an toàn: host[:port]/db — KHÔNG bao giờ in password. */
+function describeTarget(dbUrl: string): string {
+  try {
+    const url = new URL(dbUrl);
+    const port = url.port ? `:${url.port}` : "";
+    const db = url.pathname.replace(/^\//, "") || "(default)";
+    return `${url.hostname}${port}/${db}`;
+  } catch {
+    return "(DATABASE_URL không phân tích được — KHÔNG in nguyên giá trị)";
+  }
+}
+
 async function main(): Promise<void> {
+  // L3 — kiểm tra process.env TRƯỚC khi db.client/dotenv được nạp: script phải
+  // được TRỎ ĐÍCH TƯỜNG MINH, không âm thầm lấy .env của repo.
   if (!process.env.DATABASE_URL) {
     console.error(
-      "DATABASE_URL chưa đặt — script offline cần DB rõ ràng (từ chối chạy mù).",
+      "DATABASE_URL chưa đặt trong môi trường — script offline cần DB rõ ràng (từ chối chạy mù; .env không được tự động dùng làm đích).",
     );
     process.exit(1);
   }
   const isApply = process.argv.includes("--apply");
   if (!isApply) {
     console.log("── dry-run (mặc định) — truyền --apply để chạy thật");
+  } else {
+    // In đích TRƯỚC khi --apply chạm dữ liệu (review fix L3) — không password.
+    console.log(`── ĐÍCH: ${describeTarget(process.env.DATABASE_URL)} (không in password)`);
   }
   const report = await backfill(isApply);
   console.log(`── chế độ: ${report.mode}`);
@@ -129,6 +157,7 @@ async function main(): Promise<void> {
     console.log(`── đã tạo: ${report.createdCount} row (reasonCode=migrated_legacy_verified)`);
     console.log("── rollback nếu cần: DELETE FROM \"SellerVerification\" WHERE \"reasonCode\" = 'migrated_legacy_verified';");
   }
+  const { db } = await import("../src/prisma/db.client");
   await db.close();
 }
 
