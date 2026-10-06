@@ -704,6 +704,10 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     expect(state.error).toBeTruthy();
     // label tiếng Việt của yêu cầu thứ 8 (SELLER_PUBLICATION_REQUIREMENT_LABELS)
     expect(state.error).toContain("đình chỉ");
+    // (Review fix Task 5) đình chỉ KHÔNG phải requirement "fixable" tại trang
+    // xác minh — KHÔNG hướng seller sang trang đó như thể gỡ được đình chỉ ở đó.
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ — không thể đăng tin");
+    expect(state.error).not.toContain("Xác minh người bán");
     expect(dbState.listings).toHaveLength(0); // KHÔNG transition vào review
     expect(dbState.images).toHaveLength(0);
   });
@@ -723,6 +727,9 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
 
     expect(state.error).toBeTruthy();
     expect(state.error).toContain("đình chỉ");
+    // (Review fix Task 5) special-case như create — KHÔNG hướng sang trang xác minh
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ — không thể đăng tin");
+    expect(state.error).not.toContain("Xác minh người bán");
     expect(listing.status).toBe("approved"); // KHÔNG transition
     expect(listing.title).toBe("Loa JBL Charge 5 chính hãng"); // KHÔNG ghi đè nội dung
   });

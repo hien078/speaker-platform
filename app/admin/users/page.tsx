@@ -6,7 +6,7 @@ import { ROLE_LABELS } from "@/src/lib/constants";
 import { setBetaMembershipAction } from "@/src/lib/actions/beta-cohort";
 import { revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
 import { suspendUserAction, liftSuspensionAction } from "@/src/lib/actions/moderation";
-import { SUSPENSION_REASON_CODES, type SuspensionReasonCode } from "@/src/lib/moderation-vocab";
+import { SUSPENSION_REASON_CODES, SUSPENSION_NOTE_MAX_LENGTH, type SuspensionReasonCode } from "@/src/lib/moderation-vocab";
 import { Users, BadgeCheck, Search, History, Ban, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -275,7 +275,7 @@ export default async function AdminUsersPage({
                             name="note"
                             className="input h-8 px-2 text-xs"
                             placeholder="Ghi chú (tuỳ chọn — đã redact PII)"
-                            maxLength={2000}
+                            maxLength={SUSPENSION_NOTE_MAX_LENGTH} // review fix Task 5 — action tự chặn server-side (typed error)
                           />
                           <input
                             name="totpCode"

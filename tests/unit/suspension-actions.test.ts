@@ -28,6 +28,13 @@
  *     lifted → SUSPENSION_ALREADY_LIFTED; row thiếu → SUSPENSION_NOT_FOUND (E2).
  * 11. note admin qua redactDetail vào CẢ AuditEvent.detail LẪN
  *     ModerationAction.note (write-time redaction — spec §4.8).
+ * 12. (Review fix Task 5) note dài hơn SUSPENSION_NOTE_MAX_LENGTH (2000 — cùng
+ *     cap form admin) → SUSPENSION_NOTE_TOO_LONG, zero writes (cả suspend LẪN lift).
+ * 13. (Review fix Task 5) notify sau commit là BEST-EFFORT: Notification.create
+ *     fail → action VẪN thành công (sanction đã commit, KHÔNG 500), lỗi qua
+ *     captureError scope "moderation" KHÔNG PII.
+ * 14. (Review fix Task 5) tự gỡ đình chỉ CHÍNH MÌNH → CANNOT_LIFT_SELF, row
+ *     giữ nguyên active (một admin tự un-suspend mình là đường leo thang).
  *
  * Cơ chế mock như tests/unit/publication-gate.test.ts: session/rbac/admin-mfa/
  * audit-event/notify/moderation guards GIỮ BẢN THẬT (login qua COOKIE THẬT,
@@ -95,6 +102,12 @@ const dbState = vi.hoisted(() => ({
   messages: [] as Array<Record<string, unknown>>,
   /** Test seam S6: true → ModerationCase.updateAll luôn trả [] (claim thua). */
   failCaseClaim: false,
+  /**
+   * Seam (review fix Task 5): true → Notification.create throw MỘT lần (one-shot)
+   * — mô phỏng notify fail SAU khi tx commit; action phải best-effort (try/catch +
+   * captureError), KHÔNG để lỗi notify biến sanction đã commit thành 500.
+   */
+  failNotifyCreate: false,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -281,7 +294,13 @@ vi.mock("@/src/prisma/db.client", () => {
       link: null,
       readAt: null,
       createdAt: new Date().toISOString(),
-    })),
+    }), undefined, () => {
+      // Seam review fix Task 5: notify fail (DB lỗi) — one-shot.
+      if (dbState.failNotifyCreate) {
+        dbState.failNotifyCreate = false;
+        throw new Error("mock notification insert failure");
+      }
+    }),
     AdminMfa: makeModel(dbState.mfas, () => ({
       id: `mfa-${dbState.mfas.length + 1}`,
       createdAt: new Date().toISOString(),
@@ -515,6 +534,7 @@ beforeEach(() => {
   dbState.listings.length = 0;
   dbState.messages.length = 0;
   dbState.failCaseClaim = false;
+  dbState.failNotifyCreate = false;
   dbState.users.push(
     { ...ADMIN_SUPER }, { ...ADMIN_OPS }, { ...ADMIN_MOD },
     { ...ADMIN_SUPPORT }, { ...ADMIN_ANALYST }, { ...SELLER }, { ...BUYER },
@@ -675,6 +695,34 @@ describe("suspendUserAction — operations_admin + step-up (spec §5.4.2)", () =
     );
     expect(src).not.toContain("revokeAllUserSessions");
   });
+
+  // ─── Review fix Task 5: notify sau commit là BEST-EFFORT ──────────────────────
+
+  it("(review fix) notify FAIL sau khi tx commit → action VẪN thành công (KHÔNG 500), sanction + action + audit NGUYÊN VẸN, lỗi qua captureError (KHÔNG PII)", async () => {
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+    dbState.failNotifyCreate = true; // Notification.create throw (one-shot)
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    // KHÔNG throw — sanction đã commit, notify chỉ là best-effort
+    await suspendUserAction(fd({ userId: SELLER.id, reasonCode: "confirmed_abuse" }));
+
+    // đọc calls TRƯỚC khi restore (mockRestore reset mock.calls)
+    const lines = errSpy.mock.calls.map((c) => String(c[0]));
+    errSpy.mockRestore();
+
+    // sanction + history + audit NGUYÊN VẸN — KHÔNG bị notify failure làm rollback
+    expect(suspensionsOf(SELLER.id)).toHaveLength(1);
+    expect(actionsOf({ actionType: "user.suspended" })).toHaveLength(1);
+    expect(auditsOf("moderation.user_suspended")).toHaveLength(1);
+    // notification row KHÔNG được tạo (insert fail) — nhưng action thành công
+    expect(dbState.notifications).toHaveLength(0);
+
+    // lỗi được captureError — 1 dòng JSON có scope "moderation", KHÔNG PII
+    // (không email/phone của seller trong dòng log).
+    const scopeLine = lines.find((l) => l.includes("\"scope\":\"moderation\""));
+    expect(scopeLine).toBeTruthy();
+    expect(scopeLine).not.toContain(SELLER.email as string);
+  });
 });
 
 // ─── 3. Validation + target checks ────────────────────────────────────────────
@@ -724,6 +772,30 @@ describe("suspendUserAction — validation + target checks", () => {
     ).rejects.toThrowError(/CANNOT_SUSPEND_SELF/);
 
     expect(suspensionsOf(ADMIN_OPS.id)).toHaveLength(0);
+  });
+
+  it("(review fix) note dài hơn SUSPENSION_NOTE_MAX_LENGTH (2000 — cùng cap form) → SUSPENSION_NOTE_TOO_LONG, zero writes", async () => {
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      suspendUserAction(
+        fd({ userId: SELLER.id, reasonCode: "confirmed_abuse", note: "x".repeat(2001) }),
+      ),
+    ).rejects.toThrowError(/SUSPENSION_NOTE_TOO_LONG/);
+
+    expect(suspensionsOf(SELLER.id)).toHaveLength(0);
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
+
+  it("(review fix) note đúng 2000 (boundary) → pass — cap chặn 2001+, không over-block", async () => {
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await suspendUserAction(
+      fd({ userId: SELLER.id, reasonCode: "confirmed_abuse", note: "x".repeat(2000) }),
+    );
+
+    expect(suspensionsOf(SELLER.id)).toHaveLength(1);
   });
 });
 
@@ -1004,6 +1076,38 @@ describe("liftSuspensionAction — hướng khôi phục (Scope Decisions: KHÔN
     ).rejects.toThrowError(/^FORBIDDEN$/);
 
     expect(dbState.suspensions.find((s) => s["id"] === susp.id)).toMatchObject({ status: "active" });
+  });
+
+  // ─── Review fix Task 5: tự gỡ đình chỉ CHÍNH MÌNH bị chặn ─────────────────────
+
+  it("(review fix) tự gỡ đình chỉ CHÍNH MÌNH → CANNOT_LIFT_SELF, row GIỮ NGUYÊN active (một admin tự un-suspend mình là đường leo thang)", async () => {
+    // ops tự bị đình chỉ (seed trực tiếp — suspendUserAction chặn admin target A6;
+    // row này chỉ tồn tại nếu bị đình chỉ TRƯỚC khi được phong admin)
+    const susp = seedSuspension(ADMIN_OPS.id);
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      liftSuspensionAction(fd({ suspensionId: susp.id, reasonCode: "other_reviewed_reason" })),
+    ).rejects.toThrowError(/CANNOT_LIFT_SELF/);
+
+    // row GIỮ NGUYÊN active — KHÔNG action/audit (tx rollback)
+    expect(dbState.suspensions.find((s) => s["id"] === susp.id)).toMatchObject({ status: "active" });
+    expect(actionsOf({ actionType: "user.suspension_lifted" })).toHaveLength(0);
+    expect(auditsOf("moderation.user_suspension_lifted")).toHaveLength(0);
+  });
+
+  it("(review fix) lift: note dài hơn SUSPENSION_NOTE_MAX_LENGTH (2000) → SUSPENSION_NOTE_TOO_LONG, row giữ nguyên active", async () => {
+    const susp = seedSuspension(SELLER.id);
+    login(ADMIN_OPS, { isAdmin: true, steppedUpAt: STEPPED_UP() });
+
+    await expect(
+      liftSuspensionAction(
+        fd({ suspensionId: susp.id, reasonCode: "other_reviewed_reason", note: "x".repeat(2001) }),
+      ),
+    ).rejects.toThrowError(/SUSPENSION_NOTE_TOO_LONG/);
+
+    expect(dbState.suspensions.find((s) => s["id"] === susp.id)).toMatchObject({ status: "active" });
+    expect(actionsOf({ actionType: "user.suspension_lifted" })).toHaveLength(0);
   });
 });
 

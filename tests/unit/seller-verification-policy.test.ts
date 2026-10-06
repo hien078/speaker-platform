@@ -97,6 +97,7 @@ import {
   SELLER_VERIFICATION_REASON_CODES,
   SELLER_VERIFICATION_DECISIONS,
   SELLER_VERIFICATION_DECISION_REASON_CODES,
+  SELLER_PUBLICATION_REQUIREMENT_LABELS,
   PROVINCE_CODES,
 } from "@/src/lib/seller-verification-policy";
 
@@ -329,6 +330,15 @@ describe("UserSuspension — chỉ episode ACTIVE chặn publication (spec §7.8
     });
     const check = await checkSellerPublicationRequirements(SELLER_ID);
     expect(check).toEqual({ ok: true, missing: [] });
+  });
+
+  it("(review fix Task 5) label yêu cầu thứ 8 ĐỌC NHƯ MỘT YÊU CẦU — 'Tài khoản không bị đình chỉ' (không phải mô tả trạng thái)", () => {
+    // Label dùng trong checklist (app/sell/verification) + thông báo lỗi missing
+    // — phải là danh từ yêu cầu ("không bị đình chỉ"), không phải câu trạng thái
+    // ("đang bị đình chỉ") — seller đọc thông báo thiếu hiểu mình CẦN GÌ.
+    expect(SELLER_PUBLICATION_REQUIREMENT_LABELS.account_not_suspended).toBe(
+      "Tài khoản không bị đình chỉ",
+    );
   });
 });
 

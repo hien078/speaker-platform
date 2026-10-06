@@ -28,6 +28,10 @@ export type ListingFormState = { error?: string };
  * Chạy publication gate cho MỘT transition — trả form error tiếng Việt khi
  * seller chưa thỏa policy (liệt kê yêu cầu thiếu), null khi cho qua. Lỗi
  * không phải policy (db…) được ném tiếp — fail closed, không masquerade.
+ *
+ * Review fix Task 5: đình chỉ KHÔNG phải requirement "fixable" tại trang xác
+ * minh — seller bị đình chỉ KHÔNG được hướng sang trang đó như thể gỡ được
+ * đình chỉ bằng cách hoàn tất hồ sơ. Special-case thông báo riêng.
  */
 async function runPublicationGate(sellerId: string): Promise<{ error: string } | null> {
   try {
@@ -38,6 +42,12 @@ async function runPublicationGate(sellerId: string): Promise<{ error: string } |
       const missing = e.message
         .slice("SELLER_PUBLICATION_BLOCKED:".length)
         .split(",") as SellerPublicationRequirement[];
+      // Đình chỉ là sanction của moderation — KHÔNG hoàn tất được tại trang
+      // xác minh (chỉ lift bởi admin). Thông báo riêng, KHÔNG kèm hướng dẫn
+      // "Hoàn tất tại trang Xác minh người bán" (misleading — review fix Task 5).
+      if (missing.includes("account_not_suspended")) {
+        return { error: "Tài khoản đang bị đình chỉ — không thể đăng tin." };
+      }
       return {
         error: `Chưa đủ điều kiện đăng tin theo chính sách người bán hiện hành — còn thiếu: ${formatMissingRequirements(missing)}. Hoàn tất tại trang Xác minh người bán.`,
       };

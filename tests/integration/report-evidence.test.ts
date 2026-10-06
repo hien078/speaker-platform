@@ -27,6 +27,13 @@
  *     target+reason → MỘT case, hai report (loser case-create violation →
  *     RETRY → re-read thấy case người thắng).
  *
+ *     (Review fix L3) Các test "đồng thời" là BEST-EFFORT scheduling —
+ *     Promise.all trên một event loop có thể serialize; đường race
+ *     DETERMINISTIC (23505 → throw → classify ngoài → retry → JOIN; repeat
+ *     race → REPORT_RETRY_FAILED) được pin ở tests/unit/report-actions.test.ts
+ *     (mock mô phỏng 23505 + rollback snapshot/restore). Integration test
+ *     giữ bất biến against DB thật với scheduling tốt nhất có thể.
+ *
  * ModerationEvidence KHÔNG bao giờ bị delete (spec §5.5.1 immutable từ product
  * flow) — các case giữ evidence được BỎ QUA khi dọn (DB scratch bị vứt sau
  * run); AbuseReport/ModerationAction/ModerationCase cũng giữ lại (SetNull FK
@@ -206,6 +213,11 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
     const reporter = await mkUser("buyer");
     const listing = await mkListing(seller);
 
+    // (Review fix L3) đọc giá trị seed TRƯỚC khi report — snapshot phải chứa ĐÚNG
+    // các giá trị pre-edit này (không chỉ "không đổi qua edit").
+    const preEdit = await db.orm.public.Listing.first({ id: listing });
+    expect(preEdit).not.toBeNull();
+
     const reporterTok = await loginAs(reporter);
     setSession(reporterTok);
     const res = await submit({
@@ -224,6 +236,21 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
     expect(captured).toMatchObject({ kind: "listing", id: listing });
     const capturedTitle = captured.title as string;
     const capturedPrice = captured.price as number;
+
+    // (Review fix L3) snapshot chứa ĐÚNG title/price/description seed pre-edit
+    // — chứng minh capture chụp nội dung THẬT tại report time, không chỉ chứng
+    // minh sau edit nó "vẫn giống chính nó".
+    expect(captured.title).toBe(preEdit!.title);
+    expect(captured.price).toBe(preEdit!.price);
+    expect(captured.description).toBe(preEdit!.description);
+    expect(captured.description).toBe("integration test listing");
+    expect(captured.price).toBe(1_000_000);
+    expect(captured).toMatchObject({
+      condition: "good",
+      city: "Hà Nội",
+      status: "approved",
+      sellerId: seller,
+    });
 
     // edit source QUA DB TRỰC TIẾP (không qua updateListingAction — invariant là
     // source ROW thay đổi; action đó route qua publication gate + redirect())
@@ -321,6 +348,16 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
 });
 
 // ─── 4. Grouping + concurrency trên DB thật ──────────────────────────────────
+//
+// (Review fix L3) Các test "đồng thời" dưới đây là BEST-EFFORT scheduling —
+// Promise.all trên MỘT event loop có thể serialize hai action, nên race
+// (violation 23505) KHÔNG đợi được ở đây. Đường race DETERMINISTIC được pin
+// ở UNIT test (tests/unit/report-actions.test.ts — mock mô phỏng 23505 đúng
+// semantics Postgres: violation throw ra khỏi tx, classify NGOÀI theo
+// constraint name, retry re-read JOIN case người thắng, repeat-race →
+// REPORT_RETRY_FAILED). Ở đây chứng minh CÙNG bất biến against DB THẬT với
+// scheduling tốt nhất có thể: dù interleaving nào, đúng MỘT report/reporter/
+// case, MỘT case active per key, KHÔNG silent-success.
 
 d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", () => {
   it("hai reporter cùng target+reason → MỘT case, hai report, hai evidence; khác reason → case thứ hai", async () => {
@@ -364,7 +401,7 @@ d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", ()
     expect(casesAll.map((c) => c.reasonCategory).sort()).toEqual(["counterfeit_claim", "suspected_scam"]);
   });
 
-  it("hai submit ĐỒNG THỜI của cùng reporter → đúng MỘT report row persist, loser REPORT_ALREADY_SUBMITTED (không silent-success)", async () => {
+  it("hai submit GẦN ĐỒNG THỜI của cùng reporter (best-effort race) → bất kể interleaving: đúng MỘT report row, loser REPORT_ALREADY_SUBMITTED (không silent-success)", async () => {
     const seller = await mkUser("seller");
     const reporter = await mkUser("buyer");
     const listing = await mkListing(seller);
@@ -372,11 +409,13 @@ d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", ()
     const tok = await loginAs(reporter);
     setSession(tok);
 
-    // Promise.all — hai action đồng thời trên cùng (target, reason), cùng reporter.
-    // Cả hai pass dedupe (chưa có case); một tx thắng case-create, tx kia violation
-    // partial index → retry → re-read thấy case → report-create violation
-    // (caseId, reporterId) → REPORT_ALREADY_SUBMITTED. KHÔNG có path nào mà cả
-    // hai cùng persist (partial index + @@unique đóng race — S4).
+    // Promise.all — hai action trên cùng (target, reason), cùng reporter.
+    // Race path DETERMINISTIC (violation partial index → retry → re-read thấy
+    // case → AbuseReport violation → ALREADY_SUBMITTED) được pin ở UNIT test
+    // (tests/unit/report-actions.test.ts); ở đây bất kể interleaving thật
+    // (race HOẶC serialize — request sau đi qua dedupe step 5), bất biến
+    // phải giữ: đúng MỘT report row persist, KHÔNG có path nào cả hai cùng
+    // persist (partial index + @@unique đóng race — S4).
     const [r1, r2] = await Promise.all([
       submit({ targetType: "listing", targetId: listing, reasonCode: "suspected_scam" }),
       submit({ targetType: "listing", targetId: listing, reasonCode: "suspected_scam" }),
@@ -400,7 +439,7 @@ d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", ()
     expect(evidence).toHaveLength(1);
   });
 
-  it("hai submit ĐỒNG THỜI hai reporter cùng target+reason → MỘT case, hai report (loser retry JOIN case người thắng)", async () => {
+  it("hai submit GẦN ĐỒNG THỜI hai reporter cùng target+reason (best-effort race) → bất kể interleaving: MỘT case, hai report (race path deterministic pin ở unit test)", async () => {
     const seller = await mkUser("seller");
     const reporter1 = await mkUser("buyer");
     const reporter2 = await mkUser("buyer");
@@ -408,6 +447,10 @@ d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", ()
 
     // hai session THẬT khác nhau; queue phát MỘT token cho mỗi action — mô phỏng
     // hai request đồng thời từ hai người (mỗi action đọc cookie đúng một lần).
+    // Race path DETERMINISTIC (loser case-create violation → retry → re-read
+    // JOIN case người thắng) được pin ở UNIT test; ở đây bất kể interleaving
+    // thật (race HOẶC serialize — request sau đi qua re-read thấy case), bất
+    // biến phải giữ: MỘT case active per (target, reason), hai report, hai evidence.
     const tok1 = await loginAs(reporter1);
     const tok2 = await loginAs(reporter2);
     cookieState.queue.push(tok1, tok2);
@@ -417,6 +460,7 @@ d("grouping + concurrency trên DB thật (spec §5.5 + Global Constraints)", ()
       submit({ targetType: "listing", targetId: listing, reasonCode: "spam" }),
     ]);
     // cả hai thành công — tx thua case-create retry rồi JOIN case người thắng
+    // (hoặc serialize: request sau re-read thấy case của request trước)
     expect(r1.success).toBeTruthy();
     expect(r2.success).toBeTruthy();
 

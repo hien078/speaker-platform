@@ -43,6 +43,16 @@ const dbState = vi.hoisted(() => ({
   listings: [] as Array<Record<string, unknown>>,
   listingImages: [] as Array<Record<string, unknown>>,
   messages: [] as Array<Record<string, unknown>>,
+  /**
+   * M1 tripwire counters (review fix Task 4): query đếm THEO CLIENT nó chạy
+   * trên — global db.orm vs tx.orm. captureTargetSnapshot gọi với tx.orm phải
+   * chạy TOÀN BỘ query trên tx client (global = 0) — nếu regress, tx report
+   * giữ MỘT pool connection và chờ connection THỨ HAI cho snapshot query →
+   * ~10 submit đồng thời deadlock pool (default max 10, connectionTimeout 10s)
+   * và starve toàn app.
+   */
+  globalQueries: 0,
+  txQueries: 0,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -95,12 +105,13 @@ vi.mock("@/src/prisma/db.client", () => {
       return 0;
     });
 
-  const makeModel = (rows: Row[]) => {
+  const makeModel = (rows: Row[], countKey: "globalQueries" | "txQueries") => {
     const query = (preds: Pred[], sortSpec: SortSpec | null, fields: string[] | null) => ({
       where: (pred: Pred) => query([...preds, pred], sortSpec, fields),
       orderBy: (cb: (ops: unknown) => unknown) => query(preds, orderBySpec(cb), fields),
       select: (...f: string[]) => query(preds, sortSpec, f),
       first: async (filter?: Pred) => {
+        dbState[countKey]++;
         const all = [...preds, ...(filter ? [filter] : [])];
         const hit = rows.find((r) => all.every((p) => matches(r, p)));
         if (hit === undefined) return null;
@@ -109,6 +120,7 @@ vi.mock("@/src/prisma/db.client", () => {
           : Object.fromEntries(fields.map((f) => [f, hit[f]]));
       },
       all: async () => {
+        dbState[countKey]++;
         let hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         if (sortSpec !== null) hit = sortRows(hit, sortSpec);
         return hit.map((r) =>
@@ -125,17 +137,26 @@ vi.mock("@/src/prisma/db.client", () => {
     };
   };
 
-  const orm = {
+  /** ORM theo client — cùng store, counter RIÊNG (global vs tx — M1 tripwire). */
+  const mkOrm = (countKey: "globalQueries" | "txQueries") => ({
     public: {
-      User: makeModel(dbState.users),
-      UserBlock: makeModel(dbState.blocks),
-      UserSuspension: makeModel(dbState.suspensions),
-      Listing: makeModel(dbState.listings),
-      ListingImage: makeModel(dbState.listingImages),
-      Message: makeModel(dbState.messages),
+      User: makeModel(dbState.users, countKey),
+      UserBlock: makeModel(dbState.blocks, countKey),
+      UserSuspension: makeModel(dbState.suspensions, countKey),
+      Listing: makeModel(dbState.listings, countKey),
+      ListingImage: makeModel(dbState.listingImages, countKey),
+      Message: makeModel(dbState.messages, countKey),
+    },
+  });
+  return {
+    db: {
+      orm: mkOrm("globalQueries"),
+      // Tx context — client RIÊNG (đếm riêng) nhưng cùng store: pin M1 rằng
+      // captureTargetSnapshot(tx.orm) KHÔNG chạm global client.
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({ orm: mkOrm("txQueries") }),
     },
   };
-  return { db: { orm } };
 });
 
 // moderation.ts re-export vocab (server consumers import mọi thứ từ đó) —
@@ -167,6 +188,7 @@ import {
   getCaseSubjectUserId,
 } from "@/src/lib/moderation";
 import { captureTargetSnapshot } from "@/src/lib/moderation-snapshot";
+import { db } from "@/src/prisma/db.client";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
@@ -629,5 +651,38 @@ describe("captureTargetSnapshot — evidence JSON tại thời điểm báo cáo
     await expect(captureTargetSnapshot("listing", "listing-khong-ton-tai")).resolves.toBeNull();
     await expect(captureTargetSnapshot("user", "user-khong-ton-tai")).resolves.toBeNull();
     await expect(captureTargetSnapshot("message", "msg-khong-ton-tai")).resolves.toBeNull();
+  });
+
+  // ─── M1 (review fix Task 4): snapshot query PHẢI chạy trên client được truyền ───
+
+  it("M1 tripwire: captureTargetSnapshot(tx.orm) chạy MỌI query TRÊN tx client — global client 0 query (pool-deadlock tripwire)", async () => {
+    dbState.globalQueries = 0;
+    dbState.txQueries = 0;
+
+    let captured: Awaited<ReturnType<typeof captureTargetSnapshot>> = null;
+    await db.transaction(async (tx) => {
+      captured = await captureTargetSnapshot("listing", LISTING.id, tx.orm);
+    });
+
+    expect(captured).not.toBeNull();
+    expect(captured!.snapshot).toMatchObject({ kind: "listing", id: LISTING.id });
+    expect(captured!.subjectUserId).toBe(SELLER.id);
+    // listing.first + ListingImage.all — TẤT CẢ trên tx client…
+    expect(dbState.txQueries).toBeGreaterThanOrEqual(2);
+    // …và KHÔNG MỘT query nào trên global client: nếu regress (capture dùng
+    // db.orm toàn cục), tx report giữ 1 pool connection + chờ connection thứ
+    // hai → ~10 submit đồng thời deadlock pool (max 10) — tripwire này đỏ.
+    expect(dbState.globalQueries).toBe(0);
+  });
+
+  it("M1 default: KHÔNG truyền orm → dùng global client (non-tx caller giữ nguyên chữ ký cũ)", async () => {
+    dbState.globalQueries = 0;
+    dbState.txQueries = 0;
+
+    const captured = await captureTargetSnapshot("listing", LISTING.id);
+
+    expect(captured).not.toBeNull();
+    expect(dbState.globalQueries).toBeGreaterThanOrEqual(2);
+    expect(dbState.txQueries).toBe(0);
   });
 });

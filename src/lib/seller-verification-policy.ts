@@ -187,7 +187,12 @@ export const SELLER_PUBLICATION_REQUIREMENT_LABELS: Record<SellerPublicationRequ
   seller_rules_accepted: "đồng ý Quy tắc người bán",
   founding_seller_membership_active: "thành viên founding_seller còn hoạt động",
   operations_review_verified: "được operations review xác minh",
-  account_not_suspended: "Tài khoản đang bị đình chỉ", // Batch 3 — label cho gate catch (spec §7.8)
+  // Batch 3 (spec §7.8) — review fix Task 5: label ĐỌC NHƯ MỘT YÊU CẦU (danh từ
+  // yêu cầu — khớp checklist app/sell/verification), KHÔNG phải câu trạng thái
+  // ("đang bị đình chỉ") — seller đọc thông báo thiếu phải hiểu mình CẦN GÌ.
+  // (Câu trạng thái "Tài khoản đang bị đình chỉ — không thể đăng tin" là
+  // special-case riêng tại listings.ts/seller-verification.ts — KHÔNG qua map này.)
+  account_not_suspended: "Tài khoản không bị đình chỉ",
 };
 
 /** Danh sách missing → text tiếng Việt (dùng trong thông báo lỗi user-facing). */

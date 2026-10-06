@@ -7,8 +7,10 @@ import { db } from "@/src/prisma/db.client";
 import { requireCapability, requireCapabilityWithStepUp } from "@/src/lib/rbac";
 import { auditEventTx, redactDetail } from "@/src/lib/audit-event";
 import { notify } from "@/src/lib/notify";
+import { captureError } from "@/src/lib/observability";
 import {
   SUSPENSION_REASON_CODES,
+  SUSPENSION_NOTE_MAX_LENGTH,
   getCaseSubjectUserId,
   type ModerationCaseState,
   type ReportTargetType,
@@ -90,12 +92,16 @@ const PRE_ACTION_CASE_STATES: readonly ModerationCaseState[] = [
  * totpCode? (step-up — A9). Guard order: capability+step-up → validation →
  * target checks → case checks (S5/S9) → tx (suspension + atomic case→actioned
  * + action + audit) → notify. KHÔNG thu hồi session ở BẤT KỲ đâu (P1).
+ *
+ * Review fix Task 5: note cap server-side SUSPENSION_NOTE_MAX_LENGTH (2000 —
+ * cùng maxLength form); notify sau commit là best-effort THẬT (try/catch +
+ * captureError — lỗi notify KHÔNG biến sanction đã commit thành 500).
  */
 export async function suspendUserAction(formData: FormData): Promise<void> {
   const userId = String(formData.get("userId") ?? "").trim();
   const caseId = String(formData.get("caseId") ?? "").trim() || null;
   const totpCode = String(formData.get("totpCode") ?? "").trim() || undefined;
-  const note = String(formData.get("note") ?? "").trim() || null;
+  const noteRaw = String(formData.get("note") ?? "");
 
   // 1. super/ops only (fail-closed matrix §5.4.1) + step-up (A9 — §5.4.2
   //    "destructive account action"): stale step-up không mã → STEP_UP_REQUIRED;
@@ -105,11 +111,18 @@ export async function suspendUserAction(formData: FormData): Promise<void> {
   // 2. Typed reason (PROVISIONAL A8) — KHÔNG free text trần; note qua
   //    redactDetail TẠI WRITE TIME (spec §4.8) trước khi lưu vào CẢ
   //    UserSuspension.note LẪN ModerationAction.note LẪN AuditEvent.detail.
+  //    Cap note server-side (review fix Task 5): SUSPENSION_NOTE_MAX_LENGTH
+  //    (2000 — cùng maxLength form; form chỉ là convenience, forged form
+  //    fail closed với typed error).
   const reasonParsed = suspensionReasonSchema.safeParse(
     String(formData.get("reasonCode") ?? ""),
   );
   if (!reasonParsed.success) throw new Error("INVALID_SUSPENSION_REASON");
   const reasonCode: SuspensionReasonCode = reasonParsed.data;
+  if (noteRaw.length > SUSPENSION_NOTE_MAX_LENGTH) {
+    throw new Error("SUSPENSION_NOTE_TOO_LONG");
+  }
+  const note = noteRaw.trim() || null;
   const safeNote = note === null ? null : redactDetail(note);
 
   // 3. Target checks: tồn tại; admin account → runbook Batch 2 (A6); tự treo
@@ -254,18 +267,27 @@ export async function suspendUserAction(formData: FormData): Promise<void> {
     throw e;
   }
 
-  // 6. Notify user (best-effort — không sống chết với sanction đã commit).
-  //    Copy là PLACEHOLDER (FD-3) — sanction-notification wording là
-  //    founder-authored content (Batch 8 register). Link /appeal/<caseId>
-  //    KHÔNG gửi ở task này — page thuộc Task 7; Task 7 thêm link vào
-  //    call-site này (không commit nào có dead link).
-  await notify(
-    userId,
-    "moderation",
-    "Tài khoản bị tạm đình chỉ", // PLACEHOLDER (FD-3) — Batch 8 register
-    SUSPENSION_REASON_LABELS[reasonCode], // PROVISIONAL (A8)
-    undefined,
-  );
+  // 6. Notify user (best-effort — không sống chết với sanction đã commit —
+  //    review fix Task 5: try/catch + captureError THẬT như comment claims; lỗi
+  //    notify KHÔNG biến sanction đã commit thành 500). Copy là PLACEHOLDER
+  //    (FD-3) — sanction-notification wording là founder-authored content
+  //    (Batch 8 register). Link /appeal/<caseId> KHÔNG gửi ở task này — page
+  //    thuộc Task 7; Task 7 thêm link vào call-site này (không commit nào có
+  //    dead link). Meta KHÔNG PII (spec §4.8) — chỉ typed refs.
+  try {
+    await notify(
+      userId,
+      "moderation",
+      "Tài khoản bị tạm đình chỉ", // PLACEHOLDER (FD-3) — Batch 8 register
+      SUSPENSION_REASON_LABELS[reasonCode], // PROVISIONAL (A8)
+      undefined,
+    );
+  } catch (notifyError) {
+    captureError("moderation", notifyError, {
+      action: "moderation.user_suspended_notify",
+      subjectId: userId, // typed ref — KHÔNG PII (spec §4.8)
+    });
+  }
 
   revalidatePath("/admin/users");
 }
@@ -276,21 +298,30 @@ export async function suspendUserAction(formData: FormData): Promise<void> {
  * "destructive account action" §5.4.2). Row được đọc BÊN TRONG tx (E2 — cần
  * userId cho ModerationAction.targetId + audit subjectId), claim ATOMIC theo
  * status active (concurrent lift → SUSPENSION_ALREADY_LIFTED).
+ *
+ * Review fix Task 5: KHÔNG tự gỡ đình chỉ CHÍNH MÌNH (CANNOT_LIFT_SELF —
+ * đối xứng CANNOT_SUSPEND_SELF); note cap server-side
+ * SUSPENSION_NOTE_MAX_LENGTH (2000 — như suspendUserAction).
  */
 export async function liftSuspensionAction(formData: FormData): Promise<void> {
   const suspensionId = String(formData.get("suspensionId") ?? "").trim();
-  const note = String(formData.get("note") ?? "").trim() || null;
+  const noteRaw = String(formData.get("note") ?? "");
 
   // 1. Cùng capability, KHÔNG step-up (recorded decision — Batch 3 Scope
   //    Decisions; reversible by founder ruling).
   const ctx = await requireCapability("user.suspend");
 
   // 2. Typed reason (PROVISIONAL A8) + note redact tại write time (spec §4.8).
+  //    Cap note server-side (review fix Task 5) — như suspendUserAction.
   const reasonParsed = suspensionReasonSchema.safeParse(
     String(formData.get("reasonCode") ?? ""),
   );
   if (!reasonParsed.success) throw new Error("INVALID_SUSPENSION_REASON");
   const reasonCode: SuspensionReasonCode = reasonParsed.data;
+  if (noteRaw.length > SUSPENSION_NOTE_MAX_LENGTH) {
+    throw new Error("SUSPENSION_NOTE_TOO_LONG");
+  }
+  const note = noteRaw.trim() || null;
   const safeNote = note === null ? null : redactDetail(note);
 
   if (!suspensionId) throw new Error("INVALID_SUSPENSION");
@@ -299,6 +330,13 @@ export async function liftSuspensionAction(formData: FormData): Promise<void> {
   await db.transaction(async (tx) => {
     const row = await tx.orm.public.UserSuspension.first({ id: suspensionId });
     if (row === null) throw new Error("SUSPENSION_NOT_FOUND");
+
+    // Review fix Task 5: KHÔNG tự gỡ đình chỉ CHÍNH MÌNH — một admin tự
+    // un-suspend mình là đường leo thang đặc quyền (đối xứng CANNOT_SUSPEND_SELF;
+    // row này chỉ tồn tại nếu admin bị đình chỉ TRƯỚC khi được phong role —
+    // suspendUserAction chặn admin target, A6). Throw RA khỏi callback →
+    // tx rollback → row GIỮ NGUYÊN active.
+    if (row.userId === ctx.user.id) throw new Error("CANNOT_LIFT_SELF");
 
     // ATOMIC CLAIM: chỉ episode active mới lift được — 0 rows (đã lifted bởi
     // request khác / row biến mất) → throw RA khỏi callback → tx rollback.

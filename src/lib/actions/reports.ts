@@ -32,9 +32,25 @@ import { captureTargetSnapshot } from "@/src/lib/moderation-snapshot";
  * NGOÀI tx theo constraint name:
  *  - `moderation_case_one_active_per_target_reason` (partial unique index) →
  *    report cùng target+reason thắng trước → RETRY toàn bộ tx MỘT lần — re-read
- *    trong retry thấy case của người thắng; retry cũng violate → fail closed.
+ *    trong retry thấy case của người thắng; retry cũng violate → phân loại
+ *    theo constraint (xem retryReportTxOnce).
  *  - `AbuseReport_caseId_reporterId_key` → double-submit của chính reporter →
  *    REPORT_ALREADY_SUBMITTED (không retry).
+ *
+ * Review fix (Task 4):
+ *  - M1 (availability): captureTargetSnapshot chạy TRÊN tx.orm — query trên
+ *    global client trong tx giữ 1 pool connection + chờ connection thứ hai
+ *    → ~10 submit đồng thời deadlock pool (max 10) → snapshot module nhận
+ *    orm client (tx.orm); caller ngoài tx dùng mặc định global.
+ *  - L1: attach CÓ ĐIỀU KIỆN — case grouping bị ĐÓNG concurrent giữa re-read và
+ *    AbuseReport.create (không lock giữa hai bước) → conditional no-op update
+ *    (state ∈ active) trả 0 rows → sentinel throw → RETRY tx một lần → re-read
+ *    thấy case đã đóng → tạo case active MỚI (report KHÔNG bao giờ attach vào
+ *    case đã đóng).
+ *  - L2: lỗi RETRY phân loại theo constraint name — AbuseReport_caseId_reporterId_key
+ *    → REPORT_ALREADY_SUBMITTED (reporter thật sự đã trên case); race lặp lại
+ *    (partial index lần hai) / case mới cũng bị đóng → REPORT_RETRY_FAILED
+ *    (nothing persisted — KHÔNG masquerade thành ALREADY_SUBMITTED).
  *
  * KHÔNG AuditEvent — actor là user thường; AbuseReport + ModerationAction đã
  * ghi actor/action/reason/timestamp (Scope Decisions — AuditEvent dành cho
@@ -49,6 +65,13 @@ export type ReportFormState = { error?: string; success?: string };
 
 /** Sentinel throw ra khỏi tx callback khi target biến mất giữa validate và tx. */
 const TARGET_VANISHED = "REPORT_TARGET_VANISHED";
+
+/**
+ * Sentinel L1 (review fix Task 4): case grouping bị ĐÓNG concurrent giữa
+ * re-read và attach — throw ra khỏi tx callback → classify NGOÀI → RETRY toàn
+ * bộ tx MỘT lần (re-read trong retry thấy case đã đóng → tạo case active MỚI).
+ */
+const CASE_CLOSED_RACE = "REPORT_CASE_CLOSED_RACE";
 
 /** Thông báo thành công — KHÔNG tiết lộ trạng thái case/định danh moderator. */
 const REPORT_SUBMITTED_MESSAGE =
@@ -134,7 +157,10 @@ export async function submitReportAction(
       // a. Capture TRƯỚC khi tạo bất kỳ row nào — target biến mất giữa validate
       //    và tx → sentinel throw ra khỏi callback → classify ngoài → NOT_FOUND
       //    (fail closed; tx rollback — chưa có row nào được tạo).
-      const captured = await captureTargetSnapshot(target, targetId);
+      //    M1 (review fix): capture chạy TRÊN tx.orm — query trên global client
+      //    trong tx giữ 1 pool connection + chờ connection thứ hai → deadlock
+      //    pool (~10 submit đồng thời, max 10).
+      const captured = await captureTargetSnapshot(target, targetId, tx.orm);
       if (captured === null) throw new Error(TARGET_VANISHED);
 
       // b. RE-READ case grouping TRONG tx — không tin read ở bước 5 (concurrent
@@ -169,6 +195,21 @@ export async function submitReportAction(
         caseId,
       });
 
+      // c2. L1 (review fix): attach CÓ ĐIỀU KIỆN — KHÔNG lock nào giữa re-read
+      //     (bước b) và AbuseReport.create, moderator có thể transition case
+      //     sang dismissed/closed NGAY giữa hai bước. Conditional no-op update
+      //     khẳng định case VẪN active (row lock + recheck predicate của
+      //     Postgres — như atomic claim): 0 rows → case đã bị đóng concurrent
+      //     → sentinel throw ra khỏi callback → tx rollback (report chưa kịp
+      //     attach đi đâu) → classify NGOÀI → RETRY (re-read thấy case đã
+      //     đóng → tạo case active MỚI). Case do CHÍNH tx này vừa tạo luôn
+      //     khớp (state open — không concurrent tx nào thấy được row chưa commit).
+      const stillActive = await tx.orm.public.ModerationCase
+        .where({ id: caseId })
+        .where((c) => c.state.in([...ACTIVE_MODERATION_CASE_STATES]))
+        .updateAll({ updatedAt: new Date().toISOString() });
+      if (stillActive.length === 0) throw new Error(CASE_CLOSED_RACE);
+
       // d. Evidence — snapshot bất biến tại report time (spec §5.5.1); sống
       //    qua source edit/delete (SetNull FK — A3); KHÔNG bao giờ update/delete.
       //    (cast: CapturedSnapshot.snapshot khai báo Record<string, unknown> —
@@ -195,12 +236,53 @@ export async function submitReportAction(
       });
     });
 
+  /**
+   * RETRY toàn bộ tx MỘT lần + classify lỗi retry (L2 — review fix): lỗi của
+   * lần thử thứ hai KHÔNG masquerade thành REPORT_ALREADY_SUBMITTED —
+   * phân loại theo constraint name:
+   *  - `AbuseReport_caseId_reporterId_key` → reporter THẬT SỰ đã trên case
+   *    (row của người thắng persist) → REPORT_ALREADY_SUBMITTED là đúng semantics.
+   *  - Race lặp lại (partial index lần hai) / case mới cũng bị đóng concurrent
+   *    → KHÔNG có gì của reporter persist → REPORT_RETRY_FAILED (thử lại) —
+   *    báo ALREADY_SUBMITTED là SAI (misleading).
+   */
+  const retryReportTxOnce = async (): Promise<ReportFormState> => {
+    try {
+      await runReportTx();
+      return { success: REPORT_SUBMITTED_MESSAGE };
+    } catch (retry) {
+      if (retry instanceof Error && retry.message === TARGET_VANISHED) {
+        return { error: "NOT_FOUND" };
+      }
+      if (isUniqueConstraintViolation(retry)) {
+        const retryConstraint = (retry as SqlQueryError).constraint ?? "";
+        if (retryConstraint === "AbuseReport_caseId_reporterId_key") {
+          return { error: "REPORT_ALREADY_SUBMITTED" };
+        }
+        // Partial-index violation lần HAI (creator khác lại thắng) — nothing
+        // persisted → distinct typed error (L2), KHÔNG REPORT_ALREADY_SUBMITTED.
+        return { error: "REPORT_RETRY_FAILED" };
+      }
+      if (retry instanceof Error && retry.message === CASE_CLOSED_RACE) {
+        // Case MỚI cũng bị đóng concurrent — nothing persisted (L2).
+        return { error: "REPORT_RETRY_FAILED" };
+      }
+      throw retry;
+    }
+  };
+
   try {
     await runReportTx();
   } catch (e) {
     // Capture fail-closed sentinel — tx đã rollback, chưa row nào được viết.
     if (e instanceof Error && e.message === TARGET_VANISHED) {
       return { error: "NOT_FOUND" };
+    }
+
+    // L1 (review fix): case bị đóng concurrent giữa re-read và attach →
+    // retry (re-read trong retry thấy case đã đóng → tạo case active mới).
+    if (e instanceof Error && e.message === CASE_CLOSED_RACE) {
+      return retryReportTxOnce();
     }
 
     // 7. Classify constraint violations NGOÀI tx (sqlState 23505 + constraint
@@ -211,20 +293,7 @@ export async function submitReportAction(
       if (constraint.startsWith("moderation_case_one_active_per_target_reason")) {
         // Concurrent report cùng (target, reason) thắng case create — RETRY
         // toàn bộ tx MỘT lần: re-read trong retry thấy case của người thắng.
-        try {
-          await runReportTx();
-          return { success: REPORT_SUBMITTED_MESSAGE };
-        } catch (retry) {
-          if (retry instanceof Error && retry.message === TARGET_VANISHED) {
-            return { error: "NOT_FOUND" };
-          }
-          // Retry cũng violate (reporter đã trên case của người thắng —
-          // AbuseReport_caseId_reporterId_key — hoặc race thứ hai) → fail closed.
-          if (isUniqueConstraintViolation(retry)) {
-            return { error: "REPORT_ALREADY_SUBMITTED" };
-          }
-          throw retry;
-        }
+        return retryReportTxOnce();
       }
       if (constraint === "AbuseReport_caseId_reporterId_key") {
         // Concurrent double-submit của chính reporter — tx abort; row của người

@@ -200,6 +200,16 @@ export async function submitSellerVerificationAction(
     (r) => r !== "operations_review_verified" && r !== "seller_rules_accepted",
   );
   if (missing.length > 0) {
+    // Review fix Task 5: đình chỉ KHÔNG phải requirement "fixable" — KHÔNG liệt
+    // kê "còn thiếu: Tài khoản không bị đình chỉ" như thể hoàn tất được tại
+    // trang này (suspended user không thể vào verification queue — S10);
+    // special-case thông báo riêng, code REQUIREMENTS_MISSING giữ nguyên.
+    if (missing.includes("account_not_suspended")) {
+      return {
+        error: "Tài khoản đang bị đình chỉ — không thể đăng tin.",
+        code: "REQUIREMENTS_MISSING",
+      };
+    }
     return {
       error: `Chưa đủ điều kiện gửi hồ sơ — còn thiếu: ${formatMissingRequirements(missing)}.`,
       code: "REQUIREMENTS_MISSING",

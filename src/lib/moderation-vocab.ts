@@ -172,3 +172,9 @@ export const CHAT_SEND_RATE_LIMIT = { limit: 30, windowMs: 60_000 };
 export const REPORT_NOTE_MAX_LENGTH = 2000;
 /** Cap lời trình bày kháng cáo — untrusted input (Task 7). */
 export const APPEAL_STATEMENT_MAX_LENGTH = 4000;
+/**
+ * Cap note đình chỉ của admin (review fix Task 5) — CÙNG 2000 với maxLength
+ * form (app/admin/users); action chặn server-side (form chỉ là convenience —
+ * forged form vượt maxLength phải fail closed với typed error).
+ */
+export const SUSPENSION_NOTE_MAX_LENGTH = 2000;

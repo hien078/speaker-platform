@@ -685,6 +685,10 @@ describe("submitSellerVerificationAction — gửi hồ sơ (spec §5.3.2)", () 
     expect(state.error).toBeTruthy();
     expect(state.error).toContain("đình chỉ");
     expect(state.code).toBe("REQUIREMENTS_MISSING");
+    // (Review fix Task 5) đình chỉ KHÔNG phải requirement "fixable" — KHÔNG liệt
+    // kê như thể hoàn tất được tại trang này; special-case thông báo riêng.
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ");
+    expect(state.error).not.toContain("còn thiếu");
     // KHÔNG tạo row — suspended user không thể vào verification queue
     expect(dbState.verifications).toHaveLength(0);
     expect(dbState.audits.filter((r) => r.action === "seller_verification.submitted")).toHaveLength(0);
