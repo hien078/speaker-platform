@@ -52,6 +52,27 @@ export function AuthForm({ mode, next = "" }: { mode: "login" | "register"; next
         <input id="password" name="password" type="password" className="input" placeholder="••••••••" required />
       </div>
 
+      {/* Admin MFA (Batch 2 Task 8): field chỉ hiện khi loginAction trả
+          mfaRequired — đúng mật khẩu admin nhưng thiếu mã TOTP/mã khôi phục.
+          Submit lại kèm mfaCode; user thường không bao giờ thấy field này. */}
+      {state.mfaRequired && (
+        <div>
+          <label className="label" htmlFor="mfaCode">Mã TOTP / mã khôi phục</label>
+          <input
+            id="mfaCode"
+            name="mfaCode"
+            className="input"
+            inputMode="text"
+            autoComplete="one-time-code"
+            placeholder="6 chữ số hoặc XXXX-XXXX"
+            required
+          />
+          <p className="text-xs text-[var(--muted)]">
+            Nhập mã 6 chữ số từ ứng dụng xác thực (TOTP), hoặc một mã khôi phục chưa dùng.
+          </p>
+        </div>
+      )}
+
       {state.error && (
         <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
           {state.error}

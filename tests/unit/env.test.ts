@@ -12,6 +12,9 @@ vi.mock("server-only", () => ({}));
 
 import { formatEnvIssues, validateEnv } from "../../src/lib/env";
 
+/** Key MFA test hợp lệ — base64 của đúng 32 byte (Batch 2 Task 8). */
+const VALID_MFA_KEY = Buffer.alloc(32, 7).toString("base64");
+
 /** Env "đầy đủ hợp lệ" làm baseline — mỗi case override 1 thứ */
 function baseEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
@@ -20,6 +23,7 @@ function baseEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pro
     AUTH_SECRET: "a".repeat(64),
     NEXT_PUBLIC_APP_URL: "https://loaviet.vn",
     CRON_SECRET: "b".repeat(64),
+    ADMIN_MFA_ENCRYPTION_KEY: VALID_MFA_KEY,
     ...overrides,
   } as NodeJS.ProcessEnv;
 }
@@ -180,6 +184,55 @@ describe("validateEnv — MoMo nửa vời", () => {
       }),
     );
     expect(result.ok).toBe(true);
+  });
+});
+
+describe("validateEnv — ADMIN_MFA_ENCRYPTION_KEY (Batch 2 Task 8 — key MFA dedicated)", () => {
+  it("base64 của đúng 32 byte → pass (production)", () => {
+    expect(validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: VALID_MFA_KEY })).ok).toBe(true);
+  });
+
+  it("không phải base64 → báo key (strict — không decode lỏng lẻo)", () => {
+    for (const bad of ["not-base64!!!", "abc", "a b c d", "####"]) {
+      const result = validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: bad }));
+      expect(result.ok, `key=${bad}`).toBe(false);
+      expect(result.issues).toContainEqual({
+        key: "ADMIN_MFA_ENCRYPTION_KEY",
+        problem: expect.stringContaining("base64"),
+      });
+    }
+  });
+
+  it("sai độ dài byte (31/33) → báo key — phải đúng 32 byte (AES-256)", () => {
+    const short31 = Buffer.alloc(31, 9).toString("base64");
+    const long33 = Buffer.alloc(33, 9).toString("base64");
+    expect(validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: short31 })).ok).toBe(false);
+    expect(validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: long33 })).ok).toBe(false);
+    expect(
+      validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: short31 })).issues.map((i) => i.key),
+    ).toContain("ADMIN_MFA_ENCRYPTION_KEY");
+  });
+
+  it("production + chưa đặt → báo thiếu (fail-fast — MFA bắt buộc cho admin)", () => {
+    const result = validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: undefined }));
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual({
+      key: "ADMIN_MFA_ENCRYPTION_KEY",
+      problem: "thiếu (chưa đặt trong .env)",
+    });
+  });
+
+  it("dev + chưa đặt → KHÔNG issue (khoan dung như CRON_SECRET)", () => {
+    const result = validateEnv(
+      baseEnv({ NODE_ENV: "development", ADMIN_MFA_ENCRYPTION_KEY: undefined }),
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("thông báo không chứa giá trị key (spec §4.8 — không in secret)", () => {
+    const result = validateEnv(baseEnv({ ADMIN_MFA_ENCRYPTION_KEY: "not-base64!!!" }));
+    expect(JSON.stringify(result.issues)).not.toContain(VALID_MFA_KEY);
+    expect(JSON.stringify(result.issues)).not.toContain("not-base64!!!");
   });
 });
 

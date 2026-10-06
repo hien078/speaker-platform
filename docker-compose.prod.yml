@@ -55,6 +55,11 @@ services:
     environment:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
+      # Key mã hóa TOTP secret admin (AdminMfa) — DÀNG RIÊNG, KHÔNG derive từ
+      # AUTH_SECRET. Base64 của đúng 32 byte (openssl rand -base64 32).
+      # Thiếu → compose từ chối start (lỗi hiện ngay khi up) + validateEnv
+      # fail-fast trong app (Batch 2 Task 8 — MFA bắt buộc cho admin).
+      ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?đặt ADMIN_MFA_ENCRYPTION_KEY trong .env (openssl rand -base64 32)}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
       # Private beta (spec §4.1/§5.1): tài chính TẮT — mọi entry point finance
       # (escrow/thanh toán/ví/rút tiền/hoa hồng) deny server-side với mã

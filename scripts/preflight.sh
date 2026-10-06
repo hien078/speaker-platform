@@ -52,6 +52,7 @@ gate "compose-config" env \
   AUTH_SECRET="preflight-placeholder" \
   CRON_SECRET="preflight-placeholder" \
   NEXT_PUBLIC_APP_URL="https://preflight.invalid" \
+  ADMIN_MFA_ENCRYPTION_KEY="preflight-placeholder" \
   MOMO_PARTNER_CODE="" MOMO_ACCESS_KEY="" MOMO_SECRET_KEY="" \
   docker compose -f docker-compose.prod.yml config --quiet
 gate "migration-graph" npx prisma migration list

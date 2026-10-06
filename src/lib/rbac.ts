@@ -1,6 +1,14 @@
 import "server-only";
 import { redirect } from "next/navigation";
-import { getSessionFromCookie, type SessionInfo, type SessionUser } from "@/src/lib/session";
+import {
+  getSessionFromCookie,
+  markSessionSteppedUp,
+  stepUpIsFresh,
+  type SessionInfo,
+  type SessionUser,
+} from "@/src/lib/session";
+import { verifyAdminMfaCode } from "@/src/lib/admin-mfa";
+import { auditEvent } from "@/src/lib/audit-event";
 
 /**
  * Capability RBAC (Batch 2 Task 4 — spec §5.4/§5.4.1) — thay check role rộng
@@ -16,9 +24,10 @@ import { getSessionFromCookie, type SessionInfo, type SessionUser } from "@/src/
  * Batch 2 chỉ cấp các cell ✓ rõ ràng; `pii.export` KHÔNG cấp cho ai;
  * moderator/support chỉ được những gì ma trận cho.
  *
- * KHÔNG có guard step-up trong task này — `requireCapabilityWithStepUp` +
- * `STEP_UP_CAPABILITIES` được Task 8 THÊM vào module này như interface hoàn
- * chỉnh (verifyAdminMfaCode thật), cùng commit với module MFA.
+ * Step-up (Task 8 THÊM — interface HOÀN CHỈNH từ đầu, verifyAdminMfaCode thật,
+ * không placeholder): requireCapabilityWithStepUp + STEP_UP_CAPABILITIES bên
+ * dưới — hành động nhạy cảm đòi xác thực lại gần đây (spec §5.4.2) hoặc mã
+ * MFA hợp lệ trong cùng request.
  */
 
 export type AdminRole = "super_admin" | "operations_admin" | "moderator" | "support" | "analyst";
@@ -125,4 +134,71 @@ export async function requireCapability(cap: Capability): Promise<AdminContext> 
     throw new Error("FORBIDDEN");
   }
   return { user: current.user, session: current.session };
+}
+
+// ─── Step-up (Task 8 — spec §5.4.2) ──────────────────────────────────────────
+
+/**
+ * Capability đòi step-up (xác thực lại gần đây) — fail closed:
+ * - `pii.view_sensitive`, `admin.role_manage`, `security.config`: spec §5.4.2
+ *   "step-up required for at least: PII export; sensitive security
+ *   configuration; admin role modification" (PII view cùng nhóm nhạy cảm).
+ * - `seller.verify`, `seller.verification.revoke`: Ambiguity A5 — spec §5.4.2
+ *   "seller verification decisions where configured" đọc theo hướng NGHIÊM
+ *   NHẤT: MỌI quyết định verification thủ công đều cần step-up. Quyết định
+ *   có thể đảo ngược bởi founder (bỏ khỏi danh sách này) — không phải mặc
+ *   định im lặng.
+ * - `pii.export` KHÔNG ở đây vì không được cấp cho ai (A2) — guard sẽ FORBIDDEN
+ *   ở requireCapability trước khi đụng step-up.
+ */
+export const STEP_UP_CAPABILITIES: readonly Capability[] = [
+  "pii.view_sensitive",
+  "admin.role_manage",
+  "security.config",
+  "seller.verify",
+  "seller.verification.revoke",
+];
+
+/**
+ * Đòi capability + step-up cho hành động nhạy cảm (spec §5.4.2). Thứ tự fail
+ * closed (đúng interface plan Task 8):
+ *  1. requireCapability(cap) — sai role / chưa đăng nhập → FORBIDDEN (trước
+ *     khi đụng MFA — không leak thông tin gì cho role không có quyền).
+ *  2. cap ∉ STEP_UP_CAPABILITIES → return ngay (không đòi step-up).
+ *  3. stepUpIsFresh(session.steppedUpAt) (≤ 15 phút) → return.
+ *  4. có totpCode → verifyAdminMfaCode(user.id, code):
+ *     hợp lệ (TOTP hoặc mã khôi phục) → markSessionSteppedUp + audit
+ *     "admin.step_up" → return; sai → Error("MFA_CODE_INVALID").
+ *  5. KHÔNG totpCode → Error("STEP_UP_REQUIRED") — caller render form mã
+ *     (Task 10 review form) rồi submit lại kèm totpCode.
+ *
+ * Lưu ý: context trả về mang steppedUpAt TRƯỚC khi đánh dấu (đối tượng đọc ở
+ * đầu guard) — DB đã được markSessionSteppedUp cập nhật; caller cần giá trị
+ * tươi thì đọc lại session, không tin đối tượng cũ.
+ */
+export async function requireCapabilityWithStepUp(
+  cap: Capability,
+  totpCode?: string,
+): Promise<AdminContext> {
+  const { user, session } = await requireCapability(cap); // 1. sai role → FORBIDDEN
+
+  if (!STEP_UP_CAPABILITIES.includes(cap)) return { user, session }; // 2.
+  if (stepUpIsFresh(session.steppedUpAt)) return { user, session }; // 3.
+
+  const code = totpCode?.trim();
+  if (!code) throw new Error("STEP_UP_REQUIRED"); // 5. không code → fail closed
+
+  const factor = await verifyAdminMfaCode(user.id, code); // 4.
+  if (factor === null) throw new Error("MFA_CODE_INVALID");
+
+  await markSessionSteppedUp(session.id);
+  await auditEvent({
+    actorId: user.id,
+    action: "admin.step_up",
+    resourceType: "UserSession",
+    resourceId: session.id,
+    sessionId: session.id,
+    reason: factor, // "totp" | "recovery_code" — typed reason code
+  });
+  return { user, session };
 }

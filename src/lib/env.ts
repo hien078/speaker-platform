@@ -1,4 +1,5 @@
 import "server-only";
+import { isValidAdminMfaKeyEnv } from "@/src/lib/admin-mfa-key";
 
 /**
  * Production env validation — fail-fast khi server start (gọi từ instrumentation.ts).
@@ -22,6 +23,7 @@ const REQUIRED_KEYS = [
   "AUTH_SECRET",
   "NEXT_PUBLIC_APP_URL",
   "CRON_SECRET",
+  "ADMIN_MFA_ENCRYPTION_KEY",
 ] as const;
 
 const isProduction = (env: NodeJS.ProcessEnv): boolean =>
@@ -91,6 +93,19 @@ export function validateEnv(env: NodeJS.ProcessEnv): EnvValidationResult {
   const trust = env.TRUST_PROXY_HEADERS;
   if (trust !== undefined && trust !== "" && trust !== "true" && trust !== "false") {
     issues.push({ key: "TRUST_PROXY_HEADERS", problem: 'chỉ nhận "true" | "false"' });
+  }
+
+  // ADMIN_MFA_ENCRYPTION_KEY (Batch 2 Task 8): key dedicated mã hóa TOTP secret
+  // của admin — base64 của ĐÚNG 32 byte, KHÔNG derive từ AUTH_SECRET. Bắt buộc
+  // ở production (đã vào REQUIRED_KEYS); dev/test có thể bỏ trống nhưng set sai
+  // thì phải báo ngay (fail closed — không để key rác mã hóa secret rồi mất).
+  const mfaKey = env.ADMIN_MFA_ENCRYPTION_KEY;
+  if (mfaKey !== undefined && mfaKey !== "" && !isValidAdminMfaKeyEnv(mfaKey)) {
+    issues.push({
+      key: "ADMIN_MFA_ENCRYPTION_KEY",
+      problem:
+        "phải là base64 của đúng 32 byte — sinh bằng: openssl rand -base64 32 (key dedicated cho MFA, KHÔNG dùng AUTH_SECRET)",
+    });
   }
 
   const days = env.ESCROW_AUTO_RELEASE_DAYS;
