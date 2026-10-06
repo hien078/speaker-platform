@@ -17,9 +17,12 @@ type Message = {
 export function ChatWindow({
   conversationId,
   myUserId,
+  disabled = false,
 }: {
   conversationId: string;
   myUserId: string;
+  /** Composer tắt (block/đình chỉ — Batch 3 Task 3). UI-only: route POST là boundary. */
+  disabled?: boolean;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -58,6 +61,7 @@ export function ChatWindow({
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
+    if (disabled) return; // route vẫn tự chặn — đây chỉ là UX
     const body = text.trim();
     if (!body || sending) return;
     setSending(true);
@@ -123,12 +127,13 @@ export function ChatWindow({
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="input rounded-full"
-          placeholder="Nhập tin nhắn…"
+          placeholder={disabled ? "Không thể gửi tin nhắn" : "Nhập tin nhắn…"}
           maxLength={2000}
+          disabled={disabled}
         />
         <button
           type="submit"
-          disabled={!text.trim() || sending}
+          disabled={!text.trim() || sending || disabled}
           className="btn-primary size-10 shrink-0 rounded-full p-0"
         >
           {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}

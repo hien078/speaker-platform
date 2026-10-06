@@ -1,6 +1,7 @@
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
-import { rateLimitRequest } from "@/src/lib/rate-limit";
+import { rateLimitRequest, checkRateLimit, tooManyRequestsResponse } from "@/src/lib/rate-limit";
+import { assertCanSendMessage, CHAT_SEND_RATE_LIMIT } from "@/src/lib/moderation";
 
 /**
  * GET /api/chat/[id]?after=<iso>
@@ -74,6 +75,20 @@ export async function POST(
     return Response.json({ error: "FORBIDDEN" }, { status: 403 });
   }
 
+  // Batch 3 Task 3 (spec §7.1 "chat" + §5.5/§7.8 actor-side) — send rate limit
+  // per-user + block/suspension guard, sau participant check, trước
+  // Message.create. GET KHÔNG đổi: lịch sử vẫn đọc được khi bị chặn (GET đã có
+  // chat:poll limit).
+  const recipientId = convo.sellerId === user.id ? convo.buyerId : convo.sellerId;
+  const limited = checkRateLimit(`chat:send:${user.id}`, CHAT_SEND_RATE_LIMIT);
+  if (!limited.allowed) return tooManyRequestsResponse(limited.retryAfterSec);
+  try {
+    await assertCanSendMessage(user.id, recipientId);
+  } catch (e) {
+    // e.message === "CHAT_BLOCKED" | "ACCOUNT_SUSPENDED" — typed, client hiển thị banner
+    return Response.json({ error: (e as Error).message }, { status: 403 });
+  }
+
   const body = (await request.json()) as { body?: string; imageUrl?: string };
   const text = (body.body ?? "").trim();
   if (!text && !body.imageUrl) {
@@ -91,8 +106,7 @@ export async function POST(
     .where({ id })
     .update({ lastMessageAt: new Date().toISOString() });
 
-  // notify người nhận (không phải người gửi)
-  const recipientId = convo.sellerId === user.id ? convo.buyerId : convo.sellerId;
+  // notify người nhận (không phải người gửi) — recipientId tính từ participant check phía trên
   const { notify } = await import("@/src/lib/notify");
   await notify(
     recipientId,
