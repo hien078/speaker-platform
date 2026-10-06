@@ -21,6 +21,7 @@ import {
   generateTotpSecret,
   totpUri,
   verifyTotp,
+  verifyTotpStep,
   hotpCode,
 } from "@/src/lib/totp";
 import { HOTP, Secret, TOTP } from "otpauth";
@@ -110,8 +111,7 @@ describe("verifyTotp — window=1", () => {
 
 // ─── 4. Sinh secret + URI (otpauth://) ───────────────────────────────────────
 
-describe("generateTotpSecret + totpUri", () => {
-  it("base32 hợp lệ — Secret.fromBase32 chấp nhận, 20 byte entropy", () => {
+describe("generateTotpSecret + totpUri", () => {  it("base32 hợp lệ — Secret.fromBase32 chấp nhận, 20 byte entropy", () => {
     const b32 = generateTotpSecret();
     expect(b32).toMatch(/^[A-Z2-7]+$/);
     // 20 byte → 32 ký tự base32 (RFC 4648, không padding)
@@ -157,5 +157,86 @@ describe("generateTotpSecret + totpUri", () => {
     });
     const code = totp.generate({ timestamp: FIXED_TS });
     expect(verifyTotp(b32, code, FIXED_TS)).toBe(true);
+  });
+});
+
+// ─── 5. RFC 6238 Appendix B — vector SHA1 8 chữ số qua CHÍNH thư viện ─────────
+// (review fix minor: chứng minh thư viện implement đúng RFC 6238 — wrapper
+// delegate toàn bộ thuật toán cho nó, không tự chế truncation.)
+
+describe("RFC 6238 Appendix B — SHA1 vectors (8 chữ số, qua thư viện)", () => {
+  /** RFC 6238 Appendix B — seed ASCII "12345678901234567890", SHA1, 30s, 8 digits. */
+  const RFC6238_VECTORS: Array<[t: number, otp: string]> = [
+    [59, "94287082"],
+    [1111111109, "07081804"],
+    [1111111111, "14050471"],
+    [1234567890, "89005924"],
+    [2000000000, "69279037"],
+    [20000000000, "65353130"],
+  ];
+
+  it("cả 6 vector SHA1 khớp khi digits=8 (thư viện đúng RFC 6238)", () => {
+    const t8 = new TOTP({
+      issuer: "",
+      label: "",
+      algorithm: "SHA1",
+      digits: 8,
+      period: 30,
+      secret: Secret.fromBase32(RFC_SECRET_B32),
+    });
+    for (const [t, want] of RFC6238_VECTORS) {
+      expect(t8.generate({ timestamp: t * 1_000 }), `T=${t}`).toBe(want);
+    }
+  });
+
+  it("wrapper 6 chữ số = HOTP tại counter floor(T/30) — cùng dynamic truncation", () => {
+    // TOTP 6-digit của thư viện tại T phải bằng hotpCode(secret, floor(T/30)) —
+    // chứng minh counter mapping (RFC 6238 §4: C = floor(T)/period).
+    const t6 = new TOTP({
+      issuer: "",
+      label: "",
+      algorithm: "SHA1",
+      digits: 6,
+      period: 30,
+      secret: Secret.fromBase32(RFC_SECRET_B32),
+    });
+    for (const [t] of RFC6238_VECTORS) {
+      const counter = Math.floor(t / 30);
+      expect(hotpCode(RFC_SECRET_B32, counter), `T=${t}`).toBe(
+        t6.generate({ timestamp: t * 1_000 }),
+      );
+    }
+    // T=59 → counter 1 → đúng vector RFC 4226 (287082)
+    expect(hotpCode(RFC_SECRET_B32, 1)).toBe("287082");
+  });
+});
+
+// ─── 6. verifyTotpStep — trả về time-step khớp (dùng cho replay protection) ──
+
+describe("verifyTotpStep — matched time-step (review fix #4: RFC 6238 §5.2)", () => {
+  it("trả về counter của mã khớp (exact + window ±1), null khi không khớp", () => {
+    const code = hotpCode(RFC_SECRET_B32, FIXED_COUNTER);
+    expect(verifyTotpStep(RFC_SECRET_B32, code, FIXED_TS)).toBe(FIXED_COUNTER);
+    // mã của cửa sổ kề → counter lệch ±1
+    expect(verifyTotpStep(RFC_SECRET_B32, hotpCode(RFC_SECRET_B32, FIXED_COUNTER - 1), FIXED_TS)).toBe(
+      FIXED_COUNTER - 1,
+    );
+    expect(verifyTotpStep(RFC_SECRET_B32, hotpCode(RFC_SECRET_B32, FIXED_COUNTER + 1), FIXED_TS)).toBe(
+      FIXED_COUNTER + 1,
+    );
+    // ngoài window → null
+    expect(verifyTotpStep(RFC_SECRET_B32, hotpCode(RFC_SECRET_B32, FIXED_COUNTER + 2), FIXED_TS)).toBeNull();
+    expect(verifyTotpStep(RFC_SECRET_B32, "000000", FIXED_TS)).toBeNull();
+  });
+
+  it("verifyTotp (boolean) = verifyTotpStep !== null — cùng window mặc định", () => {
+    const code = hotpCode(RFC_SECRET_B32, FIXED_COUNTER);
+    expect(verifyTotp(RFC_SECRET_B32, code, FIXED_TS)).toBe(
+      verifyTotpStep(RFC_SECRET_B32, code, FIXED_TS) !== null,
+    );
+  });
+
+  it("secret rác → null (fail closed, không throw)", () => {
+    expect(verifyTotpStep("KHÔNG-PHẢI-BASE32!!", "123456", FIXED_TS)).toBeNull();
   });
 });

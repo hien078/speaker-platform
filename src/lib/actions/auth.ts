@@ -13,8 +13,16 @@ import { safeNextPath } from "@/src/lib/redirect";
 /** 10 lần / 10 phút / IP cho login + register (chống brute-force / spam tài khoản) */
 const AUTH_RULE = { limit: 10, windowMs: 10 * 60_000 };
 
-/** 10 lần / 10 phút / IP cho lần SAI mã MFA (bucket riêng auth:mfa — spec §7.2) */
-const MFA_FAIL_RULE = { limit: 10, windowMs: 10 * 60_000 };
+/**
+ * 10 lần / 10 phút cho mỗi lần SUBMIT mã MFA ở login (review fix #3 — spec §7.2).
+ * HAI bucket: per-IP (auth:mfa:ip:<ip>) và PER-ACCOUNT (auth:mfa:user:<id>) —
+ * kẻ brute-force một tài khoản qua nhiều IP vẫn đụng bucket account. Bucket
+ * đếm MỌI lần submit (kể cả mã đúng — fail closed) và ĐƯỢC KIỂM TRA TRƯỚC
+ * verifyAdminMfaCode: đang limited thì KHÔNG verify — mã đúng cũng bị từ chối,
+ * không còn oracle "đoán đúng thì vào được". Window trượt 10 phút → tự mở lại,
+ * KHÔNG khóa vĩnh viễn (backoff qua retryAfterSec trong message).
+ */
+const MFA_ATTEMPT_RULE = { limit: 10, windowMs: 10 * 60_000 };
 
 /** Giữ rate limit ở action (không phải UI) — action là entry point công khai. Fail open. */
 async function authRateLimited(scope: string): Promise<AuthFormState | null> {
@@ -29,18 +37,38 @@ async function authRateLimited(scope: string): Promise<AuthFormState | null> {
 }
 
 /**
- * Bucket riêng cho lần SAI mã MFA (auth:mfa) — tách khỏi auth:login để đếm đúng
- * hành vi đoán mã (login bucket đếm MỌI lần thử, kể cả thành công). Fail open
- * như authRateLimited: limiter lỗi → không chặn.
+ * Pre-check HAI bucket MFA (per-IP + per-account) — gọi TRƯỚC verifyAdminMfaCode.
+ * Fail open như authRateLimited: limiter lỗi → không chặn.
  */
-async function mfaFailLimited(): Promise<AuthFormState | null> {
+async function mfaAttemptLimited(userId: string): Promise<AuthFormState | null> {
   try {
     const ip = clientIpFromHeaders(await headers());
-    const decision = checkRateLimit(`auth:mfa:${ip}`, MFA_FAIL_RULE);
-    if (decision.allowed) return null;
-    return { error: `Quá nhiều lần thử mã xác thực — chờ ${decision.retryAfterSec} giây rồi thử lại.` };
+    const ipDecision = checkRateLimit(`auth:mfa:ip:${ip}`, MFA_ATTEMPT_RULE);
+    if (!ipDecision.allowed) {
+      return { error: `Quá nhiều lần thử mã xác thực — chờ ${ipDecision.retryAfterSec} giây rồi thử lại.` };
+    }
+    const userDecision = checkRateLimit(`auth:mfa:user:${userId}`, MFA_ATTEMPT_RULE);
+    if (!userDecision.allowed) {
+      return { error: `Quá nhiều lần thử mã xác thực — chờ ${userDecision.retryAfterSec} giây rồi thử lại.` };
+    }
+    return null;
   } catch {
     return null;
+  }
+}
+
+/** Audit fail-open — audit hỏng không làm hỏng login (spec §4.6/§4.8, không PII/mã thô). */
+async function auditMfaEvent(input: {
+  actorId: string;
+  action: string;
+  reason: string;
+  resourceType?: string;
+  resourceId?: string;
+}): Promise<void> {
+  try {
+    await auditEvent(input);
+  } catch {
+    /* fail-open: audit lỗi không chặn login */
   }
 }
 
@@ -171,17 +199,36 @@ export async function loginAction(
       return { mfaRequired: true };
     }
 
+    // Review fix #3: rate limit KIỂM TRA TRƯỚC verify (per-IP + per-account) —
+    // đang limited thì KHÔNG verify, mã đúng cũng bị từ chối (fail closed).
+    const limited = await mfaAttemptLimited(user.id);
+    if (limited) return limited;
+
     const factor = await verifyAdminMfaCode(user.id, mfaCode);
     if (factor === null) {
-      // Sai mã — KHÔNG session; bucket auth:mfa đếm lần sai (spec §7.2 brute
-      // force). verifyAdminMfaCode không khóa tài khoản (chống lockout vĩnh
-      // viễn — spec §5.4.2) — rate limit là ranh giới duy nhất.
-      return (
-        (await mfaFailLimited()) ?? {
-          error: "Mã xác thực không đúng. Dùng mã TOTP (6 chữ số) hoặc một mã khôi phục chưa dùng.",
-        }
-      );
+      // Sai mã — KHÔNG session; audit "admin.mfa_failed" (fail-open, KHÔNG chứa
+      // mã thô — spec §4.8). verifyAdminMfaCode không khóa tài khoản (chống
+      // lockout vĩnh viễn — spec §5.4.2) — rate limit là ranh giới duy nhất.
+      await auditMfaEvent({
+        actorId: user.id,
+        action: "admin.mfa_failed",
+        reason: "login_invalid_code",
+        resourceType: "AdminMfa",
+        resourceId: mfa.id,
+      });
+      return {
+        error: "Mã xác thực không đúng. Dùng mã TOTP (6 chữ số) hoặc một mã khôi phục chưa dùng.",
+      };
     }
+
+    // Audit login admin thành công (review minor) — reason = factor, KHÔNG PII.
+    await auditMfaEvent({
+      actorId: user.id,
+      action: "admin.login",
+      reason: factor, // "totp" | "recovery_code"
+      resourceType: "AdminMfa",
+      resourceId: mfa.id,
+    });
 
     if (factor === "recovery_code") {
       // Mã khôi phục đã dùng MỘT LẦN — audit (spec §4.6); detail KHÔNG chứa mã

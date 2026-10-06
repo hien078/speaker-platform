@@ -255,6 +255,45 @@ describe("requireCapability — deny/grant (spec §4.5 — backend authorization
   });
 });
 
+// ─── 4b. Admin authority bind vào session MFA (review fix #1) ────────────────
+// adminRole là quyền TIỀM NĂNG của user; session.isAdmin là BẰNG CHỨNG session
+// đã qua MFA (login path duy nhất set isAdmin=true). User được promote
+// (SQL/bootstrap/Task 11) khi đang giữ session consumer 30 ngày KHÔNG được
+// hưởng capability admin nào cho tới khi đăng nhập lại qua MFA.
+
+describe("admin authority bind vào session MFA — session consumer + adminRole → KHÔNG quyền (review fix #1)", () => {
+  /** Đăng nhập với session CONSUMER (isAdmin false) — user có adminRole. */
+  const loginConsumerSession = (user: Record<string, unknown>): void => {
+    sessionState.current = { session: { ...SESSION, isAdmin: false }, user };
+  };
+
+  it("adminRole set + session consumer → FORBIDDEN trên MỌI capability (không MFA, không quyền)", async () => {
+    loginConsumerSession(userWith("super_admin"));
+    for (const cap of ALL_CAPS) {
+      await expect(requireCapability(cap), `promoted × ${cap}`).rejects.toThrowError(/^FORBIDDEN$/);
+    }
+  });
+
+  it("adminRole set + session consumer → requireAdminUser redirect / (layout coi như non-admin)", async () => {
+    loginConsumerSession(userWith("operations_admin"));
+    await expect(requireAdminUser()).rejects.toThrowError("NEXT_REDIRECT:/");
+  });
+
+  it("session MFA (isAdmin true) + đúng role → được như thường (hành vi cũ giữ nguyên)", async () => {
+    login(userWith("operations_admin")); // SESSION fixture: isAdmin true
+    const ctx = await requireCapability("seller.verify");
+    expect(ctx.user.adminRole).toBe("operations_admin");
+    const layout = await requireAdminUser();
+    expect(layout.session.isAdmin).toBe(true);
+  });
+
+  it("adminRole null + session isAdmin true (data lạ) → vẫn FORBIDDEN — CẬP HAI điều kiện", async () => {
+    // isAdmin=true một mình KHÔNG đủ — capability vẫn đọc adminRole qua ma trận.
+    login(userWith(null, "buyer"));
+    await expect(requireCapability("listing.moderate")).rejects.toThrowError(/^FORBIDDEN$/);
+  });
+});
+
 // ─── 5. requireAdminUser — cổng vào /admin (redirect, không throw) ─────────────
 
 describe("requireAdminUser — cổng vào /admin (bất kỳ adminRole nào)", () => {

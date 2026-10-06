@@ -20,6 +20,9 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   seller_verification.submitted, seller_verification.reviewed,
  *   seller_verification.backfill, beta_cohort.membership_set,
  *   listing.approved, listing.rejected, listing.approve_blocked.
+ *   (review fix Task 8): admin.login — login admin thành công sau MFA
+ *   (reason = factor "totp"|"recovery_code"); admin.mfa_failed — lần sai mã
+ *   MFA ở login/step-up (reason typed theo surface, KHÔNG chứa mã thô).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

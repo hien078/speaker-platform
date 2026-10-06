@@ -88,18 +88,15 @@ const loginOk = async (email: string, password: string, mfaCode?: string): Promi
 };
 
 // dọn đúng dữ liệu test mình tạo (DB scratch) — user cuối (cascade lo session/
-// mfa/codes/cart), AuditEvent giữ lại cũng được nhưng dọn cho sạch.
-const created = { users: [] as string[], audits: [] as string[] };
+// mfa/codes/cart); AuditEvent (actorId SetNull) dọn theo actor trước khi xoá user.
+const created = { users: [] as string[] };
 
 afterEach(async () => {
   for (const id of created.users) {
+    await db.orm.public.AuditEvent.where({ actorId: id }).delete();
     await db.orm.public.User.where({ id }).delete();
   }
-  for (const id of created.audits) {
-    await db.orm.public.AuditEvent.where({ id }).delete();
-  }
   created.users.length = 0;
-  created.audits.length = 0;
   cookieState.store.clear();
 });
 
@@ -141,8 +138,8 @@ d("admin MFA full flow trên DB thật", () => {
     expect(mfaRow).not.toBeNull();
     expect(mfaRow!.totpSecretEnc).not.toBe(secretBase32);
     expect(mfaRow!.totpConfirmedAt).not.toBeNull();
-    // round-trip decrypt với key đã stub
-    expect(decryptTotpSecret(mfaRow!.totpSecretEnc)).toBe(secretBase32);
+    // round-trip decrypt với key đã stub (AAD bind theo userId của row)
+    expect(decryptTotpSecret(mfaRow!.totpSecretEnc, admin.id)).toBe(secretBase32);
 
     const codeRows = await db.orm.public.AdminRecoveryCode.where({ mfaId: mfaRow!.id }).all();
     expect(codeRows).toHaveLength(10);
@@ -184,7 +181,8 @@ d("admin MFA full flow trên DB thật", () => {
     const { secretBase32, recoveryCodes } = (await enrollAdminMfa(admin.id))!;
 
     // ── TOTP đúng → session 12h isAdmin ──
-    const url = await loginOk(admin.email, password, hotpCode(secretBase32, nowCounter()));
+    const totpCode = hotpCode(secretBase32, nowCounter());
+    const url = await loginOk(admin.email, password, totpCode);
     expect(url).toBe("/");
 
     const rows = await db.orm.public.UserSession.where({ userId: admin.id }).all();
@@ -198,6 +196,19 @@ d("admin MFA full flow trên DB thật", () => {
 
     // cookie đã set (token opaque — không phải JWT)
     expect(cookieState.store.get("sp_session")).toBeTruthy();
+
+    // ── audit admin.login cho login admin thành công (review minor) ──
+    const loginAudits = await db.orm.public.AuditEvent
+      .where({ action: "admin.login", actorId: admin.id })
+      .all();
+    expect(loginAudits).toHaveLength(1);
+    expect(loginAudits[0]).toMatchObject({ reason: "totp" });
+
+    // ── TOTP REPLAY: dùng lại CÙNG mã (còn hợp lệ window ±1) → bị từ chối,
+    //    KHÔNG session mới (RFC 6238 §5.2 — review fix #4) ──
+    const replay = await loginAction({}, loginForm(admin.email, password, totpCode));
+    expect(replay.error).toContain("Mã xác thực không đúng");
+    expect(await db.orm.public.UserSession.where({ userId: admin.id }).all()).toHaveLength(1);
 
     // ── mã khôi phục → session mới + mã dùng MỘT lần + audit ──
     const code = recoveryCodes[0]!;
@@ -215,7 +226,6 @@ d("admin MFA full flow trên DB thật", () => {
       .where({ action: "admin.mfa_recovery_code_used", actorId: admin.id })
       .all();
     expect(audits).toHaveLength(1);
-    for (const a of audits) created.audits.push(a.id);
     expect(JSON.stringify(audits)).not.toContain(code); // spec §4.8 — không mã thô
 
     // ── dùng LẠI mã đó → sai mã, KHÔNG session mới ──

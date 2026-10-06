@@ -136,6 +136,7 @@ import {
   decryptTotpSecret,
   enrollAdminMfa,
   verifyAdminMfaCode,
+  resetTotpReplayProtection,
 } from "@/src/lib/admin-mfa";
 import {
   getAdminMfaEncryptionKey,
@@ -170,6 +171,7 @@ beforeEach(() => {
   dbState.mfas.length = 0;
   dbState.codes.length = 0;
   dbState.users.push({ ...ADMIN });
+  resetTotpReplayProtection(); // store replay in-process — reset giữa các case
 });
 
 afterEach(() => {
@@ -248,8 +250,8 @@ describe("enrollAdminMfa", () => {
     expect(mfa.userId).toBe(ADMIN.id);
     expect(mfa.totpSecretEnc).not.toBe(secretBase32);
     expect(mfa.totpSecretEnc).not.toContain(secretBase32);
-    // round-trip decrypt về đúng secret
-    expect(decryptTotpSecret(mfa.totpSecretEnc as string)).toBe(secretBase32);
+    // round-trip decrypt về đúng secret (AAD bind theo userId của row)
+    expect(decryptTotpSecret(mfa.totpSecretEnc as string, ADMIN.id)).toBe(secretBase32);
     // enrollment qua bootstrap = confirmed ngay (không có bước confirm UI riêng trong Batch 2)
     expect(mfa.totpConfirmedAt).not.toBeNull();
 
@@ -293,12 +295,15 @@ describe("enrollAdminMfa", () => {
   });
 });
 
-// ─── 3. Envelope v1:<keyId>:<payload> — rotation detection ────────────────────
+// ─── 3. Envelope v1:<keyId>:<payload> — rotation detection + AAD bind row ────
+
+/** userId dùng cho các case envelope — AAD bind ciphertext vào row user (review fix #5). */
+const ENV_USER = "user-envelope";
 
 describe("envelope AES-256-GCM — v1:<keyId>:<base64(iv‖tag‖ct)>", () => {
   it("đúng format — keyId = 8 hex đầu sha256(key), payload base64 ≥ 40 byte", () => {
     const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP"; // base32 bất kỳ
-    const enc = encryptTotpSecret(secret);
+    const enc = encryptTotpSecret(secret, ENV_USER);
     const parts = enc.split(":");
     expect(parts).toHaveLength(3);
     expect(parts[0]).toBe("v1");
@@ -307,34 +312,49 @@ describe("envelope AES-256-GCM — v1:<keyId>:<base64(iv‖tag‖ct)>", () => {
     const payload = Buffer.from(parts[2]!, "base64");
     expect(payload.length).toBeGreaterThanOrEqual(12 + 16 + 16);
     // iv ngẫu nhiên mỗi lần — hai envelope khác nhau (không reuse iv)
-    expect(encryptTotpSecret(secret)).not.toBe(enc);
+    expect(encryptTotpSecret(secret, ENV_USER)).not.toBe(enc);
+  });
+
+  it("round-trip decrypt với ĐÚNG userId → về secret gốc", () => {
+    const secret = "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP";
+    const enc = encryptTotpSecret(secret, ENV_USER);
+    expect(decryptTotpSecret(enc, ENV_USER)).toBe(secret);
   });
 
   it("decrypt bằng key KHÁC → typed ADMIN_MFA_KEY_MISMATCH (không corrupt im lặng)", () => {
-    const enc = encryptTotpSecret("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP");
+    const enc = encryptTotpSecret("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", ENV_USER);
     vi.stubEnv("ADMIN_MFA_ENCRYPTION_KEY", KEY_B);
-    expect(() => decryptTotpSecret(enc)).toThrowError(/ADMIN_MFA_KEY_MISMATCH/);
+    expect(() => decryptTotpSecret(enc, ENV_USER)).toThrowError(/ADMIN_MFA_KEY_MISMATCH/);
     // keyId trong message khớp envelope (điều kiện rotate debug được)
     try {
-      decryptTotpSecret(enc);
+      decryptTotpSecret(enc, ENV_USER);
     } catch (e) {
       expect((e as Error).message).toContain(enc.split(":")[1]);
     }
   });
 
+  it("AAD bind ciphertext vào row user — decrypt với userId KHÁC → ADMIN_MFA_DECRYPT_FAILED (review fix #5)", () => {
+    // envelope không đổi format; AAD = "v1:<keyId>:<userId>" — ciphertext copy
+    // sang row của user khác (swap giữa các row AdminMfa) không giải mã được.
+    const enc = encryptTotpSecret("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP", ENV_USER);
+    expect(() => decryptTotpSecret(enc, "user-khác")).toThrowError(/ADMIN_MFA_DECRYPT_FAILED/);
+    // đúng userId vẫn round-trip
+    expect(decryptTotpSecret(enc, ENV_USER)).toBe("JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP");
+  });
+
   it("envelope rác/thiếu phần → typed error (fail closed, không throw opaque)", () => {
-    expect(() => decryptTotpSecret("không-phải-envelope")).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
-    expect(() => decryptTotpSecret("v2:abcd:AAAA")).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
-    expect(() => decryptTotpSecret("v1:abcd")).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
+    expect(() => decryptTotpSecret("không-phải-envelope", ENV_USER)).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
+    expect(() => decryptTotpSecret("v2:abcd:AAAA", ENV_USER)).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
+    expect(() => decryptTotpSecret("v1:abcd", ENV_USER)).toThrowError(/ADMIN_MFA_ENVELOPE_INVALID/);
   });
 
   it("tag bị sửa → decrypt fail (AES-GCM integrity) — typed error", () => {
-    const enc = encryptTotpSecret("JBSWY3DPEHPK3PXP");
+    const enc = encryptTotpSecret("JBSWY3DPEHPK3PXP", ENV_USER);
     const parts = enc.split(":");
     const payload = Buffer.from(parts[2]!, "base64");
     payload[payload.length - 1]! ^= 0xff; // sửa 1 byte ct
     const tampered = `v1:${parts[1]}:${payload.toString("base64")}`;
-    expect(() => decryptTotpSecret(tampered)).toThrowError(/ADMIN_MFA_DECRYPT_FAILED/);
+    expect(() => decryptTotpSecret(tampered, ENV_USER)).toThrowError(/ADMIN_MFA_DECRYPT_FAILED/);
   });
 });
 
@@ -395,6 +415,49 @@ describe("verifyAdminMfaCode", () => {
     expect(await verifyAdminMfaCode(ADMIN.id, "123456")).toBeNull();
     // recovery code (hash không mã hóa) vẫn hoạt động → admin vào được để re-enroll
     expect(await verifyAdminMfaCode(ADMIN.id, recoveryCodes[5]!)).toBe("recovery_code");
+  });
+
+  it("TOTP replay trong window ±1 → CÙNG mã dùng MỘT LẦN, lần hai → null (RFC 6238 §5.2 — review fix #4)", async () => {
+    const { secretBase32 } = (await enrollAdminMfa(ADMIN.id))!;
+    const code = hotpCode(secretBase32, nowCounter());
+    expect(await verifyAdminMfaCode(ADMIN.id, code)).toBe("totp");
+    // dùng lại CÙNG mã (còn hợp lệ trong window ±1) → bị chặn — replay
+    expect(await verifyAdminMfaCode(ADMIN.id, code)).toBeNull();
+    // mã của step MỚI (chuyển step) → hợp lệ lại — không khóa vĩnh viễn
+    const nextCode = hotpCode(secretBase32, nowCounter() + 1);
+    expect(await verifyAdminMfaCode(ADMIN.id, nextCode)).toBe("totp");
+    // quay lại step CŨ (đã dùng) → null — monotonic, không đi lùi được
+    expect(await verifyAdminMfaCode(ADMIN.id, code)).toBeNull();
+  });
+
+  it("replay store theo user — mã của user khác không bị ảnh hưởng", async () => {
+    const other = { ...ADMIN, id: "user-admin-2", email: "admin2@loaviet.test" };
+    dbState.users.push(other);
+    const a = (await enrollAdminMfa(ADMIN.id))!;
+    const b = (await enrollAdminMfa(other.id))!;
+    // cùng counter (cùng thời điểm) — mỗi user có store riêng
+    const codeA = hotpCode(a.secretBase32, nowCounter());
+    const codeB = hotpCode(b.secretBase32, nowCounter());
+    expect(await verifyAdminMfaCode(ADMIN.id, codeA)).toBe("totp");
+    expect(await verifyAdminMfaCode(other.id, codeB)).toBe("totp");
+    // replay của A không chặn B
+    expect(await verifyAdminMfaCode(ADMIN.id, codeA)).toBeNull();
+    expect(await verifyAdminMfaCode(other.id, codeB)).toBeNull(); // B cũng đã dùng — replay
+  });
+
+  it("decrypt sai key → captureError typed KHÔNG chứa secret (review minor — ops thấy sai key)", async () => {
+    const { secretBase32 } = (await enrollAdminMfa(ADMIN.id))!;
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      vi.stubEnv("ADMIN_MFA_ENCRYPTION_KEY", KEY_B);
+      expect(await verifyAdminMfaCode(ADMIN.id, "123456")).toBeNull();
+      expect(errSpy).toHaveBeenCalled();
+      const emitted = JSON.stringify(errSpy.mock.calls);
+      expect(emitted).toContain("ADMIN_MFA_KEY_MISMATCH"); // typed, debug được
+      expect(emitted).not.toContain(secretBase32); // spec §4.8 — không secret
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
 

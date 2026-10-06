@@ -30,8 +30,9 @@
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { db } from "@/src/prisma/db.client";
 import { hkdfKey } from "@/src/lib/otp";
-import { generateTotpSecret, totpUri, verifyTotp } from "@/src/lib/totp";
+import { generateTotpSecret, totpUri, verifyTotpStep } from "@/src/lib/totp";
 import { adminMfaKeyId, getAdminMfaEncryptionKey } from "@/src/lib/admin-mfa-key";
+import { captureError } from "@/src/lib/observability";
 
 export const RECOVERY_CODE_COUNT = 10;
 
@@ -79,11 +80,18 @@ export function hashRecoveryCode(code: string): string {
 
 // ─── Mã hóa TOTP secret — envelope v1:<keyId>:<base64(iv ‖ tag ‖ ct)> ──────────
 
-/** AES-256-GCM (12-byte IV random, 16-byte tag) với key dedicated từ env. */
-export function encryptTotpSecret(secretBase32: string): string {
+/**
+ * AES-256-GCM (12-byte IV random, 16-byte tag) với key dedicated từ env.
+ * AAD = "v1:<keyId>:<userId>" (review fix #5) — ciphertext bị BIND vào row
+ * user: copy envelope sang row AdminMfa của user khác → tag không khớp →
+ * typed ADMIN_MFA_DECRYPT_FAILED. Envelope giữ nguyên format (AAD không nằm
+ * trong envelope — nó là dữ liệu xác thực thêm, không phải bí mật).
+ */
+export function encryptTotpSecret(secretBase32: string, userId: string): string {
   const key = getAdminMfaEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
+  cipher.setAAD(Buffer.from(`v1:${adminMfaKeyId(key)}:${userId}`, "utf8"));
   const ct = Buffer.concat([cipher.update(secretBase32, "utf8"), cipher.final()]);
   const tag = cipher.getAuthTag();
   return `v1:${adminMfaKeyId(key)}:${Buffer.concat([iv, tag, ct]).toString("base64")}`;
@@ -91,10 +99,11 @@ export function encryptTotpSecret(secretBase32: string): string {
 
 /**
  * Giải mã envelope về base32 secret. Sai keyId so với key hiện tại → typed
- * ADMIN_MFA_KEY_MISMATCH (rotation detection — không corrupt im lặng); tag
- * không khớp (dữ liệu bị sửa) → typed ADMIN_MFA_DECRYPT_FAILED.
+ * ADMIN_MFA_KEY_MISMATCH (rotation detection — không corrupt im lặng); sai
+ * userId (ciphertext bị chuyển row) hoặc tag không khớp (dữ liệu bị sửa) →
+ * typed ADMIN_MFA_DECRYPT_FAILED.
  */
-export function decryptTotpSecret(enc: string): string {
+export function decryptTotpSecret(enc: string, userId: string): string {
   const parts = enc.split(":");
   if (parts.length !== 3 || parts[0] !== "v1") {
     throw new Error(
@@ -125,11 +134,13 @@ export function decryptTotpSecret(enc: string): string {
 
   const decipher = createDecipheriv("aes-256-gcm", key, iv);
   decipher.setAuthTag(tag);
+  decipher.setAAD(Buffer.from(`v1:${currentKeyId}:${userId}`, "utf8"));
   try {
     return Buffer.concat([decipher.update(ct), decipher.final()]).toString("utf8");
   } catch {
     throw new Error(
-      `${ADMIN_MFA_DECRYPT_FAILED}: AES-256-GCM tag không khớp — dữ liệu bị sửa hoặc key sai`,
+      `${ADMIN_MFA_DECRYPT_FAILED}: AES-256-GCM tag không khớp — dữ liệu bị sửa, key sai, ` +
+        "hoặc ciphertext bị chuyển sang row user khác (AAD bind theo userId)",
     );
   }
 }
@@ -166,7 +177,7 @@ export async function enrollAdminMfa(userId: string): Promise<{
   await db.transaction(async (tx) => {
     const mfa = await tx.orm.public.AdminMfa.create({
       userId,
-      totpSecretEnc: encryptTotpSecret(secretBase32),
+      totpSecretEnc: encryptTotpSecret(secretBase32, userId),
       // Enrollment chỉ diễn ra qua bootstrap offline tin cậy (Task 11): operator
       // nhận secret + mã khôi phục đúng MỘT LẦN — Batch 2 không có bước confirm
       // UI riêng, nên enrollment = confirmed. Login chỉ đọc sự TỒN TẠI row.
@@ -188,23 +199,55 @@ export async function enrollAdminMfa(userId: string): Promise<{
   };
 }
 
+// ─── TOTP replay protection (RFC 6238 §5.2 — review fix #4) ──────────────────
+
+/**
+ * Time-step TOTP ĐÃ CHẤP NHẬN gần nhất của mỗi admin — mã của step đó (hoặc
+ * step CŨ HƠN) không được chấp nhận lần hai (RFC 6238 §5.2: "the verifier must
+ * reject a second attempt at the OTP of an already-accepted time step").
+ *
+ * In-process store (topology MỘT instance — cùng posture với src/lib/rate-limit.ts
+ * và inbox dev của verification-delivery.ts; restart là mất → chấp nhận được vì
+ * window chỉ ±60s). Durable/cross-instance cần cột additive AdminMfa.lastUsedStep
+ * — KHÔNG làm schema change trong fix này (ghi nhận ở report cho Task 12/follow-up).
+ * Bộ nhớ bounded: một entry/user (vài admin) — không cần dọn.
+ */
+const lastUsedTotpStep = new Map<string, number>();
+
+/** Test seam — reset store giữa các case (cùng vai trò resetRateLimits). */
+export function resetTotpReplayProtection(): void {
+  lastUsedTotpStep.clear();
+}
+
+/**
+ * Claim step cho user — true khi step CHƯA từng dùng (và mới hơn step đã dùng),
+ * false khi là replay (step đã dùng hoặc cũ hơn — monotonic, không đi lùi được).
+ */
+function claimTotpStep(userId: string, step: number): boolean {
+  const last = lastUsedTotpStep.get(userId);
+  if (last !== undefined && last >= step) return false;
+  lastUsedTotpStep.set(userId, step);
+  return true;
+}
+
 // ─── Verify ───────────────────────────────────────────────────────────────────
 
 /**
  * Xác thực mã MFA do admin nhập (login hoặc step-up). Trả về factor đã dùng:
- * - "totp" — mã TOTP hợp lệ (window ±1);
+ * - "totp" — mã TOTP hợp lệ (window ±1) VÀ chưa từng dùng ở step này
+ *   (single-use per time step — RFC 6238 §5.2, review fix #4);
  * - "recovery_code" — mã khôi phục hợp lệ, ĐÁNH DẤU usedAt ngay (single-use,
  *   claim race-safe — 2 request đồng thời cùng một mã → đúng 1 thắng);
- * - null — sai mã / chưa enroll / user không có MFA (fail closed).
+ * - null — sai mã / replay / chưa enroll / user không có MFA (fail closed).
  *
  * KHÔNG khóa tài khoản sau N lần sai ở đây — brute force do rate limit của
- * action (auth:mfa, 10/10 phút/IP) lo (spec §7.2), lockout vĩnh viễn là rủi ro
- * ngược (spec §5.4.2 tránh khóa admin vĩnh viễn).
+ * action/guard lo (auth:mfa + stepup:mfa, spec §7.2), lockout vĩnh viễn là
+ * rủi ro ngược (spec §5.4.2 tránh khóa admin vĩnh viễn).
  *
  * Sai key mã hóa (rotate thiếu reset): TOTP path fail closed nhưng KHÔNG throw
- * — fall through sang mã khôi phục để admin còn đường vào mà re-enroll
- * (chống lockout vĩnh viễn; sai key được phát hiện qua typed error của
- * decryptTotpSecret ở nơi khác + runbook).
+ * ra caller — captureError typed KHÔNG chứa secret (review minor: ops thấy sai
+ * key thay vì im lặng) rồi fall through sang mã khôi phục để admin còn đường
+ * vào mà re-enroll (chống lockout vĩnh viễn).
  */
 export async function verifyAdminMfaCode(
   userId: string,
@@ -216,14 +259,20 @@ export async function verifyAdminMfaCode(
   const trimmed = code.trim();
   if (trimmed === "") return null;
 
-  // 1) TOTP — secret giải mã từ envelope; mọi lỗi giải mã → fail closed (false)
-  let totpOk = false;
+  // 1) TOTP — secret giải mã từ envelope (AAD bind theo userId của row);
+  //    mọi lỗi giải mã → captureError (typed, secret-free) + fail closed.
+  let totpStep: number | null = null;
   try {
-    totpOk = verifyTotp(decryptTotpSecret(mfa.totpSecretEnc), trimmed);
-  } catch {
-    totpOk = false;
+    totpStep = verifyTotpStep(decryptTotpSecret(mfa.totpSecretEnc, userId), trimmed);
+  } catch (e) {
+    captureError("admin-mfa", e);
+    totpStep = null;
   }
-  if (totpOk) return "totp";
+  if (totpStep !== null) {
+    // Single-use per (userId, timeStep) — replay cùng mã/chuyển lùi step → null
+    if (!claimTotpStep(userId, totpStep)) return null;
+    return "totp";
+  }
 
   // 2) Mã khôi phục — tìm hash khớp CHƯA dùng, rồi claim ATOMIC single-use.
   const codeHash = hashRecoveryCode(normalizeRecoveryCodeInput(trimmed));

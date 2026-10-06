@@ -1,4 +1,5 @@
 import "server-only";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import {
   getSessionFromCookie,
@@ -9,6 +10,7 @@ import {
 } from "@/src/lib/session";
 import { verifyAdminMfaCode } from "@/src/lib/admin-mfa";
 import { auditEvent } from "@/src/lib/audit-event";
+import { checkRateLimit, clientIpFromHeaders, type RateLimitRule } from "@/src/lib/rate-limit";
 
 /**
  * Capability RBAC (Batch 2 Task 4 — spec §5.4/§5.4.1) — thay check role rộng
@@ -115,21 +117,31 @@ export type AdminContext = { user: SessionUser; session: SessionInfo };
  * Redirect (không throw): chưa đăng nhập → /login; đăng nhập nhưng không có
  * adminRole (kể cả legacy role="admin") → / — đúng hành vi layout cũ, nhưng
  * quyết định đọc adminRole thay vì role (spec §8.5).
+ *
+ * Review fix #1: adminRole là quyền TIỀM NĂNG của user; `session.isAdmin` là
+ * BẰNG CHỨNG session đã qua MFA (login path duy nhất set isAdmin=true —
+ * src/lib/session.ts createSession không derive từ adminRole nữa). adminRole
+ * set nhưng session consumer (user được promote khi đang giữ session 30 ngày)
+ * → coi như NON-ADMIN: redirect / — phải đăng nhập lại qua MFA.
  */
 export async function requireAdminUser(): Promise<AdminContext> {
   const current = await getSessionFromCookie();
   if (!current) redirect("/login");
-  if (current.user.adminRole == null) redirect("/");
+  if (current.user.adminRole == null || !current.session.isAdmin) redirect("/");
   return { user: current.user, session: current.session };
 }
 
 /**
  * Đòi capability cụ thể — throw Error("FORBIDDEN") khi thiếu (spec §4.5).
  * Chỉ đọc `user.adminRole` qua ma trận — không bao giờ đọc `user.role`.
+ *
+ * Review fix #1: CẬP HAI điều kiện — capability qua adminRole VÀ session phải
+ * là session MFA (session.isAdmin === true). Thiếu một trong hai → FORBIDDEN.
  */
 export async function requireCapability(cap: Capability): Promise<AdminContext> {
   const current = await getSessionFromCookie();
   if (!current) throw new Error("FORBIDDEN");
+  if (!current.session.isAdmin) throw new Error("FORBIDDEN"); // session chưa qua MFA
   if (!capabilitiesOf(current.user.adminRole).includes(cap)) {
     throw new Error("FORBIDDEN");
   }
@@ -160,17 +172,69 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
 ];
 
 /**
+ * Bucket rate limit cho lần submit mã MFA ở step-up (review fix #2 — spec §7.2):
+ * cookie admin bị đánh cắp → brute force 000000-999999 qua guard này. Ba bucket
+ * (đều 10 lần / 10 phút, window trượt — không khóa vĩnh viễn):
+ * - per-SESSION (stepup:mfa:session:<id>) — đúng session bị đánh cắp;
+ * - per-USER (stepup:mfa:user:<id>) — kẻ đổi session token của cùng user;
+ * - per-IP (stepup:mfa:ip:<ip>) — kẻ phân tán.
+ * Bucket đếm MỌI lần submit mã (kể cả đúng — fail closed) và ĐƯỢC KIỂM TRA
+ * TRƯỚC verifyAdminMfaCode: đang limited thì KHÔNG verify — mã đúng cũng bị từ
+ * chối (typed MFA_RATE_LIMITED), không còn oracle "đúng thì vào được".
+ */
+const STEP_UP_MFA_RULE: RateLimitRule = { limit: 10, windowMs: 10 * 60_000 };
+
+/** Kiểm tra cả 3 bucket step-up — trả retryAfterSec khi bị chặn, null khi cho qua. Fail open. */
+async function stepUpMfaLimited(userId: string, sessionId: string): Promise<number | null> {
+  try {
+    const ip = clientIpFromHeaders(await headers());
+    const keys = [
+      `stepup:mfa:session:${sessionId}`,
+      `stepup:mfa:user:${userId}`,
+      `stepup:mfa:ip:${ip}`,
+    ];
+    for (const key of keys) {
+      const decision = checkRateLimit(key, STEP_UP_MFA_RULE);
+      if (!decision.allowed) return decision.retryAfterSec;
+    }
+    return null;
+  } catch {
+    return null; // limiter lỗi → không chặn (fail open, như auth.ts)
+  }
+}
+
+/** Audit fail-open — audit hỏng không làm hỏng flow chính (spec §4.6/§4.8). */
+async function auditMfaEvent(input: {
+  actorId: string;
+  action: string;
+  reason: string;
+  sessionId?: string;
+  resourceType?: string;
+  resourceId?: string;
+}): Promise<void> {
+  try {
+    await auditEvent(input);
+  } catch {
+    /* fail-open: audit lỗi không chặn hành động chính */
+  }
+}
+
+/**
  * Đòi capability + step-up cho hành động nhạy cảm (spec §5.4.2). Thứ tự fail
- * closed (đúng interface plan Task 8):
- *  1. requireCapability(cap) — sai role / chưa đăng nhập → FORBIDDEN (trước
- *     khi đụng MFA — không leak thông tin gì cho role không có quyền).
+ * closed (đúng interface plan Task 8 + review fix #1/#2):
+ *  1. requireCapability(cap) — sai role / session chưa MFA / chưa đăng nhập →
+ *     FORBIDDEN (trước khi đụng MFA — không leak thông tin gì).
  *  2. cap ∉ STEP_UP_CAPABILITIES → return ngay (không đòi step-up).
  *  3. stepUpIsFresh(session.steppedUpAt) (≤ 15 phút) → return.
- *  4. có totpCode → verifyAdminMfaCode(user.id, code):
- *     hợp lệ (TOTP hoặc mã khôi phục) → markSessionSteppedUp + audit
- *     "admin.step_up" → return; sai → Error("MFA_CODE_INVALID").
- *  5. KHÔNG totpCode → Error("STEP_UP_REQUIRED") — caller render form mã
+ *  4. KHÔNG totpCode → Error("STEP_UP_REQUIRED") — caller render form mã
  *     (Task 10 review form) rồi submit lại kèm totpCode.
+ *  5. CÓ totpCode → rate limit 3 bucket KIỂM TRA TRƯỚC (review fix #2) —
+ *     đang limited → Error("MFA_RATE_LIMITED") (KHÔNG verify);
+ *     verifyAdminMfaCode(user.id, code):
+ *     - hợp lệ → markSessionSteppedUp + audit "admin.step_up" (recovery code
+ *       thì audit thêm "admin.mfa_recovery_code_used" — review minor) → return;
+ *     - sai → audit "admin.mfa_failed" (fail-open, không mã thô) +
+ *       Error("MFA_CODE_INVALID").
  *
  * Lưu ý: context trả về mang steppedUpAt TRƯỚC khi đánh dấu (đối tượng đọc ở
  * đầu guard) — DB đã được markSessionSteppedUp cập nhật; caller cần giá trị
@@ -180,16 +244,40 @@ export async function requireCapabilityWithStepUp(
   cap: Capability,
   totpCode?: string,
 ): Promise<AdminContext> {
-  const { user, session } = await requireCapability(cap); // 1. sai role → FORBIDDEN
+  const { user, session } = await requireCapability(cap); // 1. sai role/session → FORBIDDEN
 
   if (!STEP_UP_CAPABILITIES.includes(cap)) return { user, session }; // 2.
   if (stepUpIsFresh(session.steppedUpAt)) return { user, session }; // 3.
 
   const code = totpCode?.trim();
-  if (!code) throw new Error("STEP_UP_REQUIRED"); // 5. không code → fail closed
+  if (!code) throw new Error("STEP_UP_REQUIRED"); // 4. không code → fail closed
 
-  const factor = await verifyAdminMfaCode(user.id, code); // 4.
-  if (factor === null) throw new Error("MFA_CODE_INVALID");
+  // 5. Rate limit TRƯỚC verify — đang limited thì mã đúng cũng bị từ chối
+  const limitedSec = await stepUpMfaLimited(user.id, session.id);
+  if (limitedSec !== null) throw new Error("MFA_RATE_LIMITED");
+
+  const factor = await verifyAdminMfaCode(user.id, code);
+  if (factor === null) {
+    // audit fail-open, KHÔNG chứa mã thô (spec §4.8) — reason typed
+    await auditMfaEvent({
+      actorId: user.id,
+      action: "admin.mfa_failed",
+      reason: "step_up_invalid_code",
+      sessionId: session.id,
+    });
+    throw new Error("MFA_CODE_INVALID");
+  }
+
+  if (factor === "recovery_code") {
+    // mã khôi phục dùng ở step-up cũng được audit như ở login (review minor)
+    await auditMfaEvent({
+      actorId: user.id,
+      action: "admin.mfa_recovery_code_used",
+      reason: "step_up_recovery_code",
+      sessionId: session.id,
+      resourceType: "AdminMfa",
+    });
+  }
 
   await markSessionSteppedUp(session.id);
   await auditEvent({

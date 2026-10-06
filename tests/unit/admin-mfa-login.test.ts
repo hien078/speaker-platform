@@ -52,6 +52,8 @@ const rateState = vi.hoisted(() => ({
   hits: new Map<string, number>(),
   /** key luôn cho qua (dùng để cô lập bucket auth:mfa khỏi auth:login). */
   alwaysAllow: new Set<string>(),
+  /** IP "client" — điều khiển được để test bucket per-account chặn qua nhiều IP. */
+  ip: "test-ip",
 }));
 
 vi.mock("@/src/lib/rate-limit", () => ({
@@ -64,7 +66,7 @@ vi.mock("@/src/lib/rate-limit", () => ({
     const allowed = n <= rule.limit;
     return { allowed, retryAfterSec: 60, remaining: Math.max(0, rule.limit - n) };
   },
-  clientIpFromHeaders: () => "test-ip",
+  clientIpFromHeaders: () => rateState.ip,
 }));
 
 // ─── db.client mock: in-memory 5 model ────────────────────────────────────────
@@ -211,7 +213,7 @@ import {
   requireCapabilityWithStepUp,
   type AdminRole,
 } from "@/src/lib/rbac";
-import { enrollAdminMfa } from "@/src/lib/admin-mfa";
+import { enrollAdminMfa, resetTotpReplayProtection } from "@/src/lib/admin-mfa";
 import { hotpCode } from "@/src/lib/totp";
 import { markSessionSteppedUp } from "@/src/lib/session";
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -310,12 +312,14 @@ beforeEach(async () => {
   dbState.users.push({ ...ADMIN }, { ...BUYER });
   rateState.hits.clear();
   rateState.alwaysAllow.clear();
+  rateState.ip = "test-ip";
   sessionState.current = null;
   sessionState.steppedUp.length = 0;
   authSpy.createSession.mockClear();
   authSpy.destroySession.mockClear();
   headerState.headers = new Headers();
   enrolled = null;
+  resetTotpReplayProtection(); // store replay in-process — reset giữa các case
 });
 
 afterEach(() => {
@@ -362,16 +366,23 @@ describe("loginAction — admin đã enroll MFA", () => {
     expect(url).toBe("/"); // redirect về trang chủ
     expect(authSpy.createSession).toHaveBeenCalledTimes(1);
     expect(authSpy.createSession).toHaveBeenCalledWith(ADMIN.id, { isAdmin: true });
-    // TOTP login KHÔNG audit (chỉ recovery code audit)
+    // audit admin.login cho MỌI login admin thành công (review minor) — reason = factor
+    const logins = dbState.audits.filter((a) => a.action === "admin.login");
+    expect(logins).toHaveLength(1);
+    expect(logins[0]).toMatchObject({ actorId: ADMIN.id, reason: "totp" });
+    // TOTP login KHÔNG đụng audit recovery
     expect(dbState.audits.filter((a) => a.action === "admin.mfa_recovery_code_used")).toHaveLength(0);
   });
 
-  it("+ TOTP sai → error, KHÔNG session, KHÔNG audit", async () => {
+  it("+ TOTP sai → error, KHÔNG session, audit 'admin.mfa_failed' (KHÔNG chứa mã)", async () => {
     const state = await loginAction({}, loginForm(ADMIN.email, "đúng-mật-khẩu", "000000"));
     expect(state.error).toContain("Mã xác thực không đúng");
     expect(state.mfaRequired).toBeUndefined();
     expect(authSpy.createSession).not.toHaveBeenCalled();
-    expect(dbState.audits).toHaveLength(0);
+    const failed = dbState.audits.filter((a) => a.action === "admin.mfa_failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ actorId: ADMIN.id });
+    expect(JSON.stringify(failed)).not.toContain("000000"); // spec §4.8 — không mã thô
   });
 
   it("+ TOTP sai 10 lần → bucket auth:mfa chặn (rate limit riêng), KHÔNG session", async () => {
@@ -387,17 +398,49 @@ describe("loginAction — admin đã enroll MFA", () => {
     expect(authSpy.createSession).not.toHaveBeenCalled();
   });
 
-  it("bucket auth:mfa chỉ đếm lần SAI — mã ĐÚNG không bị chặn, tài khoản không khóa", async () => {
+  it("bucket ĐƯỢC KIỂM TRA TRƯỚC khi verify — mã ĐÚNG cũng bị từ chối khi đang limited (review fix #3)", async () => {
+    // 10 lần sai làm đầy bucket → submit mã ĐÚNG: bị chặn ở CỔNG, KHÔNG verify,
+    // KHÔNG session — "correct guess succeeds while limited" không thể xảy ra.
     rateState.alwaysAllow.add("auth:login:test-ip");
     for (let i = 0; i < 10; i++) {
       await loginAction({}, loginForm(ADMIN.email, "đúng-mật-khẩu", "000000"));
     }
-    // bucket mfa đầy → mã đúng cũng bị chặn ở CỔNG rate limit (fail closed);
-    // qua cửa sổ 10 phút (test: reset bucket) thì vào được ngay — không lockout vĩnh viễn
-    rateState.hits.delete("auth:mfa:test-ip");
+    const correctButLimited = await loginAction(
+      {},
+      loginForm(ADMIN.email, "đúng-mật-khẩu", currentTotp()),
+    );
+    expect(correctButLimited.error).toContain("Quá nhiều lần thử mã xác thực");
+    expect(authSpy.createSession).not.toHaveBeenCalled();
+    // qua cửa sổ (test: reset bucket) → mã đúng vào được ngay — KHÔNG lockout vĩnh viễn
+    rateState.hits.delete("auth:mfa:ip:test-ip");
+    rateState.hits.delete(`auth:mfa:user:${ADMIN.id}`);
     const url = await loginOk(loginForm(ADMIN.email, "đúng-mật-khẩu", currentTotp()));
     expect(url).toBe("/");
     expect(authSpy.createSession).toHaveBeenCalledWith(ADMIN.id, { isAdmin: true });
+  });
+
+  it("bucket PER-ACCOUNT auth:mfa:user:<id> — đổi IP vẫn bị chặn (chặn brute-force 1 tài khoản qua nhiều IP)", async () => {
+    rateState.alwaysAllow.add("auth:login:test-ip");
+    rateState.alwaysAllow.add("auth:login:attacker-ip");
+    for (let i = 0; i < 10; i++) {
+      await loginAction({}, loginForm(ADMIN.email, "đúng-mật-khẩu", "000000"));
+    }
+    // đổi IP (bucket IP mới sạch) — nhưng bucket THEO TÀI KHOẢN đã đầy
+    rateState.ip = "attacker-ip";
+    const blocked = await loginAction({}, loginForm(ADMIN.email, "đúng-mật-khẩu", "000000"));
+    expect(blocked.error).toContain("Quá nhiều lần thử mã xác thực");
+    expect(authSpy.createSession).not.toHaveBeenCalled();
+  });
+
+  it("TOTP replay: CÙNG mã đăng nhập lần hai → bị từ chối (RFC 6238 §5.2 — review fix #4)", async () => {
+    const code = currentTotp();
+    const url = await loginOk(loginForm(ADMIN.email, "đúng-mật-khẩu", code));
+    expect(url).toBe("/");
+    expect(authSpy.createSession).toHaveBeenCalledTimes(1);
+    // replay cùng mã (còn hợp lệ trong window ±1) → sai mã, KHÔNG session mới
+    const replay = await loginAction({}, loginForm(ADMIN.email, "đúng-mật-khẩu", code));
+    expect(replay.error).toContain("Mã xác thực không đúng");
+    expect(authSpy.createSession).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -489,7 +532,7 @@ describe("requireCapabilityWithStepUp — step-up gate (spec §5.4.2)", () => {
     expect(JSON.stringify(audits)).not.toContain(code); // spec §4.8 — không mã thô
   });
 
-  it("stale + MÃ KHÔI PHỤC đúng → cũng step-up được (recovery code là factor hợp lệ)", async () => {
+  it("stale + MÃ KHÔI PHỤC đúng → cũng step-up được + audit 'admin.mfa_recovery_code_used' (review minor)", async () => {
     // admin thứ hai với enrollment riêng — dùng mã khôi phục của chính mình
     const other = { ...ADMIN, id: "user-admin-2", email: "admin2@loaviet.test" };
     dbState.users.push(other);
@@ -497,17 +540,84 @@ describe("requireCapabilityWithStepUp — step-up gate (spec §5.4.2)", () => {
     expect(otherEnrolled.recoveryCodes).toHaveLength(10);
 
     sessionState.current = sessionOf(other.id, "super_admin", null);
-    const ctx = await requireCapabilityWithStepUp("security.config", otherEnrolled.recoveryCodes[0]!);
+    const code = otherEnrolled.recoveryCodes[0]!;
+    const ctx = await requireCapabilityWithStepUp("security.config", code);
     expect(ctx.user.id).toBe(other.id);
     expect(sessionState.steppedUp).toEqual(["sess-1"]);
     expect(dbState.audits.filter((a) => a.action === "admin.step_up")).toHaveLength(1);
+    // mã khôi phục dùng ở STEP-UP cũng được audit như ở login (review minor)
+    const recoveryAudits = dbState.audits.filter(
+      (a) => a.action === "admin.mfa_recovery_code_used",
+    );
+    expect(recoveryAudits).toHaveLength(1);
+    expect(recoveryAudits[0]).toMatchObject({ actorId: other.id, resourceType: "AdminMfa" });
+    expect(JSON.stringify(recoveryAudits)).not.toContain(code); // spec §4.8
   });
 
-  it("stale + mã SAI → MFA_CODE_INVALID, không đánh dấu stepped-up, không audit", async () => {
+  it("stale + mã SAI → MFA_CODE_INVALID + audit 'admin.mfa_failed', không đánh dấu stepped-up", async () => {
     sessionState.current = sessionOf(ADMIN.id, "super_admin", new Date(Date.now() - 16 * 60_000).toISOString());
     await expect(requireCapabilityWithStepUp("seller.verify", "000000")).rejects.toThrowError(/^MFA_CODE_INVALID$/);
     expect(sessionState.steppedUp).toHaveLength(0);
     expect(dbState.audits.filter((a) => a.action === "admin.step_up")).toHaveLength(0);
+    const failed = dbState.audits.filter((a) => a.action === "admin.mfa_failed");
+    expect(failed).toHaveLength(1);
+    expect(failed[0]).toMatchObject({ actorId: ADMIN.id });
+    expect(JSON.stringify(failed)).not.toContain("000000"); // spec §4.8
+  });
+
+  it("step-up TOTP replay: CÙNG mã lần hai → MFA_CODE_INVALID (RFC 6238 §5.2 — review fix #4)", async () => {
+    const stale = () => sessionOf(ADMIN.id, "super_admin", new Date(Date.now() - 16 * 60_000).toISOString());
+    const code = currentTotp();
+    sessionState.current = stale();
+    await requireCapabilityWithStepUp("seller.verify", code); // lần 1 — hợp lệ
+    // 16 phút sau (stale lại), submit CÙNG mã — replay → MFA_CODE_INVALID
+    sessionState.current = stale();
+    await expect(requireCapabilityWithStepUp("seller.verify", code)).rejects.toThrowError(
+      /^MFA_CODE_INVALID$/,
+    );
+    // mã của step MỚI → hợp lệ lại — không khóa vĩnh viễn
+    sessionState.current = stale();
+    await expect(
+      requireCapabilityWithStepUp("seller.verify", hotpCode(enrolled!.secretBase32, nowCounter() + 1)),
+    ).resolves.toBeTruthy();
+  });
+
+  it("step-up rate limit: bucket KIỂM TRA TRƯỚC verify — mã ĐÚNG cũng bị MFA_RATE_LIMITED khi đang limited (review fix #2)", async () => {
+    const stale = () => sessionOf(ADMIN.id, "super_admin", new Date(Date.now() - 16 * 60_000).toISOString());
+    sessionState.current = stale();
+    // 10 lần sai làm đầy bucket (session + user + IP cùng chặn)
+    for (let i = 0; i < 10; i++) {
+      await expect(requireCapabilityWithStepUp("seller.verify", "000000")).rejects.toThrowError(
+        /^MFA_CODE_INVALID$/,
+      );
+    }
+    // lần 11 với mã ĐÚNG → bị chặn ở CỔNG (KHÔNG verify) — typed MFA_RATE_LIMITED
+    sessionState.current = stale();
+    await expect(requireCapabilityWithStepUp("seller.verify", currentTotp())).rejects.toThrowError(
+      /^MFA_RATE_LIMITED$/,
+    );
+    expect(sessionState.steppedUp).toHaveLength(0); // không đánh dấu gì cả
+    // qua cửa sổ (reset bucket) → mã đúng step-up được — không lockout vĩnh viễn
+    rateState.hits.delete("stepup:mfa:session:sess-1");
+    rateState.hits.delete(`stepup:mfa:user:${ADMIN.id}`);
+    rateState.hits.delete("stepup:mfa:ip:test-ip");
+    sessionState.current = stale();
+    await expect(requireCapabilityWithStepUp("seller.verify", currentTotp())).resolves.toBeTruthy();
+  });
+
+  it("step-up rate limit per-SESSION — session khác của cùng user không bị kéo theo", async () => {
+    const stale = () => sessionOf(ADMIN.id, "super_admin", new Date(Date.now() - 16 * 60_000).toISOString());
+    sessionState.current = { ...stale(), session: { ...stale().session, id: "sess-A" } };
+    for (let i = 0; i < 10; i++) {
+      await expect(requireCapabilityWithStepUp("seller.verify", "000000")).rejects.toThrowError(
+        /^MFA_CODE_INVALID$/,
+      );
+    }
+    // session B (session khác) — bucket session sạch nhưng bucket USER đã đầy → vẫn chặn
+    sessionState.current = { ...stale(), session: { ...stale().session, id: "sess-B" } };
+    await expect(requireCapabilityWithStepUp("seller.verify", "000000")).rejects.toThrowError(
+      /^MFA_RATE_LIMITED$/,
+    );
   });
 
   it("capability NGOÀI STEP_UP_CAPABILITIES → không bao giờ đòi step-up", async () => {

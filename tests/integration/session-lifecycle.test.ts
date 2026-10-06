@@ -244,9 +244,9 @@ d("expiry boundary trên DB thật", () => {
   });
 });
 
-// ─── 4. Admin TTL derive từ adminRole (schema thật) ───────────────────────────
+// ─── 4. TTL theo opts.isAdmin (schema thật) — KHÔNG derive từ adminRole ──────
 
-d("TTL theo adminRole trên DB thật", () => {
+d("TTL theo opts.isAdmin trên DB thật (review fix #1)", () => {
   it("user thường (adminRole null) → isAdmin false, TTL 30 ngày", async () => {
     const userId = await mkUser("buyer");
     created.users.push(userId);
@@ -258,10 +258,23 @@ d("TTL theo adminRole trên DB thật", () => {
     expect(Math.abs(delta - CONSUMER_SESSION_TTL_HOURS * 3_600_000)).toBeLessThan(60_000);
   });
 
-  it("user có adminRole → isAdmin true, TTL 12 giờ", async () => {
+  it("user có adminRole nhưng KHÔNG opts → consumer session (isAdmin false, TTL 30 ngày)", async () => {
+    // review fix #1: createSession không derive isAdmin từ adminRole — session
+    // admin chỉ tồn tại khi login path đã MFA truyền { isAdmin: true }.
     const userId = await mkUser("admin", "super_admin");
     created.users.push(userId);
     await createSession(userId);
+    const row = await db.orm.public.UserSession.where({ userId }).first();
+    created.sessions.push(row!.id);
+    expect(row!.isAdmin).toBe(false);
+    const delta = Date.parse(row!.expiresAt) - Date.parse(row!.createdAt);
+    expect(Math.abs(delta - CONSUMER_SESSION_TTL_HOURS * 3_600_000)).toBeLessThan(60_000);
+  });
+
+  it("opts.isAdmin=true → isAdmin true, TTL 12 giờ", async () => {
+    const userId = await mkUser("admin", "super_admin");
+    created.users.push(userId);
+    await createSession(userId, { isAdmin: true });
     const row = await db.orm.public.UserSession.where({ userId }).first();
     created.sessions.push(row!.id);
     expect(row!.isAdmin).toBe(true);

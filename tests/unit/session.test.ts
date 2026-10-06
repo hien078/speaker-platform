@@ -251,9 +251,9 @@ describe("createSession — token opaque + cookie", () => {
   });
 });
 
-// ─── 2. TTL: consumer 30 ngày, admin 12 giờ (từ adminRole) ────────────────────
+// ─── 2. TTL: consumer 30 ngày mặc định, admin 12 giờ CHỈ khi opts.isAdmin ─────
 
-describe("TTL theo isAdmin (derive từ User.adminRole — spec §8.5)", () => {
+describe("TTL theo isAdmin (opts.isAdmin tường minh — review fix #1)", () => {
   it("consumer TTL 30 ngày", async () => {
     await createSession(BUYER.id as string);
     const row = dbState.sessions[0]!;
@@ -263,8 +263,20 @@ describe("TTL theo isAdmin (derive từ User.adminRole — spec §8.5)", () => {
     expect(Math.abs(delta - CONSUMER_SESSION_TTL_HOURS * 3_600_000)).toBeLessThan(60_000);
   });
 
-  it("admin TTL 12 giờ — derive từ adminRole khi caller không truyền opts", async () => {
+  it("KHÔNG truyền opts → consumer session KỂ CẢ user có adminRole (review fix #1)", async () => {
+    // adminRole là quyền TIỀM NĂNG của user; session.isAdmin là bằng chứng
+    // session đã qua MFA. createSession không tự derive từ adminRole nữa —
+    // user được promote khi đang giữ session cũ KHÔNG được nâng thành admin.
     await createSession(ADMIN.id as string);
+    const row = dbState.sessions[0]!;
+    expect(row.isAdmin).toBe(false);
+    const delta = Date.parse(row.expiresAt as string) - Date.now();
+    expect(Math.abs(delta - CONSUMER_SESSION_TTL_HOURS * 3_600_000)).toBeLessThan(60_000);
+    expect(cookieState.setCalls.at(-1)!.options.maxAge).toBe(CONSUMER_SESSION_TTL_HOURS * 3_600);
+  });
+
+  it("opts.isAdmin=true → TTL admin 12 giờ (login path đã xác thực MFA)", async () => {
+    await createSession(ADMIN.id as string, { isAdmin: true });
     const row = dbState.sessions[0]!;
     expect(row.isAdmin).toBe(true);
     expect(ADMIN_SESSION_TTL_HOURS).toBe(12);
@@ -281,7 +293,7 @@ describe("TTL theo isAdmin (derive từ User.adminRole — spec §8.5)", () => {
   });
 
   it("maxAge cookie = TTL (giây)", async () => {
-    await createSession(ADMIN.id as string);
+    await createSession(ADMIN.id as string, { isAdmin: true });
     expect(cookieState.setCalls.at(-1)!.options.maxAge).toBe(ADMIN_SESSION_TTL_HOURS * 3_600);
   });
 });

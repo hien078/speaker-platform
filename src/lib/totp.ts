@@ -61,15 +61,36 @@ export function verifyTotp(
   atMs?: number,
   window?: number,
 ): boolean {
+  return verifyTotpStep(secretBase32, code, atMs, window) !== null;
+}
+
+/**
+ * Xác thực mã TOTP và trả về TIME-STEP (counter) đã khớp — null khi không khớp.
+ * Cần cho replay protection (RFC 6238 §5.2 — review fix #4): caller ghi nhận
+ * step này là ĐÃ DÙNG, mã của step đó không được chấp nhận lần hai.
+ */
+export function verifyTotpStep(
+  secretBase32: string,
+  code: string,
+  atMs?: number,
+  window?: number,
+): number | null {
   let secret: Secret;
   try {
     secret = Secret.fromBase32(secretBase32);
   } catch {
-    return false; // secret hỏng — không có mã nào có thể hợp lệ
+    return null; // secret hỏng — không có mã nào có thể hợp lệ
   }
   const totp = new TOTP({ issuer: "", label: "", ...TOTP_PARAMS, secret });
-  const delta = totp.validate({ token: code, timestamp: atMs, window: window ?? TOTP_DEFAULT_WINDOW });
-  return delta !== null;
+  const delta = totp.validate({
+    token: code,
+    timestamp: atMs,
+    window: window ?? TOTP_DEFAULT_WINDOW,
+  });
+  if (delta === null) return null;
+  // counter đã khớp = counter hiện tại + delta (delta ∈ [-window, +window]);
+  // period 30 GIÂY = 30_000 ms — atMs/Date.now() tính bằng ms.
+  return Math.floor((atMs ?? Date.now()) / (TOTP_PARAMS.period * 1_000)) + delta;
 }
 
 /**

@@ -113,20 +113,19 @@ function toSessionUser(user: UserRow, sessionId: string): SessionUser {
  * Tạo session mới cho user + set cookie. Token fresh random mỗi lần gọi —
  * gọi tại login/register (rotate) để cookie pre-auth không còn giá trị.
  *
- * isAdmin: mặc định derive từ `User.adminRole` (nguồn duy nhất — spec §8.5);
- * opts.isAdmin chỉ là override tường minh cho caller đã biết quyền.
+ * isAdmin (review fix #1): KHÔNG derive từ `User.adminRole` nữa — session admin
+ * chỉ tồn tại khi login path ĐÃ xác thực MFA truyền tường minh
+ * `{ isAdmin: true }` (src/lib/actions/auth.ts). Mọi caller khác (register,
+ * recovery-nhập-mật-khẩu-mới, ...) luôn nhận consumer session 30 ngày — user
+ * được promote adminRole khi đang giữ session cũ KHÔNG tự nhiên có quyền admin;
+ * guards (rbac.ts) đọc session.isAdmin làm bằng chứng MFA. Task 11: khi grant
+ * adminRole nên revoke mọi session hiện có của user (buộc login lại qua MFA).
  */
 export async function createSession(
   userId: string,
   opts?: CreateSessionOptions,
 ): Promise<void> {
-  // isAdmin mặc định derive từ User.adminRole (nguồn duy nhất — spec §8.5);
-  // opts.isAdmin là override tường minh cho caller đã biết quyền.
-  let isAdmin = opts?.isAdmin;
-  if (isAdmin === undefined) {
-    const user = await db.orm.public.User.first({ id: userId });
-    isAdmin = (user?.adminRole ?? null) !== null;
-  }
+  const isAdmin = opts?.isAdmin ?? false; // KHÔNG derive từ adminRole — xem doc trên
   const ttlHours = isAdmin ? ADMIN_SESSION_TTL_HOURS : CONSUMER_SESSION_TTL_HOURS;
 
   // Token opaque 256-bit — DB chỉ lưu SHA-256 (lookup, không phải secrecy).
