@@ -81,14 +81,14 @@ function EmailVerificationSection({ email, emailVerified }: { email: string; ema
         <StatusBadge verified={emailVerified} />
       </div>
       {!emailVerified && (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-2">
           <form action={requestAction}>
             <button type="submit" disabled={requestPending} className="btn-primary w-full">
               {requestPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
               Gửi mã
             </button>
           </form>
-          <form action={confirmAction} className="flex gap-2">
+          <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <input
               name="code"
               className="input"
@@ -96,6 +96,15 @@ function EmailVerificationSection({ email, emailVerified }: { email: string; ema
               inputMode="numeric"
               autoComplete="one-time-code"
               aria-label="Mã xác minh email"
+            />
+            <input
+              type="password"
+              name="currentPassword"
+              className="input"
+              placeholder="Mật khẩu hiện tại"
+              autoComplete="current-password"
+              required
+              aria-label="Mật khẩu hiện tại"
             />
             <button type="submit" disabled={confirmPending} className="btn-primary shrink-0">
               {confirmPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
@@ -137,14 +146,14 @@ function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | nu
           hoặc &quot;Đổi số điện thoại&quot; rồi xác minh.
         </p>
       ) : !phoneVerified ? (
-        <div className="grid gap-2 sm:grid-cols-2">
+        <div className="space-y-2">
           <form action={requestAction}>
             <button type="submit" disabled={requestPending} className="btn-primary w-full">
               {requestPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
               Gửi mã
             </button>
           </form>
-          <form action={confirmAction} className="flex gap-2">
+          <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
             <input
               name="code"
               className="input"
@@ -152,6 +161,15 @@ function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | nu
               inputMode="numeric"
               autoComplete="one-time-code"
               aria-label="Mã xác minh số điện thoại"
+            />
+            <input
+              type="password"
+              name="currentPassword"
+              className="input"
+              placeholder="Mật khẩu hiện tại"
+              autoComplete="current-password"
+              required
+              aria-label="Mật khẩu hiện tại"
             />
             <button type="submit" disabled={confirmPending} className="btn-primary shrink-0">
               {confirmPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
@@ -355,6 +373,7 @@ export function VerificationPanel({ email, emailVerified, phone, phoneVerified }
       </p>
       <p className="mb-5 text-xs text-[var(--muted)]">
         Xác minh email/số điện thoại giúp LoaViet xác nhận đây là tài khoản của bạn khi hỗ trợ.
+        Nhập mật khẩu hiện tại khi xác nhận mã.
       </p>
 
       <div className="space-y-6">

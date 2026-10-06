@@ -1,7 +1,8 @@
 /**
  * Identity collision integration tests — plan Task 6 (identity-collision gate),
  * spec §5.3.1 + review fix (verification flow CHỈ xác minh kênh ĐANG LƯU; change
- * confirm cần step-up mật khẩu; revocation chạy TRÊN tx).
+ * confirm cần step-up mật khẩu; revocation chạy TRÊN tx) + FOLLOW-UP (verify
+ * một kênh = tạo kênh khôi phục → confirm verification cũng cần step-up mật khẩu).
  *
  * Chạy trên scratch DB (scripts/test-integration.sh: container riêng +
  * `prisma db migrate --to production` + dọn). KHÔNG chạy trong `npm test`.
@@ -173,7 +174,11 @@ d("identity collision qua đường action (spec §5.3.1)", () => {
     expect(req1.error).toBeUndefined();
     const code1 = peekDevOtpInbox(P, "phone_verification", "phone");
     expect(code1).toBeTruthy(); // mã đi tới P (số đang lưu), KHÔNG phải 0999999999
-    const conf1 = await confirmPhoneVerificationAction({}, fd({ code: code1! }));
+    // confirm cần step-up mật khẩu (follow-up fix — verify = tạo kênh khôi phục)
+    const conf1 = await confirmPhoneVerificationAction(
+      {},
+      fd({ code: code1!, currentPassword: PASSWORD }),
+    );
     expect(conf1.error).toBeUndefined();
 
     const rowA = await db.orm.public.User.first({ id: a });
@@ -188,7 +193,10 @@ d("identity collision qua đường action (spec §5.3.1)", () => {
     expect(req2.error).toBeUndefined();
     const code2 = peekDevOtpInbox(P, "phone_verification", "phone");
     expect(code2).toBeTruthy();
-    const conf2 = await confirmPhoneVerificationAction({}, fd({ code: code2! }));
+    const conf2 = await confirmPhoneVerificationAction(
+      {},
+      fd({ code: code2!, currentPassword: PASSWORD }),
+    );
     expect(conf2.code).toBe("PHONE_ALREADY_VERIFIED");
 
     const rowB = await db.orm.public.User.first({ id: b });

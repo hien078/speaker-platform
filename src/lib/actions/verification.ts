@@ -24,11 +24,20 @@ import { notify } from "@/src/lib/notify";
  * Email/phone verification + identity changes (Batch 2 Task 6 — spec §5.3,
  * §5.3.1 — + review fix: đóng step-up bypass, rate limit, revocation trên tx).
  *
- * NGUYÊN TẮC DANH TÍNH (spec §5.3.1 + review fix HIGH):
+ * NGUYÊN TẮC DANH TÍNH (spec §5.3.1 + review fix HIGH + FOLLOW-UP):
  *  - Verification flow (request/confirm) CHỈ xác minh kênh ĐANG LƯU trên tài
- *    khoản: target derive từ DB (row hiện tại), formData bị BỎ QUA; refuse khi
+ *    khoản: target derive từ DB (row hiện tại), formData bị BỌ QUA; refuse khi
  *    kênh đã verified (ALREADY_VERIFIED) hoặc chưa có gì để xác minh
  *    (PHONE_NOT_ON_FILE). Flow này KHÔNG BAO GIỜ đổi sang kênh khác.
+ *  - (FOLLOW-UP) Xác minh MỘT kênh = tạo KÊNH KHÔI PHỤC (Task 7 recovery qua
+ *    kênh verified) → confirmEmailVerificationAction /
+ *    confirmPhoneVerificationAction LUÔN yêu cầu mật khẩu hiện tại
+ *    (verifyCurrentPassword — cùng rate limit per-user + per-IP như login),
+ *    KHÔNG ngoại lệ: stolen session không mật khẩu không thể verify phone kể cả
+ *    khi attacker đã đặt số của hắn qua profile.ts (được phép khi chưa verified)
+ *    và nhận được mã. profile.ts KHÔNG đổi được email nên đường email không
+ *    khai thác được qua profile — gate vẫn bật LUÔN cho cả hai (đồng nhất với
+ *    change confirm, không phát minh ngoại lệ).
  *  - Đổi sang email/phone KHÁC: CHỈ qua change flow — step-up (mật khẩu hiện
  *    tại) ở request VÀ Ở CONFIRM. OTP row không ghi flow đã tạo nó (không thêm
  *    schema), và kênh đang lưu có thể bị profile.ts đổi giữa request và confirm
@@ -295,6 +304,17 @@ export async function confirmEmailVerificationAction(
   const user = await requireUser();
   const parsed = codeSchema.safeParse(formData.get("code"));
   if (!parsed.success) return { ...INVALID_CODE };
+
+  // Step-up tại confirm (FOLLOW-UP FIX): xác minh email làm nó trở thành KÊNH
+  // KHÔI PHỤC (Task 7 recovery qua kênh verified) — yêu cầu mật khẩu hiện tại,
+  // LUÔN, không ngoại lệ (review: "do not invent exceptions: always require it").
+  // Cùng verifyCurrentPassword (rate limit per-user + per-IP như login).
+  const stepUpFailure = await verifyCurrentPassword(
+    user.id,
+    String(formData.get("currentPassword") ?? ""),
+  );
+  if (stepUpFailure) return stepUpFailure;
+
   const row = await db.orm.public.User.first({ id: user.id });
   if (!row) return { ...USER_NOT_FOUND };
   // Chỉ xác minh email ĐANG LƯU — đã verified thì từ chối (review fix HIGH)
@@ -371,6 +391,17 @@ export async function confirmPhoneVerificationAction(
   const user = await requireUser();
   const parsed = codeSchema.safeParse(formData.get("code"));
   if (!parsed.success) return { ...INVALID_CODE };
+
+  // Step-up tại confirm (FOLLOW-UP FIX): xác minh phone làm nó trở thành KÊNH
+  // KHÔI PHỤC (Task 7) — stolen session không mật khẩu không thể verify kể cả số
+  // do chính hắn đặt qua profile (được phép khi chưa verified). LUÔN yêu cầu
+  // mật khẩu, không ngoại lệ (review); cùng verifyCurrentPassword (rate limit).
+  const stepUpFailure = await verifyCurrentPassword(
+    user.id,
+    String(formData.get("currentPassword") ?? ""),
+  );
+  if (stepUpFailure) return stepUpFailure;
+
   const row = await db.orm.public.User.first({ id: user.id });
   if (!row) return { ...USER_NOT_FOUND };
   // Chỉ xác minh SỐ ĐANG LƯU — đã verified thì từ chối (review fix HIGH)

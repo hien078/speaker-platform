@@ -31,6 +31,11 @@
  *     confirm cũng revoke trên tx.
  *  6. (LOW) Security notice chỉ tới kênh CŨ khi kênh cũ ĐÃ verified.
  *  7. (LOW) profile.ts lưu phone NORMALIZED — test ở profile-actions.test.ts.
+ *  (FOLLOW-UP) Xác minh MỘT kênh = tạo kênh khôi phục (Task 7) →
+ *     confirmEmailVerificationAction/confirmPhoneVerificationAction LUÔN yêu cầu
+ *     mật khẩu hiện tại (verifyCurrentPassword — cùng rate limit), KHÔNG ngoại
+ *     lệ: stolen session không mật khẩu không thể verify phone/email kể cả khi
+ *     attacker đã đặt số của hắn qua profile (được phép khi chưa verified).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
@@ -391,7 +396,7 @@ describe("ranh giới session — mọi action", () => {
 // ─── Email verification — CHỈ email đang lưu ──────────────────────────────────
 
 describe("email verification — chỉ xác minh email ĐANG LƯU", () => {
-  it("request gửi OTP tới ĐÚNG email lưu + confirm set emailVerifiedAt + audit (detail không email thô)", async () => {
+  it("request gửi OTP tới ĐÚNG email lưu + confirm (step-up) set emailVerifiedAt + audit (detail không email thô)", async () => {
     login(dbState.users[0]!);
 
     const code = await requestAndExtractCode(requestEmailVerificationAction, new FormData());
@@ -401,7 +406,10 @@ describe("email verification — chỉ xác minh email ĐANG LƯU", () => {
       channel: "email",
     });
 
-    const state = await confirmEmailVerificationAction({}, fd({ code }));
+    const state = await confirmEmailVerificationAction(
+      {},
+      fd({ code, currentPassword: PASSWORD }),
+    );
     expect(state.error).toBeUndefined();
     expect(dbState.users[0]!.emailVerifiedAt).not.toBeNull();
 
@@ -420,7 +428,10 @@ describe("email verification — chỉ xác minh email ĐANG LƯU", () => {
     login(dbState.users[0]!);
     const real = await requestAndExtractCode(requestEmailVerificationAction, new FormData());
     const wrong = real === "000000" ? "111111" : "000000";
-    const state = await confirmEmailVerificationAction({}, fd({ code: wrong }));
+    const state = await confirmEmailVerificationAction(
+      {},
+      fd({ code: wrong, currentPassword: PASSWORD }),
+    );
     expect(state.error).toBeTruthy();
     expect(dbState.users[0]!.emailVerifiedAt).toBeNull();
   });
@@ -433,7 +444,10 @@ describe("email verification — chỉ xác minh email ĐANG LƯU", () => {
     expect(req.code).toBe("ALREADY_VERIFIED");
     expect(delivery.sendOtp).not.toHaveBeenCalled();
 
-    const conf = await confirmEmailVerificationAction({}, fd({ code: "123456" }));
+    const conf = await confirmEmailVerificationAction(
+      {},
+      fd({ code: "123456", currentPassword: PASSWORD }),
+    );
     expect(conf.code).toBe("ALREADY_VERIFIED");
     expect(dbState.users[0]!.emailVerifiedAt).toBe("2026-10-01T00:00:00.000Z"); // giữ nguyên
   });
@@ -484,7 +498,10 @@ describe("phone verification — CHỈ xác minh số ĐANG LƯU (fix HIGH)", ()
     expect(req.code).toBe("ALREADY_VERIFIED");
     expect(delivery.sendOtp).not.toHaveBeenCalled();
 
-    const conf = await confirmPhoneVerificationAction({}, fd({ code: "123456" }));
+    const conf = await confirmPhoneVerificationAction(
+      {},
+      fd({ code: "123456", currentPassword: PASSWORD }),
+    );
     expect(conf.code).toBe("ALREADY_VERIFIED");
     expect(dbState.users[0]!.phoneVerifiedAt).toBe("2026-10-01T00:00:00.000Z");
   });
@@ -496,7 +513,7 @@ describe("phone verification — CHỈ xác minh số ĐANG LƯU (fix HIGH)", ()
     // confirm nhồi số khác vào formData — action vẫn verify SỐ ĐANG LƯU
     const state = await confirmPhoneVerificationAction(
       {},
-      fd({ phone: "0999999999", code }),
+      fd({ phone: "0999999999", code, currentPassword: PASSWORD }),
     );
     expect(state.error).toBeUndefined();
     expect(dbState.users[0]!.phone).toBe("0900000001"); // KHÔNG đổi sang số của formData
@@ -515,7 +532,10 @@ describe("phone verification — CHỈ xác minh số ĐANG LƯU (fix HIGH)", ()
       requestPhoneVerificationAction,
       new FormData(),
     );
-    const state = await confirmPhoneVerificationAction({}, fd({ code }));
+    const state = await confirmPhoneVerificationAction(
+      {},
+      fd({ code, currentPassword: PASSWORD }),
+    );
 
     expect(state.code).toBe("PHONE_ALREADY_VERIFIED");
     expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
@@ -532,7 +552,10 @@ describe("phone verification — CHỈ xác minh số ĐANG LƯU (fix HIGH)", ()
     login(dbState.users[0]!);
 
     const code = await requestAndExtractCode(requestPhoneVerificationAction, new FormData());
-    const state = await confirmPhoneVerificationAction({}, fd({ code }));
+    const state = await confirmPhoneVerificationAction(
+      {},
+      fd({ code, currentPassword: PASSWORD }),
+    );
 
     expect(state.error).toBeUndefined();
     expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
@@ -556,13 +579,13 @@ describe("stolen session — không mật khẩu không thể làm số MỚI ve
     expect(delivery.sendOtp.mock.calls.at(-1)![0].to).toBe("0900000001");
     expect(delivery.sendOtp.mock.calls.at(-1)![0].to).not.toBe(ATTACKER_PHONE);
 
-    // (b) verification confirm nhồi số tấn công → action derive target từ DB
-    //     (0900000001) — mã gửi cho 0900000001 không tồn tại cho tuple của số tấn công
+    // (b) verification confirm nhồi số tấn công → step-up tại confirm chặn trước
+    //     (follow-up fix: verify một kênh = tạo kênh khôi phục → luôn cần mật khẩu)
     const confState = await confirmPhoneVerificationAction(
       {},
-      fd({ phone: ATTACKER_PHONE, code: "123456" }),
+      fd({ phone: ATTACKER_PHONE, code: "123456", currentPassword: "" }),
     );
-    expect(confState.error).toBeTruthy();
+    expect(confState.code).toBe("MISSING_CURRENT_PASSWORD");
 
     // (c) change request không mật khẩu → step-up fail, không OTP cho số tấn công
     const changeReq = await requestPhoneChangeAction(
@@ -596,6 +619,75 @@ describe("stolen session — không mật khẩu không thể làm số MỚI ve
     expect(dbState.users[0]!.phone).toBe("0900000001");
     expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
     expect(revokedSessions()).toHaveLength(0);
+  });
+});
+
+// ─── FOLLOW-UP FIX: verify một kênh = tạo kênh khôi phục → luôn cần step-up ───
+
+describe("stolen session — không mật khẩu không thể VERIFY kênh chưa verified (follow-up fix)", () => {
+  it("account CHƯA có kênh verified nào: attacker đặt phone qua profile → request OK → confirm KHÔNG mật khẩu → từ chối, kênh KHÔNG verified", async () => {
+    // Tình huống review: tài khoản chưa có kênh verified nào (emailVerifiedAt +
+    // phoneVerifiedAt đều null). Attacker giữ session đánh cắp, KHÔNG có mật khẩu,
+    // đặt số CỦA HẮN qua profile.ts (được phép khi chưa verified) rồi verify.
+    dbState.users[0]!.phone = "0999999999"; // số attacker — đặt qua profile (unverified)
+    login(dbState.users[0]!);
+
+    // request KHÔNG cần mật khẩu — OTP tới số đang lưu (= số attacker → hắn nhận mã)
+    const code = await requestAndExtractCode(requestPhoneVerificationAction, new FormData());
+    expect(delivery.sendOtp.mock.calls.at(-1)![0].to).toBe("0999999999");
+
+    // confirm KHÔNG mật khẩu → step-up chặn → kênh KHÔNG trở nên verified
+    // (kênh verified = kênh khôi phục Task 7 → password reset → takeover)
+    const noPassword = await confirmPhoneVerificationAction(
+      {},
+      fd({ code, currentPassword: "" }),
+    );
+    expect(noPassword.code).toBe("MISSING_CURRENT_PASSWORD");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
+
+    // confirm mật khẩu SAI → WRONG_PASSWORD → vẫn không verified, không audit
+    const wrongPassword = await confirmPhoneVerificationAction(
+      {},
+      fd({ code, currentPassword: "sai-het-roi" }),
+    );
+    expect(wrongPassword.code).toBe("WRONG_PASSWORD");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
+    expect(revokedSessions()).toHaveLength(0);
+    expect(dbState.auditRows.filter((r) => r.action === "user.phone_verified")).toHaveLength(0);
+  });
+
+  it("email: confirm KHÔNG mật khẩu → từ chối, emailVerifiedAt giữ null (gate luôn bật — không ngoại lệ)", async () => {
+    // profile.ts KHÔNG đổi được email (chỉ name/phone/city/bio) nên đường email
+    // không khai thác được qua profile — nhưng gate step-up vẫn bật LUÔN cho
+    // confirm email (review: "do not invent exceptions: always require it").
+    login(dbState.users[0]!); // emailVerifiedAt null
+    const code = await requestAndExtractCode(requestEmailVerificationAction, new FormData());
+
+    const noPassword = await confirmEmailVerificationAction(
+      {},
+      fd({ code, currentPassword: "" }),
+    );
+    expect(noPassword.code).toBe("MISSING_CURRENT_PASSWORD");
+    expect(dbState.users[0]!.emailVerifiedAt).toBeNull();
+
+    const wrongPassword = await confirmEmailVerificationAction(
+      {},
+      fd({ code, currentPassword: "sai-het-roi" }),
+    );
+    expect(wrongPassword.code).toBe("WRONG_PASSWORD");
+    expect(dbState.users[0]!.emailVerifiedAt).toBeNull();
+    expect(dbState.auditRows.filter((r) => r.action === "user.email_verified")).toHaveLength(0);
+  });
+
+  it("confirm ĐÚNG mật khẩu → verify thành công (luồng chính vẫn hoạt động)", async () => {
+    login(dbState.users[0]!); // stored 0900000001, chưa verified
+    const code = await requestAndExtractCode(requestPhoneVerificationAction, new FormData());
+    const state = await confirmPhoneVerificationAction(
+      {},
+      fd({ code, currentPassword: PASSWORD }),
+    );
+    expect(state.error).toBeUndefined();
+    expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
   });
 });
 
