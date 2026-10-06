@@ -65,6 +65,8 @@ export function AuthForm({ mode, next = "" }: { mode: "login" | "register"; next
 
       {mode === "login" && (
         <p className="text-center text-xs text-[var(--muted)]">
+          <Link href="/recover" className="hover:text-[var(--accent)]">Quên mật khẩu?</Link>
+          {" · "}
           <Link href="/register" className="hover:text-[var(--accent)]">Chưa có tài khoản? Đăng ký</Link>
         </p>
       )}
