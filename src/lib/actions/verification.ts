@@ -16,6 +16,7 @@ import {
   type OtpRequestResult,
 } from "@/src/lib/otp";
 import { auditEvent } from "@/src/lib/audit-event";
+import { revokeAllUserSessions, revokeAllUserSessionsTx } from "@/src/lib/session";
 import { getOtpDeliveryAdapter } from "@/src/lib/verification-delivery";
 import { captureEvent } from "@/src/lib/observability";
 import { notify } from "@/src/lib/notify";
@@ -64,14 +65,19 @@ import { notify } from "@/src/lib/notify";
  *    oracle.
  *
  * REVOCATION (spec §5.3.1/§7.2 + review fix LOW): hash/password + revocation
- * trong MỘT db.transaction, revocation chạy TRÊN tx qua revokeOtherSessionsTx
- * (local copy predicate session.revokeAllUserSessions — Task 7 branch song song
- * dự kiến thêm tx-variant vào session.ts; khi đó thay helper này, predicate giữ
- * nguyên, dễ reconcile; KHÔNG đụng session.ts trong task này).
+ * trong MỘT db.transaction, revocation chạy TRÊN tx qua
+ * revokeAllUserSessionsTx (variant tx duy nhất ở src/lib/session.ts —
+ * Task 9 cleanup thay local copy revokeOtherSessionsTx; predicate giữ
+ * nguyên, thêm exceptSessionId tùy chọn = session hiện tại).
  *
  * OTP core (hashed/single-use/TTL/attempt/resend/rate-limit) thuộc src/lib/otp.ts
  * (Task 3); audit action names theo registry Task 5 — không tự chế tên.
  * KHÔNG log raw email/phone/OTP/password ở mọi path (spec §4.8).
+ *
+ * Task 9: revokeMyOtherSessionsAction — tự phục vụ thu hồi MỌI session KHÁC
+ * của chính mình (reason "user_self_revocation" + audit "session.revoked_all");
+ * userId derive từ session — formData KHÔNG điều khiển được target (IDOR,
+ * spec §7.3).
  */
 
 export type VerificationFormState = {
@@ -221,31 +227,6 @@ async function verifyCurrentPassword(
   const ok = await verifyPassword(currentPassword, row.passwordHash);
   if (!ok) return { ...WRONG_PASSWORD };
   return null;
-}
-
-// ─── Revocation trên tx (review fix LOW #5) ───────────────────────────────────
-
-/** Tx context của db.transaction — cùng shape src/lib/actions/helpers.ts. */
-type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/**
- * Thu hồi MỌI session KHÁC của user, chạy TRÊN transaction truyền vào —
- * LOCAL copy predicate của session.revokeAllUserSessions (cùng shape where
- * userId + revokedAt IS NULL + id ≠ except). Task 7 (branch song song) dự kiến
- * thêm tx-variant vào session.ts — khi đó ĐỔI helper này sang gọi sang đó
- * (predicate giữ nguyên, dễ reconcile); không đụng session.ts trong task này.
- */
-async function revokeOtherSessionsTx(
-  tx: TxContext,
-  userId: string,
-  reason: string,
-  exceptSessionId: string,
-): Promise<void> {
-  await tx.orm.public.UserSession
-    .where({ userId })
-    .where((s) => s.revokedAt.isNull())
-    .where((s) => s.id.neq(exceptSessionId))
-    .updateAll({ revokedAt: new Date().toISOString(), revokedReason: reason });
 }
 
 // ─── Security notice (spec §5.3.1 "when feasible" — fail-open) ────────────────
@@ -481,7 +462,9 @@ export async function changePasswordAction(
   // Session hiện tại sống để user không bị đá ra giữa chừng.
   await db.transaction(async (tx) => {
     await tx.orm.public.User.where({ id: user.id }).update({ passwordHash });
-    await revokeOtherSessionsTx(tx, user.id, "password_change", user.sessionId);
+    await revokeAllUserSessionsTx(tx, user.id, "password_change", {
+      exceptSessionId: user.sessionId,
+    });
   });
 
   await auditEvent({
@@ -595,7 +578,9 @@ export async function confirmEmailChangeAction(
       await tx.orm.public.User
         .where({ id: user.id })
         .update({ email: newEmail, emailVerifiedAt: new Date().toISOString() });
-      await revokeOtherSessionsTx(tx, user.id, "email_change", user.sessionId);
+      await revokeAllUserSessionsTx(tx, user.id, "email_change", {
+        exceptSessionId: user.sessionId,
+      });
     });
   } catch (e) {
     if (isUniqueConstraintViolation(e)) return { ...EMAIL_TAKEN };
@@ -722,7 +707,9 @@ export async function confirmPhoneChangeAction(
       await tx.orm.public.User
         .where({ id: user.id })
         .update({ phone: newPhone, phoneVerifiedAt: new Date().toISOString() });
-      await revokeOtherSessionsTx(tx, user.id, "phone_change", user.sessionId);
+      await revokeAllUserSessionsTx(tx, user.id, "phone_change", {
+        exceptSessionId: user.sessionId,
+      });
     });
   } catch (e) {
     if (e instanceof IdentityCollisionError) return { ...PHONE_ALREADY_VERIFIED };
@@ -750,6 +737,46 @@ export async function confirmPhoneChangeAction(
   );
   revalidatePath("/profile");
   return { success: "Đã đổi số điện thoại. Các thiết bị khác đã bị đăng xuất." };
+}
+
+// ─── Tự thu hồi session khác (Task 9 — spec §5.4.2/§7.3) ────────────────────
+
+/**
+ * User tự thu hồi MỌI session KHÁC của chính mình ("Đăng xuất các thiết bị
+ * khác" ở /profile — plan Task 9). userId derive TỪ SESSION — formData không
+ * có trường nào điều khiển được target (IDOR cấu trúc không thể, spec §7.3:
+ * kẻ tấn công nhồi sessionId/userId của người khác vào form cũng bị bỏ qua).
+ * Session hiện tại sống (user không tự đá mình ra); audit "session.revoked_all"
+ * với reason typed "user_self_revocation" (registry Task 5).
+ */
+export async function revokeMyOtherSessionsAction(
+  _prev: VerificationFormState,
+  _formData: FormData,
+): Promise<VerificationFormState> {
+  const user = await requireUser();
+
+  const revoked = await revokeAllUserSessions(user.id, "user_self_revocation", {
+    exceptSessionId: user.sessionId,
+  });
+
+  await auditEvent({
+    actorId: user.id,
+    subjectId: user.id,
+    action: "session.revoked_all",
+    resourceType: "User",
+    resourceId: user.id,
+    sessionId: user.sessionId,
+    reason: "user_self_revocation",
+    detail: `count=${revoked}`, // KHÔNG chứa PII thô (spec §4.8)
+  });
+
+  revalidatePath("/profile");
+  return {
+    success:
+      revoked > 0
+        ? "Đã đăng xuất các thiết bị khác."
+        : "Không có thiết bị nào khác đang đăng nhập.",
+  };
 }
 
 /*

@@ -470,6 +470,50 @@ describe("revoke helpers", () => {
     expect(dbState.sessions.find((r) => r.id === "tx-s4")!.revokedAt).toBeNull();
   });
 
+  it("revokeAllUserSessionsTx với opts.exceptSessionId — giữ session except (Task 9: verification.ts đổi sang variant chung này)", async () => {
+    // Task 9 cleanup: verification.ts từng có local revokeOtherSessionsTx (copy
+    // predicate) — nay DÙNG CHUNG variant tx này với exceptSessionId tùy chọn.
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const past = new Date(Date.now() - 3_600_000).toISOString();
+    const seed = (id: string, userId: string) => ({
+      id,
+      userId,
+      tokenHash: sha256Hex(`${id}-token`),
+      isAdmin: false,
+      createdAt: past,
+      lastSeenAt: null,
+      expiresAt: future,
+      revokedAt: null,
+      revokedReason: null,
+      steppedUpAt: null,
+      userAgent: null,
+    });
+    dbState.sessions.push(
+      seed("ex-s1", BUYER.id as string),
+      seed("ex-s2", BUYER.id as string),
+      seed("ex-s3", BUYER.id as string),
+      seed("ex-s4", ADMIN.id as string),
+    );
+
+    type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    const tx = { orm: db.orm } as unknown as TxContext;
+
+    const count = await revokeAllUserSessionsTx(tx, BUYER.id as string, "password_change", {
+      exceptSessionId: "ex-s1",
+    });
+    expect(count).toBe(2);
+
+    // session except SỐNG (đổi password/email/phone giữ session hiện tại)
+    expect(dbState.sessions.find((r) => r.id === "ex-s1")!.revokedAt).toBeNull();
+    for (const id of ["ex-s2", "ex-s3"]) {
+      const row = dbState.sessions.find((r) => r.id === id)!;
+      expect(row.revokedAt).not.toBeNull();
+      expect(row.revokedReason).toBe("password_change");
+    }
+    // KHÔNG đụng session của user khác
+    expect(dbState.sessions.find((r) => r.id === "ex-s4")!.revokedAt).toBeNull();
+  });
+
   it("listUserSessions — inventory active (chưa revoke, chưa hết hạn)", async () => {
     await createSession(BUYER.id as string);
     await createSession(BUYER.id as string);

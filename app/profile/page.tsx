@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { listUserSessions } from "@/src/lib/session";
 import { ProfileForm } from "@/src/components/profile-form";
 import { VerificationPanel } from "@/src/components/verification-panel";
 import { formatDateShort } from "@/src/lib/utils";
@@ -16,6 +17,10 @@ export default async function ProfilePage() {
 
   const user = await db.orm.public.User.first({ id: session.id });
   if (!user) redirect("/login");
+
+  // Inventory phiên active của chính mình (Task 9 — spec §5.4.2): user xem và
+  // tự thu hồi MỌI session KHÁC (revokeMyOtherSessionsAction — verification.ts).
+  const sessions = await listUserSessions(user.id);
 
   const [listingCount, completedSales, completedBuys, reviewAgg] = await Promise.all([
     db.orm.public.Listing.where({ sellerId: user.id }).aggregate((a) => ({ c: a.count() })),
@@ -94,6 +99,8 @@ export default async function ProfilePage() {
         emailVerified={user.emailVerifiedAt !== null}
         phone={user.phone}
         phoneVerified={user.phoneVerifiedAt !== null}
+        sessions={sessions}
+        currentSessionId={session.sessionId}
       />
     </main>
   );

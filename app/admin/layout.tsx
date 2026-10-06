@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ComponentType } from "react";
-import { requireAdminUser } from "@/src/lib/rbac";
+import { requireAdminUser, capabilitiesOf, type Capability } from "@/src/lib/rbac";
 import {
   LayoutDashboard,
   FileSearch,
@@ -10,6 +10,7 @@ import {
   Settings,
   AudioLines,
   Banknote,
+  ShieldCheck,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -20,24 +21,39 @@ type NavItem = {
   icon: ComponentType<{ className?: string }>;
   /** View tài chính lịch sử — chỉ đọc khi FINANCIAL_FEATURES_ENABLED=false (plan Task 5). */
   dormant?: boolean;
+  /**
+   * Capability trang đích cần — nav lọc theo capabilitiesOf (Task 9). CONVENIENCE
+   * ONLY (spec §4.5: hidden nav không phải authorization): mỗi trang/action vẫn
+   * TỰ guard server-side; role thiếu quyền vẫn bị chặn khi POST/GET trực tiếp.
+   * Không có capability = mọi adminRole đều thấy (dormant finance, /admin/security).
+   */
+  capability?: Capability;
 };
 
 const NAV: NavItem[] = [
-  { href: "/admin", label: "Tổng quan", icon: LayoutDashboard },
-  { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch },
-  { href: "/admin/catalog", label: "Catalog model", icon: AudioLines },
+  { href: "/admin", label: "Tổng quan", icon: LayoutDashboard, capability: "analytics.read" },
+  { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch, capability: "listing.moderate" },
+  { href: "/admin/catalog", label: "Catalog model", icon: AudioLines, capability: "listing.moderate" },
   { href: "/admin/orders", label: "Đơn hàng", icon: Package, dormant: true },
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle, dormant: true },
   { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote, dormant: true },
-  { href: "/admin/users", label: "Người dùng", icon: Users },
+  { href: "/admin/users", label: "Người dùng", icon: Users, capability: "user.view_basic" },
   { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings, dormant: true },
+  // Task 9 — mọi admin (tự phục vụ MFA/phiên của chính mình, spec §5.4.2).
+  { href: "/admin/security", label: "Bảo mật & phiên", icon: ShieldCheck },
 ];
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
   // Cổng vào /admin — requireAdminUser đọc User.adminRole (nguồn quyền duy nhất,
   // spec §8.5): chưa đăng nhập → /login; không adminRole → / (redirect, không
   // còn check user.role rộng — Batch 2 Task 4).
-  await requireAdminUser();
+  const admin = await requireAdminUser();
+
+  // Nav lọc theo capability — CONVENIENCE (spec §4.5): moderator/support không
+  // thấy link tới trang mình không có quyền, nhưng URL trực tiếp vẫn bị guard
+  // trang chặn (mỗi page tự requireCapability/requireAdminUser — Task 4).
+  const caps = capabilitiesOf(admin.user.adminRole);
+  const visibleNav = NAV.filter((item) => !item.capability || caps.includes(item.capability));
 
   return (
     <div className="mx-auto flex max-w-7xl gap-6 px-4 py-8 lg:px-8">
@@ -56,7 +72,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
             </div>
           </div>
           <nav className="mt-2 space-y-0.5">
-            {NAV.map((item) => (
+            {visibleNav.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
@@ -77,7 +93,7 @@ export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
 
       {/* Mobile nav */}
       <div className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-[var(--line)] bg-[var(--card)]/95 p-1.5 backdrop-blur lg:hidden">
-        {NAV.map((item) => (
+        {visibleNav.map((item) => (
           <Link
             key={item.href}
             href={item.href}

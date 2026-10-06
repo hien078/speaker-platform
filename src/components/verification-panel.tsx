@@ -11,16 +11,23 @@ import {
   confirmEmailChangeAction,
   requestPhoneChangeAction,
   confirmPhoneChangeAction,
+  revokeMyOtherSessionsAction,
   type VerificationFormState,
 } from "@/src/lib/actions/verification";
-import { LoaderCircle, CheckCircle2, ShieldCheck } from "lucide-react";
+import type { SessionInfo } from "@/src/lib/session";
+import { formatDate } from "@/src/lib/utils";
+import { LoaderCircle, CheckCircle2, ShieldCheck, MonitorSmartphone } from "lucide-react";
 
 /**
- * Xác minh danh tính + bảo mật tài khoản (Batch 2 Task 6 — spec §5.3/§5.3.1).
- * Ba phần theo plan: (1) trạng thái xác minh email/phone + gửi/nhập mã;
- * (2) đổi mật khẩu; (3) đổi email / đổi số điện thoại (hai bước: request →
- * confirm, mã OTP tới kênh MỚI). Copy trung tính — không có ngôn ngữ bảo
- * đảm (spec §6.2).
+ * Xác minh danh tính + bảo mật tài khoản (Batch 2 Task 6 — spec §5.3/§5.3.1;
+ * Task 9 thêm "Phiên đang đăng nhập"). Các phần theo plan:
+ * (1) trạng thái xác minh email/phone + gửi/nhập mã; (2) đổi mật khẩu;
+ * (3) đổi email / đổi số điện thoại (hai bước: request → confirm, mã OTP tới
+ * kênh MỚI); (4) phiên đang đăng nhập + "Đăng xuất các thiết bị khác"
+ * (revokeMyOtherSessionsAction — userId derive từ session, IDOR-không-được).
+ * Copy trung tính — không có ngôn ngữ bảo đảm (spec §6.2).
+ *
+ * PII (spec §4.8): KHÔNG có IP; user-agent + session id hiển thị RÚT GỌN.
  */
 
 type PanelProps = {
@@ -28,6 +35,10 @@ type PanelProps = {
   emailVerified: boolean;
   phone: string | null;
   phoneVerified: boolean;
+  /** Inventory phiên active của user (Task 9 — spec §5.4.2). */
+  sessions: SessionInfo[];
+  /** Session hiện tại — đánh dấu "Thiết bị này" + là except của revoke-others. */
+  currentSessionId: string;
 };
 
 function StatusBadge({ verified }: { verified: boolean }) {
@@ -363,9 +374,81 @@ function PhoneChangeSection() {
   );
 }
 
+// ─── (4) Phiên đang đăng nhập + tự thu hồi (Task 9 — spec §5.4.2) ─────────────
+
+/** UA rút gọn — không render nguyên chuỗi PII dài (spec §4.8). */
+function truncateUserAgent(ua: string | null): string {
+  if (!ua) return "Không rõ thiết bị";
+  return ua.length > 48 ? `${ua.slice(0, 48)}…` : ua;
+}
+
+/** Session id rút gọn — đủ nhận diện, không lộ nguyên id. */
+function shortSessionId(id: string): string {
+  return `${id.slice(0, 8)}…`;
+}
+
+function SessionsSection({
+  sessions,
+  currentSessionId,
+}: {
+  sessions: SessionInfo[];
+  currentSessionId: string;
+}) {
+  const [state, action, pending] = useActionState(revokeMyOtherSessionsAction, {});
+  const others = sessions.filter((s) => s.id !== currentSessionId);
+
+  return (
+    <div className="space-y-2.5">
+      {sessions.map((s) => (
+        <div
+          key={s.id}
+          className="flex items-center justify-between gap-3 rounded-lg border border-[var(--line)] px-3.5 py-2.5"
+        >
+          <div className="min-w-0">
+            <p className="flex items-center gap-2 text-sm">
+              <MonitorSmartphone className="size-3.5 shrink-0 text-[var(--muted)]" />
+              <span className="truncate">{truncateUserAgent(s.userAgent)}</span>
+              {s.id === currentSessionId && (
+                <span className="badge shrink-0 bg-[var(--accent-soft)] text-[var(--accent)]">
+                  Thiết bị này
+                </span>
+              )}
+            </p>
+            <p className="mt-0.5 text-xs text-[var(--muted)]">
+              Phiên {shortSessionId(s.id)} · bắt đầu {formatDate(s.createdAt)} · hoạt động{" "}
+              {formatDate(s.lastSeenAt)} · hết hạn {formatDate(s.expiresAt)}
+            </p>
+          </div>
+        </div>
+      ))}
+      {sessions.length === 0 && (
+        <p className="text-sm text-[var(--muted)]">Không có phiên nào đang hoạt động.</p>
+      )}
+      <form action={action}>
+        <button
+          type="submit"
+          disabled={pending || others.length === 0}
+          className="btn-secondary w-full"
+        >
+          {pending ? <LoaderCircle className="size-4 animate-spin" /> : null}
+          Đăng xuất các thiết bị khác
+        </button>
+      </form>
+      <FormMessage state={state} />
+    </div>
+  );
+}
+
 // ─── Panel ────────────────────────────────────────────────────────────────────
 
-export function VerificationPanel({ email, emailVerified, phone, phoneVerified }: PanelProps) {
+export function VerificationPanel({
+  email,
+  emailVerified,
+  phone,
+  phoneVerified,
+  sessions,
+  currentSessionId,
+}: PanelProps) {
   return (
     <div className="card mt-6 p-6">
       <p className="mb-1 text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
@@ -395,6 +478,15 @@ export function VerificationPanel({ email, emailVerified, phone, phoneVerified }
           <div className="mt-5">
             <PhoneChangeSection />
           </div>
+        </div>
+
+        <div className="border-t border-[var(--line)] pt-5">
+          <p className="mb-2.5 text-sm font-semibold">Phiên đang đăng nhập</p>
+          <p className="mb-2.5 text-xs text-[var(--muted)]">
+            Các thiết bị đang đăng nhập tài khoản của bạn. &quot;Đăng xuất các thiết bị khác&quot;
+            thu hồi mọi phiên khác — thiết bị đang dùng giữ nguyên.
+          </p>
+          <SessionsSection sessions={sessions} currentSessionId={currentSessionId} />
         </div>
       </div>
     </div>

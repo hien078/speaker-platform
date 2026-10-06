@@ -223,20 +223,31 @@ type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
  * Thu hồi mọi session active của user BÊN TRONG transaction truyền vào —
  * Task 7 fix: đặt mật khẩu mới (recovery) + thu hồi session phải sống chết
  * cùng MỘT tx (Review Focus 3 — hai statement rời để lại mật khẩu mới +
- * session cũ còn tác quyền nếu thất bại giữa chừng). KHÔNG exceptSessionId:
- * recovery thu hồi TẤT CẢ, kể cả session hiện tại.
+ * session cũ còn tác quyền nếu thất bại giữa chừng).
  * Hành vi giống revokeAllUserSessions (idempotent với session đã revoke,
- * không đụng user khác) — variant này không có except (chưa có caller cần).
+ * không đụng user khác).
+ *
+ * opts.exceptSessionId (Task 9): giữ session chỉ định sống — verification.ts
+ * (đổi password/email/phone) từng có local copy predicate của helper này,
+ * nay DÙNG CHUNG variant tx duy nhất với except = session hiện tại; Task 7
+ * recovery KHÔNG truyền except — thu hồi TẤT CẢ, kể cả session hiện tại.
  */
 export async function revokeAllUserSessionsTx(
   tx: TxContext,
   userId: string,
   reason: string,
+  opts?: { exceptSessionId?: string },
 ): Promise<number> {
-  const revoked = await tx.orm.public.UserSession
+  const data = { revokedAt: nowIso(), revokedReason: reason };
+  const except = opts?.exceptSessionId;
+  // MỘT updateAll — predicate loại trừ tùy chọn AND-compose với các mệnh đề trước
+  let query = tx.orm.public.UserSession
     .where({ userId })
-    .where((s) => s.revokedAt.isNull())
-    .updateAll({ revokedAt: nowIso(), revokedReason: reason });
+    .where((s) => s.revokedAt.isNull());
+  if (except !== undefined) {
+    query = query.where((s) => s.id.neq(except));
+  }
+  const revoked = await query.updateAll(data);
   return revoked.length;
 }
 

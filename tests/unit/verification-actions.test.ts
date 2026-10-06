@@ -63,20 +63,25 @@ vi.mock("next/headers", () => ({
 }));
 
 // ─── Session seam — requireUser đọc qua getSessionFromCookie. Sau fix,
-// revocation chạy TRÊN tx (revokeOtherSessionsTx trong verification.ts) —
-// revokeAllUserSessions (global client) là TRIpwire: KHÔNG được gọi nữa. ──────
+// revocation chạy TRÊN tx qua revokeAllUserSessionsTx của session.ts (Task 9
+// cleanup thay local copy revokeOtherSessionsTx — predicate exceptSessionId
+// do tests/unit/session.test.ts kiểm riêng); revokeAllUserSessions (global
+// client) là TRIpwire: KHÔNG được gọi nữa. ────────────────────────────────────
 
 const sessionState = vi.hoisted(() => ({
   current: null as { session: Record<string, unknown>; user: Record<string, unknown> } | null,
 }));
 
-vi.mock("@/src/lib/session", () => ({
-  SESSION_COOKIE: "sp_session",
-  getSessionFromCookie: vi.fn(async () => sessionState.current),
-  revokeSession: vi.fn(),
-  createSession: vi.fn(),
-  revokeAllUserSessions: vi.fn(async () => 0),
-}));
+vi.mock("@/src/lib/session", async (importOriginal) => {
+  // Giữ bản thật (variant tx chạy trên mock db — mutation xuống store) và chỉ
+  // stub seam lookup + tripwire global client.
+  const actual = await importOriginal<typeof import("@/src/lib/session")>();
+  return {
+    ...actual,
+    getSessionFromCookie: vi.fn(async () => sessionState.current),
+    revokeAllUserSessions: vi.fn(async () => 0),
+  };
+});
 
 // ─── Delivery adapter spy — OTP + security notice ─────────────────────────────
 

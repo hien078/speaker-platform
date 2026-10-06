@@ -1,8 +1,9 @@
 import { db } from "@/src/prisma/db.client";
-import { requireCapability } from "@/src/lib/rbac";
+import { requireCapability, capabilitiesOf } from "@/src/lib/rbac";
 import { formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";
+import { revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
 import { Users, BadgeCheck, Search } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -12,7 +13,10 @@ export default async function AdminUsersPage({
   searchParams,
 }: PageProps<"/admin/users">) {
   // Guard server-side (spec §4.5) — user.view_basic: super/ops (ma trận §5.4.1).
-  await requireCapability("user.view_basic");
+  const admin = await requireCapability("user.view_basic");
+  // Nút thu hồi phiên lọc theo session.revoke — CONVENIENCE (spec §4.5);
+  // action tự requireCapability nên role thiếu quyền POST thẳng cũng bị chặn.
+  const canRevokeSessions = capabilitiesOf(admin.user.adminRole).includes("session.revoke");
   const sp = (await searchParams) as { q?: string; role?: string };
   const q = sp.q?.trim() ?? "";
   type UserRole = "buyer" | "seller" | "admin";
@@ -142,6 +146,18 @@ export default async function AdminUsersPage({
                           )}
                         >
                           {u.isVerifiedSeller ? "Bỏ xác minh" : "Xác minh seller"}
+                        </button>
+                      </form>
+                    )}
+                    {canRevokeSessions && (
+                      <form action={revokeAllUserSessionsAction} className="mt-1.5">
+                        <input type="hidden" name="userId" value={u.id} />
+                        <button
+                          type="submit"
+                          className="btn h-8 bg-[var(--paper-deep)] px-3 text-xs text-[var(--ink-2)] hover:bg-zinc-600"
+                          title="Đăng xuất mọi thiết bị của người dùng này (audit session.revoked_all)"
+                        >
+                          Thu hồi phiên
                         </button>
                       </form>
                     )}
