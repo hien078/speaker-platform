@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ProfileForm } from "@/src/components/profile-form";
+import { VerificationPanel } from "@/src/components/verification-panel";
 import { formatDateShort } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { UserRound, BadgeCheck } from "lucide-react";
@@ -86,6 +87,14 @@ export default async function ProfilePage() {
           }}
         />
       </div>
+
+      {/* Xác minh danh tính + bảo mật (Batch 2 Task 6 — spec §5.3/§5.3.1) */}
+      <VerificationPanel
+        email={user.email}
+        emailVerified={user.emailVerifiedAt !== null}
+        phone={user.phone}
+        phoneVerified={user.phoneVerifiedAt !== null}
+      />
     </main>
   );
 }
