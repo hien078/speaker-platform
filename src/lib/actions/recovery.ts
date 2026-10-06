@@ -11,32 +11,56 @@
  *   phân biệt được gì cả. (Constant KHÔNG export — file "use server" chỉ
  *   export được async function; test pin bằng so sánh giữa các outcome.)
  * - Confirm: mọi failure (identifier không khớp, sai/hết hạn/dùng lại/khóa vì
- *   quá lần thử) COLLAPSE về cùng một lỗi — confirm không thành oracle enumeration.
+ *   quá lần thử/bị chặn theo identifier) COLLAPSE về cùng một lỗi — confirm
+ *   không thành oracle enumeration.
  * - Tra user theo email/số phone NHƯNG chỉ khớp kênh ĐÃ XÁC MINH
  *   (emailVerifiedAt/phoneVerifiedAt != null) — recovery qua kênh chưa xác
  *   minh là vector chiếm tài khoản (SIM tái sử dụng, email cũ — spec §5.3.1).
  *   Kênh gửi = kênh của identifier: mất email → nhập phone → mã tới phone
  *   (lost-email path) và ngược lại (lost-phone path).
+ * - TIMING (review fix #2, spec §7.2/§7.7): matched-path work (requestOtp +
+ *   audit — DB writes, sau này là network call provider thật) KHÔNG được
+ *   await trong response — nếu không, identifier có thật trả chậm/throw còn
+ *   identifier lạ trả nhanh = oracle tồn tại. `after()` từ next/server
+ *   schedule work post-response; mọi throw bên trong được captureError
+ *   (không PII) — response trung tính không phụ thuộc delivery/audit/db.
  * - Rate limit: request 5/10 phút/IP (plan Task 7) + confirm 10/10 phút/IP
- *   (spec §7.1 — OTP verify endpoint cũng phải rate limit) + per-identifier
- *   limit bên trong OTP core (3 mã/10 phút/(userId,purpose,target)).
- * - Completion thu hồi MỌI session — revokeAllUserSessions(userId,
- *   "password_recovery") KHÔNG exceptSessionId: session hiện tại (nếu có)
- *   cũng chết, session tạo TRƯỚC reset không còn tác quyền (Review Focus 3 —
- *   stale-session reuse sau recovery, spec §7.2).
+ *   (spec §7.1) + PER-IDENTIFIER confirm 5/10 phút keyed bằng HMAC hash của
+ *   identifier chuẩn hóa (review fix #4, spec §7.1 "target resource" — chống
+ *   brute-force MỘT tài khoản từ nhiều IP; hash để không lưu identifier thô
+ *   trong limiter, spec §4.8; trả CÙNG lỗi collapsed) + per-identifier limit
+ *   của OTP core (3 mã/10 phút/(userId,purpose,target)).
+ * - Completion (review fix #3, Review Focus 3): MẬT KHẨU MỚI + thu hồi MỌI
+ *   session trong CÙNG MỘT db.transaction (revokeAllUserSessionsTx) — hai
+ *   statement rời để lại mật khẩu mới + session cũ còn tác quyền nếu thất bại
+ *   giữa chừng. KHÔNG exceptSessionId: session hiện tại (nếu có) cũng chết,
+ *   session tạo TRƯỚC reset không còn tác quyền (stale-session reuse, spec §7.2).
+ * - Security notice (review fix #1, spec §5.3.1/§7.7 "notify previous
+ *   verified channels"): gửi tới MỌI kênh ĐÃ XÁC MINH của user (không chỉ
+ *   kênh vừa dùng) — kẻ chiếm SIM/email đang giữ kênh đó, kênh còn lại của
+ *   nạn nhân phải được báo. Fail-open, KHÔNG PII trong log.
  * - Audit "user.recovery_requested"/"user.recovery_completed" (Task 5 registry)
- *   + notify in-app + security notice tới kênh đã xác minh (spec §7.7 "notify
- *   previous verified channels when feasible" — adapter fail-open).
+ *   + notify in-app — fail-open CÓ Ý THỨC: trạng thái audit/notice hỏng không
+ *   được thành oracle enumeration (matched path phải trả đúng như unknown path).
  * - KHÔNG log identifier thô (email/phone), mã OTP, mật khẩu ở bất kỳ path nào
- *   (spec §4.8) — lỗi audit/notify được captureError với meta KHÔNG PII.
+ *   (spec §4.8) — lỗi được captureError với meta KHÔNG PII.
  */
 
+import { createHmac } from "node:crypto";
+import { after } from "next/server";
 import { headers } from "next/headers";
 import { z } from "zod";
 import { db } from "@/src/prisma/db.client";
 import { hashPassword } from "@/src/lib/auth";
-import { revokeAllUserSessions } from "@/src/lib/session";
-import { normalizeEmail, normalizePhone, requestOtp, verifyOtp, type OtpChannel } from "@/src/lib/otp";
+import { revokeAllUserSessionsTx } from "@/src/lib/session";
+import {
+  hkdfKey,
+  normalizeEmail,
+  normalizePhone,
+  requestOtp,
+  verifyOtp,
+  type OtpChannel,
+} from "@/src/lib/otp";
 import { auditEvent } from "@/src/lib/audit-event";
 import { getOtpDeliveryAdapter } from "@/src/lib/verification-delivery";
 import { checkRateLimit, clientIpFromHeaders, type RateLimitRule } from "@/src/lib/rate-limit";
@@ -49,6 +73,13 @@ export type RecoveryFormState = { error?: string; success?: string };
 const RECOVERY_REQUEST_RULE: RateLimitRule = { limit: 5, windowMs: 10 * 60_000 };
 /** 10 confirm / 10 phút / IP — spec §7.1 (OTP verify endpoint cũng rate limit). */
 const RECOVERY_CONFIRM_RULE: RateLimitRule = { limit: 10, windowMs: 10 * 60_000 };
+/**
+ * 5 confirm / 10 phút / IDENTIFIER (review fix #4, spec §7.1 "target resource")
+ * — chống brute-force mã trên MỘT tài khoản từ nhiều IP (per-IP không chặn
+ * được việc đó). 5 = OTP_MAX_ATTEMPTS: sau 5 lần thử sai thì mã đó đã khóa
+ * anyway; limit này chặn việc MUA MÃ MỚI rồi thử tiếp trên cùng identifier.
+ */
+const RECOVERY_CONFIRM_PER_IDENTIFIER_RULE: RateLimitRule = { limit: 5, windowMs: 10 * 60_000 };
 
 /**
  * Thông báo trung tính DUY NHẤT (spec §7.7 chống enumeration) — mọi outcome của
@@ -60,7 +91,7 @@ const RECOVERY_SENT_MESSAGE =
 
 /**
  * Lỗi collapsed của confirm — identifier không khớp, sai mã, hết hạn, dùng lại,
- * khóa vì quá lần thử → CÙNG chuỗi (không phân biệt được — spec §7.7).
+ * khóa vì quá lần thử, bị chặn theo identifier → CÙNG chuỗi (spec §7.7).
  */
 const RECOVERY_CODE_INVALID_MESSAGE =
   "Mã không đúng hoặc đã hết hạn. Vui lòng kiểm tra lại hoặc yêu cầu mã mới.";
@@ -113,6 +144,27 @@ function parseIdentifier(raw: string): ParsedIdentifier | null {
 }
 
 /**
+ * Khóa bucket per-identifier cho limiter — HMAC-SHA256 keyed (hkdfKey
+ * "recovery-identifier-hash") của identifier CHUẨN HÓA: limiter in-memory
+ * KHÔNG giữ email/phone thô trong key (spec §4.8); keyed hash không đảo
+ * ngược được và đồng nhất trong process.
+ */
+function identifierBucketKey(channel: OtpChannel, target: string): string {
+  return createHmac("sha256", hkdfKey("recovery-identifier-hash"))
+    .update(`${channel}:${target}`)
+    .digest("hex");
+}
+
+/** User row tối giản cho recovery — đủ id + trạng thái/kênh đã xác minh cho notice. */
+type RecoveryUser = {
+  id: string;
+  email: string;
+  phone: string | null;
+  emailVerifiedAt: string | null;
+  phoneVerifiedAt: string | null;
+};
+
+/**
  * Tra user theo identifier NHƯNG chỉ khớp kênh ĐÃ XÁC MINH — email unique nên
  * phone là nơi có thể trùng chuỗi; verified-phone uniqueness do Task 6 giữ
  * (collision re-check lúc verify), residual race đã ghi nhận trong batch doc.
@@ -120,7 +172,7 @@ function parseIdentifier(raw: string): ParsedIdentifier | null {
 async function findUserByVerifiedIdentifier(
   channel: OtpChannel,
   target: string,
-): Promise<{ id: string } | null> {
+): Promise<RecoveryUser | null> {
   if (channel === "email") {
     return db.orm.public.User.where({ email: target })
       .where((u) => u.emailVerifiedAt.isNotNull())
@@ -148,38 +200,49 @@ export async function requestPasswordRecoveryAction(
   const { channel, target } = parsed;
 
   // 3) Tra user — CHỈ khớp kênh ĐÃ XÁC MINH (emailVerifiedAt/phoneVerifiedAt).
+  //    Cả hai path đều trả sau đúng MỘT db query — không khác biệt timing.
   const user = await findUserByVerifiedIdentifier(channel, target);
 
   // 4) Không khớp → cùng thông báo trung tính, KHÔNG OTP (budget IP đã tốn ở bước 1 —
   //    kẻ dò identifier lạ không mua được thêm budget cho identifier thật).
   if (!user) return { success: RECOVERY_SENT_MESSAGE };
 
-  // 5) Có user → requestOtp(password_recovery, kênh của identifier). Mọi error
-  //    code (cooldown, per-target limit, delivery fail) COLLAPSE về cùng thông
-  //    báo — không cho kẻ dò phân biệt "tồn tại nhưng bị chặn" vs "không tồn tại".
-  const result = await requestOtp({
-    userId: user.id,
-    purpose: "password_recovery",
-    channel,
-    target,
+  // 5) Có user → requestOtp(password_recovery, kênh của identifier) + audit —
+  //    KHÔNG await: schedule post-response qua after() (review fix #2). Nếu
+  //    await thì identifier có thật trả chậm hơn identifier lạ (DB writes +
+  //    network provider) = oracle tồn tại qua timing; và mọi throw của
+  //    requestOtp/audit sẽ thành server error trên matched path trong khi
+  //    unknown path vẫn trung tính = oracle tồn tại qua error. after() + catch
+  //    trong callback đóng cả hai (spec §7.2/§7.7).
+  after(async () => {
+    try {
+      // Mọi error code (cooldown, per-target limit, delivery fail) COLLAPSE —
+      // callback không đổi response đã trả; audit ghi reason typed tương ứng.
+      const result = await requestOtp({
+        userId: user.id,
+        purpose: "password_recovery",
+        channel,
+        target,
+      });
+      try {
+        await auditEvent({
+          actorId: user.id,
+          subjectId: user.id,
+          action: "user.recovery_requested",
+          resourceType: "User",
+          resourceId: user.id,
+          reason: result.ok ? "otp_sent" : result.code,
+          detail: `channel=${channel}`, // channel là LOẠI kênh — không phải email/phone thô
+        });
+      } catch (e) {
+        captureError("recovery", e, { action: "user.recovery_requested" });
+      }
+    } catch (e) {
+      // requestOtp throw (db/provider) — KHÔNG thành oracle: response trung tính
+      // đã trả; lỗi được ghi với meta KHÔNG PII (spec §4.8).
+      captureError("recovery", e, { action: "user.recovery_requested" });
+    }
   });
-
-  // 6) Audit "user.recovery_requested" — fail-open CÓ Ý THỨC: nếu bảng audit hỏng
-  //    mà audit throw, identifier có thật sẽ lỗi còn identifier lạ vẫn trung tính
-  //    → oracle enumeration; bắt lỗi để phản hồi không bao giờ phụ thuộc audit.
-  try {
-    await auditEvent({
-      actorId: user.id,
-      subjectId: user.id,
-      action: "user.recovery_requested",
-      resourceType: "User",
-      resourceId: user.id,
-      reason: result.ok ? "otp_sent" : result.code,
-      detail: `channel=${channel}`, // channel là LOẠI kênh — không phải email/phone thô
-    });
-  } catch (e) {
-    captureError("recovery", e, { action: "user.recovery_requested" });
-  }
 
   return { success: RECOVERY_SENT_MESSAGE };
 }
@@ -199,9 +262,27 @@ export async function confirmPasswordRecoveryAction(
   const limited = await recoveryRateLimited("recovery:confirm", RECOVERY_CONFIRM_RULE);
   if (limited) return limited;
 
-  // 2) Validate — identifier + mã 6 chữ số + mật khẩu mới (trước khi đụng OTP).
+  // 2) Định dạng identifier — sai dạng → lỗi nhập liệu trước tra cứu.
   const parsed = parseIdentifier(String(formData.get("identifier") ?? ""));
   if (!parsed) return { error: IDENTIFIER_INVALID_MESSAGE };
+  const { channel, target } = parsed;
+
+  // 3) Per-identifier limit (review fix #4, spec §7.1 "target resource") —
+  //    keyed bằng HMAC hash của identifier chuẩn hóa (không lưu identifier thô
+  //    trong limiter, spec §4.8). Trả CÙNG lỗi collapsed như sai mã: kẻ dò
+  //    không phân biệt "identifier bị khóa" vs "mã sai" (spec §7.7). Fail open.
+  try {
+    const decision = checkRateLimit(
+      `recovery:confirm-id:${identifierBucketKey(channel, target)}`,
+      RECOVERY_CONFIRM_PER_IDENTIFIER_RULE,
+    );
+    if (!decision.allowed) return { error: RECOVERY_CODE_INVALID_MESSAGE };
+  } catch {
+    /* limiter lỗi → không chặn */
+  }
+
+  // 4) Validate mã + mật khẩu mới (sau bucket identifier — mọi attempt chống
+  //    MỘT tài khoản đều phải đếm, kể cả attempt malformed).
   const creds = confirmSchema.safeParse({
     code: String(formData.get("code") ?? "").trim(),
     newPassword: String(formData.get("newPassword") ?? ""),
@@ -209,15 +290,15 @@ export async function confirmPasswordRecoveryAction(
   if (!creds.success) {
     return { error: creds.error.issues[0]?.message ?? "Dữ liệu không hợp lệ" };
   }
-  const { channel, target } = parsed;
   const { code, newPassword } = creds.data;
 
-  // 3) Tra user theo kênh ĐÃ XÁC MINH — không khớp → CÙNG lỗi collapsed với sai mã
-  //    (không phân biệt "không có tài khoản" vs "mã sai" — spec §7.7).
+  // 5) Tra user theo kênh ĐÃ XÁC MINH — không khớp → CÙNG lỗi collapsed với sai mã
+  //    (không phân biệt "không có tài khoản" vs "mã sai" — spec §7.7). Chặn
+  //    TRƯỚC verifyOtp: mã hợp lệ của kênh chưa xác minh không dùng được.
   const user = await findUserByVerifiedIdentifier(channel, target);
   if (!user) return { error: RECOVERY_CODE_INVALID_MESSAGE };
 
-  // 4) verifyOtp — mọi failure code (OTP_NOT_FOUND/OTP_EXPIRED/OTP_MAX_ATTEMPTS)
+  // 6) verifyOtp — mọi failure code (OTP_NOT_FOUND/OTP_EXPIRED/OTP_MAX_ATTEMPTS)
   //    collapse về CÙNG lỗi (không leak "có mã nhưng hết hạn" — spec §7.7).
   const verified = await verifyOtp({
     userId: user.id,
@@ -228,13 +309,18 @@ export async function confirmPasswordRecoveryAction(
   });
   if (!verified.ok) return { error: RECOVERY_CODE_INVALID_MESSAGE };
 
-  // 5) Mật khẩu mới + thu hồi MỌI session — revokeAllUserSessions ĐÚNG 2 tham số,
-  //    KHÔNG exceptSessionId: session hiện tại (nếu có) cũng chết (Review Focus 3).
+  // 7) Mật khẩu mới + thu hồi MỌI session trong CÙNG transaction (review fix #3,
+  //    Review Focus 3): hai statement rời → thất bại giữa chừng để lại mật khẩu
+  //    mới + session cũ còn tác quyền. hashPassword NGOÀI tx (bcrypt chậm —
+  //    không giữ tx). revokeAllUserSessionsTx KHÔNG exceptSessionId: session
+  //    hiện tại (nếu có) cũng chết — stale-session reuse sau recovery đóng.
   const passwordHash = await hashPassword(newPassword);
-  await db.orm.public.User.where({ id: user.id }).updateAll({ passwordHash });
-  await revokeAllUserSessions(user.id, "password_recovery");
+  await db.transaction(async (tx) => {
+    await tx.orm.public.User.where({ id: user.id }).updateAll({ passwordHash });
+    await revokeAllUserSessionsTx(tx, user.id, "password_recovery");
+  });
 
-  // 6) Audit + notify + security notice — fail-open: completion không phụ thuộc
+  // 8) Audit + notify + security notice — fail-open: completion không phụ thuộc
   //    bảng audit/hệ thống notice (và trạng thái hỏng không thành oracle enumeration).
   try {
     await auditEvent({
@@ -260,17 +346,34 @@ export async function confirmPasswordRecoveryAction(
   } catch (e) {
     captureError("recovery", e, { action: "recovery_completed_notify" });
   }
-  try {
-    // spec §7.7 "notify previous verified channels when feasible" — kênh đã
-    // xác minh vừa dùng; adapter tự fail-open (sendSecurityNotice không throw,
-    // KHÔNG log body/target — spec §4.8).
-    await getOtpDeliveryAdapter().sendSecurityNotice({
-      to: target,
-      channel,
-      subjectKey: "password_reset",
-    });
-  } catch {
-    // belt & suspenders — notice không bao giờ chặn completion
+
+  // 9) Security notice tới MỌI kênh ĐÃ XÁC MINH của user (review fix #1, spec
+  //    §5.3.1/§7.7) — KHÔNG chỉ kênh vừa dùng: kẻ chiếm SIM/email đang giữ
+  //    kênh đó, kênh còn lại của nạn nhân phải được báo để phát hiện chiếm tài
+  //    khoản. Dùng identifier ĐÃ CHUẨN HÓA từ DB; fail-open từng kênh.
+  const verifiedNotices: Array<{ to: string; channel: OtpChannel }> = [];
+  if (user.emailVerifiedAt !== null) {
+    verifiedNotices.push({ to: normalizeEmail(user.email), channel: "email" });
+  }
+  if (user.phoneVerifiedAt !== null && user.phone !== null) {
+    try {
+      verifiedNotices.push({ to: normalizePhone(user.phone), channel: "phone" });
+    } catch {
+      // phone lưu dạng không normalize được → bỏ kênh này (fail-open, KHÔNG log raw)
+    }
+  }
+  for (const notice of verifiedNotices) {
+    try {
+      // Adapter tự fail-open (sendSecurityNotice không throw, KHÔNG log
+      // body/target — spec §4.8).
+      await getOtpDeliveryAdapter().sendSecurityNotice({
+        to: notice.to,
+        channel: notice.channel,
+        subjectKey: "password_reset",
+      });
+    } catch {
+      // belt & suspenders — notice không bao giờ chặn completion
+    }
   }
 
   return { success: RECOVERY_COMPLETED_MESSAGE };

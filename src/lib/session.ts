@@ -217,6 +217,30 @@ export async function revokeAllUserSessions(
   return revoked.length;
 }
 
+/** Tx context của db.transaction — cùng shape src/lib/actions/helpers.ts. */
+type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * Thu hồi mọi session active của user BÊN TRONG transaction truyền vào —
+ * Task 7 fix: đặt mật khẩu mới (recovery) + thu hồi session phải sống chết
+ * cùng MỘT tx (Review Focus 3 — hai statement rời để lại mật khẩu mới +
+ * session cũ còn tác quyền nếu thất bại giữa chừng). KHÔNG exceptSessionId:
+ * recovery thu hồi TẤT CẢ, kể cả session hiện tại.
+ * Hành vi giống revokeAllUserSessions (idempotent với session đã revoke,
+ * không đụng user khác) — variant này không có except (chưa có caller cần).
+ */
+export async function revokeAllUserSessionsTx(
+  tx: TxContext,
+  userId: string,
+  reason: string,
+): Promise<number> {
+  const revoked = await tx.orm.public.UserSession
+    .where({ userId })
+    .where((s) => s.revokedAt.isNull())
+    .updateAll({ revokedAt: nowIso(), revokedReason: reason });
+  return revoked.length;
+}
+
 /**
  * Inventory session active của user (chưa revoke, chưa hết hạn), mới nhất trước.
  * Task 9 render danh sách này cho user; admin view dùng cho user khác.

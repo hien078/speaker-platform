@@ -13,6 +13,8 @@
  *  3. getSessionFromCookie: null cho token unknown / revoked / expired / rác.
  *  4. Session bị revoke → lookup ở request sau trả null (Review Focus 3).
  *  5. revokeAllUserSessions giữ session except, revoke còn lại, trả count.
+ *     (Task 7 fix) revokeAllUserSessionsTx — thu hồi mọi session active BÊN
+ *     TRONG transaction truyền vào (password + revoke cùng tx — atomic).
  *  6. stepUpIsFresh: true trong 15 phút, false khi cũ hơn, false khi null.
  *  7. Session fixation: hai createSession liên tiếp → token khác nhau
  *     (fresh random mỗi login — cookie pre-auth bị bỏ khi rotate).
@@ -163,11 +165,13 @@ import {
   getSessionFromCookie,
   revokeSession,
   revokeAllUserSessions,
+  revokeAllUserSessionsTx,
   listUserSessions,
   markSessionSteppedUp,
   touchSessionLastSeen,
   stepUpIsFresh,
 } from "@/src/lib/session";
+import { db } from "@/src/prisma/db.client";
 import { destroySession, getCurrentUser } from "@/src/lib/auth";
 
 const sha256Hex = (v: string) => createHash("sha256").update(v).digest("hex");
@@ -406,6 +410,52 @@ describe("revoke helpers", () => {
     const count = await revokeAllUserSessions(BUYER.id as string, "logout_all");
     expect(count).toBe(1);
     expect(dbState.sessions.find((r) => r.userId === ADMIN.id)!.revokedAt).toBeNull();
+  });
+
+  it("revokeAllUserSessionsTx — thu hồi mọi session active BÊN TRONG transaction (Task 7 fix #3: password + revoke cùng tx, Review Focus 3)", async () => {
+    // Seed trực tiếp: buyer 2 active + 1 đã revoke (reason cũ), admin 1 active
+    const future = new Date(Date.now() + 3_600_000).toISOString();
+    const past = new Date(Date.now() - 3_600_000).toISOString();
+    const seed = (id: string, userId: string, revokedAt: string | null, revokedReason: string | null) => ({
+      id,
+      userId,
+      tokenHash: sha256Hex(`${id}-token`),
+      isAdmin: false,
+      createdAt: past,
+      lastSeenAt: null,
+      expiresAt: future,
+      revokedAt,
+      revokedReason,
+      steppedUpAt: null,
+      userAgent: null,
+    });
+    dbState.sessions.push(
+      seed("tx-s1", BUYER.id as string, null, null),
+      seed("tx-s2", BUYER.id as string, past, "logout"),
+      seed("tx-s3", BUYER.id as string, null, null),
+      seed("tx-s4", ADMIN.id as string, null, null),
+    );
+
+    // tx mô phỏng db.transaction callback — cùng orm (recovery.ts gọi trong db.transaction)
+    type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
+    const tx = { orm: db.orm } as unknown as TxContext;
+
+    const count = await revokeAllUserSessionsTx(tx, BUYER.id as string, "password_recovery");
+    expect(count).toBe(2); // 2 active của buyer — session đã revoke không đếm lại
+
+    const s1 = dbState.sessions.find((r) => r.id === "tx-s1")!;
+    const s3 = dbState.sessions.find((r) => r.id === "tx-s3")!;
+    expect(s1.revokedAt).not.toBeNull();
+    expect(s1.revokedReason).toBe("password_recovery");
+    expect(s3.revokedAt).not.toBeNull();
+    expect(s3.revokedReason).toBe("password_recovery");
+
+    // Session đã revoke từ trước → reason GỐC giữ nguyên (idempotent — không ghi đè)
+    const s2 = dbState.sessions.find((r) => r.id === "tx-s2")!;
+    expect(s2.revokedReason).toBe("logout");
+
+    // KHÔNG đụng session của user khác
+    expect(dbState.sessions.find((r) => r.id === "tx-s4")!.revokedAt).toBeNull();
   });
 
   it("listUserSessions — inventory active (chưa revoke, chưa hết hạn)", async () => {

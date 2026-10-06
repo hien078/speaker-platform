@@ -4,23 +4,28 @@
  * MỌI session kể cả session hiện tại — Review Focus 3).
  *
  * Cơ chế mock: `server-only` + `next/headers` (headers điều khiển được cho IP
- * rate limit + ipHash audit) + `@/src/prisma/db.client` (in-memory User +
- * OtpCode store, AuditEvent/Notification create spy) + `@/src/lib/session`
- * (revokeAllUserSessions SPY — đúng seam recovery.ts tiêu thụ) +
+ * rate limit + ipHash audit) + `next/server` (after() — callback schedule
+ * post-response, chạy thủ công qua runScheduledAfter) + `@/src/prisma/db.client`
+ * (in-memory User + OtpCode store, AuditEvent/Notification create spy,
+ * transaction truyền tx = { orm } cho callback) + `@/src/lib/session`
+ * (revokeAllUserSessionsTx SPY — đúng seam recovery.ts tiêu thụ) +
  * `@/src/lib/verification-delivery` (adapter spy). OTP core, rate limiter,
  * hashPassword GIỮ BẢN THẬT — cùng phong cách otp.test.ts / session.test.ts.
  *
- * Hợp đồng (plan Task 7 Step 1 — recovery-abuse gate):
+ * Hợp đồng (plan Task 7 Step 1 — recovery-abuse gate + REVIEW FIX):
  *  1. requestPasswordRecoveryAction trả CÙNG thông báo trung tính byte-đối-byte
  *     cho identifier có thật lẫn không khớp (spec §7.7 chống enumeration) —
  *     pin bằng capture từ một request control, KHÔNG import constant (file
  *     "use server" chỉ export được async function — message sống trong module).
  *  2. Identifier không khớp → KHÔNG gửi OTP (adapter spy không gọi) NHƯNG vẫn
  *     tiêu tốn budget IP rate limit (chống spam dò).
- *  3. confirmPasswordRecoveryAction mã hợp lệ → hash mới + revokeAllUserSessions
- *     gọi KHÔNG exceptSessionId (Review Focus 3 — stale-session reuse sau
- *     recovery: session tạo TRƯỚC khi reset không còn tác quyền).
- *  4. Sai/hết hạn/dùng lại mã → lỗi typed, mật khẩu KHÔNG đổi.
+ *  3. confirmPasswordRecoveryAction mã hợp lệ → hash mới + revoke MỌI session
+ *     BÊN TRONG MỘT db.transaction (review fix #3: password update +
+ *     revokeAllUserSessionsTx cùng tx — thất bại giữa chừng không để lại mật
+ *     khẩu mới + session cũ còn tác quyền) — KHÔNG exceptSessionId (Review
+ *     Focus 3 — stale-session reuse sau recovery).
+ *  4. Sai/hết hạn/dùng lại mã → lỗi typed byte-đối-byte như nhau, mật khẩu
+ *     KHÔNG đổi.
  *  5. Tài khoản có phone ĐÃ XÁC MINH → OTP channel=phone (lost-email path)
  *     và ngược lại email → channel=email.
  *  6. Identifier khớp kênh CHƯA XÁC MINH → thông báo trung tính, KHÔNG OTP
@@ -33,9 +38,22 @@
  * 10. (collapse) Mọi error code OTP (cooldown/per-target/delivery) của request
  *     path và mọi failure code verify của confirm path COLLAPSE về cùng thông
  *     báo — không phân biệt được "tồn tại nhưng bị chặn" vs "không tồn tại".
- * 11. (spec §7.1) Confirm cũng có IP rate limit riêng (OTP verify endpoint).
- * 12. (spec §4.8) Không log/emit identifier thô (email/phone) hay mã OTP qua
- *     console/captureEvent ở bất kỳ path nào.
+ * 11. (spec §7.1) Confirm có IP rate limit riêng + PER-IDENTIFIER limit keyed
+ *     bằng HMAC hash của identifier chuẩn hóa (review fix #4) — limit theo
+ *     identifier trả CÙNG lỗi collapsed (không cho kẻ dò phân biệt).
+ * 12. (spec §4.8) Không log/emit identifier thô (email/phone), mã OTP, MẬT
+ *     KHẨU qua console/captureEvent/captureError ở bất kỳ path nào.
+ * 13. (review fix #2 — timing oracle) Matched path KHÔNG chờ requestOtp/audit:
+ *     action trả trung tính NGAY (after() schedule post-response) — adapter
+ *     promise không bao giờ resolve vẫn trả response; requestOtp throw vẫn trả
+ *     CÙNG thông báo trung tính (lỗi được captureError, không PII).
+ * 14. (review fix #1 — notice mọi kênh) Completion gửi security notice tới
+ *     MỌI kênh ĐÃ XÁC MINH của user (emailVerifiedAt/phoneVerifiedAt != null),
+ *     không chỉ kênh vừa dùng — kẻ chiếm SIM/email giữ kênh đó, kênh còn lại
+ *     của nạn nhân phải được báo (spec §5.3.1/§7.7).
+ * 15. (review fix #5 — test gaps) Mã của purpose KHÁC (email_verification)
+ *     không dùng được cho recovery; confirm với mã HỢP LỆ nhưng kênh CHƯA xác
+ *     minh (row seed trực tiếp) vẫn fail và mã không bị consume.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,10 +76,29 @@ vi.mock("next/headers", () => ({
   })),
 }));
 
-// ─── Session seam — revokeAllUserSessions SPY (Review Focus 3) ────────────────
+// ─── after() từ next/server — schedule post-response, chạy thủ công ──────────
+
+const afterState = vi.hoisted(() => ({
+  callbacks: [] as Array<() => Promise<void>>,
+}));
+
+vi.mock("next/server", () => ({
+  after: (fn: () => Promise<void>) => {
+    afterState.callbacks.push(fn);
+  },
+}));
+
+/** Chạy MỌI callback after() đã schedule (đúng thứ tự) — mô phỏng post-response. */
+const runScheduledAfter = async (): Promise<void> => {
+  const fns = afterState.callbacks.splice(0);
+  for (const fn of fns) await fn();
+};
+
+// ─── Session seam — revokeAllUserSessionsTx SPY (Review Focus 3, atomic) ─────
 
 const sessionSpies = vi.hoisted(() => ({
   revokeAllUserSessions: vi.fn(async () => 3),
+  revokeAllUserSessionsTx: vi.fn(async () => 3),
 }));
 
 vi.mock("@/src/lib/session", () => ({
@@ -70,6 +107,7 @@ vi.mock("@/src/lib/session", () => ({
   getSessionFromCookie: vi.fn(async () => null),
   revokeSession: vi.fn(async () => {}),
   revokeAllUserSessions: sessionSpies.revokeAllUserSessions,
+  revokeAllUserSessionsTx: sessionSpies.revokeAllUserSessionsTx,
 }));
 
 // ─── Adapter delivery spy — sendOtp/sendSecurityNotice ───────────────────────
@@ -95,6 +133,10 @@ const dbState = vi.hoisted(() => ({
   otpRows: [] as Array<Record<string, unknown>>,
   auditRows: [] as Array<Record<string, unknown>>,
   notificationRows: [] as Array<Record<string, unknown>>,
+  /** ép OtpCode.create throw — chứng minh requestOtp throw không thành oracle (fix #2). */
+  failOtpCreate: false,
+  /** tx object mà db.transaction truyền vào callback — assert revokeAllUserSessionsTx nhận đúng tx (fix #3). */
+  tx: null as unknown,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -147,6 +189,7 @@ vi.mock("@/src/prisma/db.client", () => {
       return hits.map((r) => ({ ...r }));
     },
     create: async (data: Row) => {
+      if (dbState.failOtpCreate) throw new Error("DB_DOWN_OTP_CREATE");
       const row = {
         id: `otp-${dbState.otpRows.length + 1}`,
         attempts: 0,
@@ -172,47 +215,57 @@ vi.mock("@/src/prisma/db.client", () => {
     },
   });
 
+  const orm = {
+    public: {
+      User: {
+        where: (pred: Pred) => userQuery([pred]),
+      },
+      OtpCode: {
+        where: (pred: Pred) => otpQuery([pred]),
+        create: (data: Row) => otpQuery([]).create(data),
+      },
+      AuditEvent: {
+        create: vi.fn(async (data: Row) => {
+          dbState.auditRows.push(data);
+          return data;
+        }),
+      },
+      Notification: {
+        create: vi.fn(async (data: Row) => {
+          dbState.notificationRows.push(data);
+          return data;
+        }),
+      },
+    },
+  };
+
   return {
     db: {
-      orm: {
-        public: {
-          User: {
-            where: (pred: Pred) => userQuery([pred]),
-          },
-          OtpCode: {
-            where: (pred: Pred) => otpQuery([pred]),
-            create: (data: Row) => otpQuery([]).create(data),
-          },
-          AuditEvent: {
-            create: vi.fn(async (data: Row) => {
-              dbState.auditRows.push(data);
-              return data;
-            }),
-          },
-          Notification: {
-            create: vi.fn(async (data: Row) => {
-              dbState.notificationRows.push(data);
-              return data;
-            }),
-          },
-        },
-      },
-      transaction: vi.fn(),
+      orm,
+      transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = { orm };
+        dbState.tx = tx;
+        return fn(tx);
+      }),
     },
   };
 });
 
+import { db } from "@/src/prisma/db.client";
 import {
   requestPasswordRecoveryAction,
   confirmPasswordRecoveryAction,
   type RecoveryFormState,
 } from "@/src/lib/actions/recovery";
-import { revokeAllUserSessions } from "@/src/lib/session";
+import { revokeAllUserSessions, revokeAllUserSessionsTx } from "@/src/lib/session";
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { verifyPassword } from "@/src/lib/auth";
+import { requestOtp } from "@/src/lib/otp";
 import * as observability from "@/src/lib/observability";
 
 const revokeAllSpy = vi.mocked(revokeAllUserSessions);
+const revokeAllTxSpy = vi.mocked(revokeAllUserSessionsTx);
+const transactionMock = vi.mocked(db.transaction);
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -242,22 +295,25 @@ const confirmRecovery = (fields: Record<string, string>): Promise<RecoveryFormSt
 const EMAIL = "nguoi.mua@loaviet.test";
 const PHONE = "0901234567";
 const CONTROL_EMAIL = "control@loaviet.test";
+const VERIFIED_AT = "2026-10-01T00:00:00.000Z";
 
 /**
  * Capture thông báo trung tính từ một request control (tài khoản có email đã
  * xác minh) — mọi outcome khác phải byte-equal chuỗi này. Không import constant
- * từ module "use server" (chỉ export được async function).
+ * từ module "use server" (chỉ export được async function). Chạy after() của
+ * control để OTP/audit của control xảy ra (mô phỏng post-response thật).
  */
 const captureNeutralMessage = async (): Promise<string> => {
   dbState.users.push(
     makeUser({
       id: "user-control",
       email: CONTROL_EMAIL,
-      emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+      emailVerifiedAt: VERIFIED_AT,
       phone: null,
     }),
   );
   const res = await requestRecovery(CONTROL_EMAIL);
+  await runScheduledAfter(); // requestOtp + audit của control (post-response)
   if (res.success === undefined) throw new Error("fixture control phải ra thông báo trung tính");
   return res.success;
 };
@@ -276,6 +332,14 @@ const wrongCodeFor = (code: string): string => (code === "000000" ? "999999" : "
 const sentTargets = (): string[] =>
   delivery.sendOtp.mock.calls.map((c) => (c[0] as { to: string }).to);
 
+/** Yêu cầu mã cho EMAIL (user-1) + chạy after() — trả mã plaintext. */
+const requestCode = async (identifier: string = EMAIL): Promise<string> => {
+  const res = await requestRecovery(identifier);
+  await runScheduledAfter();
+  expect(res.success).toBeDefined();
+  return lastSentCode();
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("NODE_ENV", "test");
@@ -285,9 +349,14 @@ beforeEach(() => {
   dbState.otpRows.length = 0;
   dbState.auditRows.length = 0;
   dbState.notificationRows.length = 0;
+  dbState.failOtpCreate = false;
+  dbState.tx = null;
+  afterState.callbacks.length = 0;
   delivery.sendOtp.mockReset().mockResolvedValue(undefined);
   delivery.sendSecurityNotice.mockReset().mockResolvedValue(undefined);
   revokeAllSpy.mockReset().mockResolvedValue(3);
+  revokeAllTxSpy.mockReset().mockResolvedValue(3);
+  transactionMock.mockClear();
   resetRateLimits();
 });
 
@@ -302,10 +371,11 @@ describe("requestPasswordRecoveryAction — thông báo trung tính (spec §7.7)
   it("identifier CÓ TÀI KHOẢN khớp và identifier KHÔNG khớp → CÙNG thông báo byte-đối-byte", async () => {
     const neutral = await captureNeutralMessage(); // control: email đã xác minh
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     const existing = await requestRecovery(EMAIL);
+    await runScheduledAfter(); // requestOtp + audit của identifier có thật (post-response)
     const unknown = await requestRecovery("khong.co@loaviet.test");
 
     // Byte-equal — không phân biệt được tồn tại hay không (spec §7.7)
@@ -330,7 +400,7 @@ describe("requestPasswordRecoveryAction — thông báo trung tính (spec §7.7)
     // Request thứ 6 (identifier CÓ thật) → bị chặn vì budget IP đã cạn —
     // kẻ spam dò identifier lạ không mua được thêm budget cho identifier thật.
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
     const sixth = await requestRecovery(EMAIL);
     expect(sixth.success).toBeUndefined();
@@ -347,7 +417,7 @@ describe("requestPasswordRecoveryAction — thông báo trung tính (spec §7.7)
     const res = await requestRecovery(EMAIL);
     expect(res).toEqual({ success: neutral });
     expect(sentTargets()).not.toContain(EMAIL);
-    expect(dbState.otpRows).toHaveLength(1); // chỉ row của control
+    expect(dbState.otpRows.filter((r) => r.target === EMAIL)).toHaveLength(0);
   });
 
   it("identifier khớp phone CHƯA XÁC MINH → thông báo trung tính, KHÔNG OTP", async () => {
@@ -377,18 +447,19 @@ describe("requestPasswordRecoveryAction — thông báo trung tính (spec §7.7)
   it("identifier khớp đúng user sở hữu kênh đó — không cross-channel (phone của user-2 không khớp user-1)", async () => {
     await captureNeutralMessage();
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
       makeUser({
         id: "user-2",
         email: "khac@loaviet.test",
-        emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+        emailVerifiedAt: VERIFIED_AT,
         phone: PHONE,
-        phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+        phoneVerifiedAt: VERIFIED_AT,
       }),
     );
 
     // Nhập PHONE (của user-2) → khớp user-2 qua kênh phone ĐÃ xác minh
     const res = await requestRecovery(PHONE);
+    await runScheduledAfter();
     expect(res.success).toBeDefined();
     const sent = delivery.sendOtp.mock.calls
       .map((c) => c[0] as { to: string; purpose: string; channel: string })
@@ -406,14 +477,15 @@ describe("requestPasswordRecoveryAction — kênh OTP theo identifier (lost-emai
       makeUser({
         id: "user-1",
         email: EMAIL,
-        emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+        emailVerifiedAt: VERIFIED_AT,
         phone: PHONE,
-        phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+        phoneVerifiedAt: VERIFIED_AT,
       }),
     );
 
     // Mất email → nhập phone → mã tới phone
     await requestRecovery(PHONE);
+    await runScheduledAfter();
     const sent = delivery.sendOtp.mock.calls
       .map((c) => c[0] as { to: string; channel: string; purpose: string })
       .find((p) => p.to === PHONE);
@@ -426,14 +498,15 @@ describe("requestPasswordRecoveryAction — kênh OTP theo identifier (lost-emai
       makeUser({
         id: "user-1",
         email: EMAIL,
-        emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+        emailVerifiedAt: VERIFIED_AT,
         phone: PHONE,
-        phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+        phoneVerifiedAt: VERIFIED_AT,
       }),
     );
 
     // Mất phone → nhập email → mã tới email
     await requestRecovery(EMAIL);
+    await runScheduledAfter();
     const sent = delivery.sendOtp.mock.calls
       .map((c) => c[0] as { to: string; channel: string; purpose: string })
       .find((p) => p.to === EMAIL);
@@ -443,10 +516,11 @@ describe("requestPasswordRecoveryAction — kênh OTP theo identifier (lost-emai
   it("identifier có user khớp → audit 'user.recovery_requested' (không PII trong detail)", async () => {
     await captureNeutralMessage();
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     await requestRecovery(EMAIL);
+    await runScheduledAfter();
     const row = dbState.auditRows.find(
       (r) => r.action === "user.recovery_requested" && r.actorId === "user-1",
     );
@@ -462,12 +536,57 @@ describe("requestPasswordRecoveryAction — kênh OTP theo identifier (lost-emai
   });
 });
 
+// ─── 13. Review fix #2 — matched path không chờ delivery/audit (timing) ───────
+
+describe("requestPasswordRecoveryAction — after(): response không chờ matched-path work (review fix #2)", () => {
+  it("adapter promise KHÔNG BAO GIỜ resolve → action vẫn trả thông báo trung tính NGAY (không await requestOtp)", async () => {
+    const neutral = await captureNeutralMessage();
+    dbState.users.push(
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
+    );
+    // Provider treo vĩnh viễn — nếu action await requestOtp thì request này treo theo
+    delivery.sendOtp.mockImplementation(() => new Promise<void>(() => {}));
+
+    const res = await requestRecovery(EMAIL);
+    // Trả NGAY với đúng thông báo trung tính — không phụ thuộc delivery
+    expect(res).toEqual({ success: neutral });
+    // Work matched-path được schedule (after) chứ KHÔNG chạy trong request
+    expect(afterState.callbacks).toHaveLength(1);
+    // KHÔNG chạy callback ở đây — promise treo; beforeEach dọn sạch
+  });
+
+  it("requestOtp throw (db lỗi) → action vẫn trả CÙNG thông báo trung tính; lỗi captureError KHÔNG PII", async () => {
+    const neutral = await captureNeutralMessage();
+    dbState.users.push(
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
+    );
+    dbState.failOtpCreate = true; // OtpCode.create throw → requestOtp throw
+    const errSpy = vi.spyOn(observability, "captureError").mockImplementation(() => {});
+
+    try {
+      const res = await requestRecovery(EMAIL);
+      // CÙNG thông báo trung tính — throw trên matched path KHÔNG thành oracle
+      // tồn tại (unknown path trả trung tính, matched path cũng phải vậy)
+      expect(res).toEqual({ success: neutral });
+
+      await runScheduledAfter(); // callback chạy post-response, tự bắt lỗi
+      expect(errSpy).toHaveBeenCalled();
+      // captureError args KHÔNG chứa identifier thô (spec §4.8)
+      for (const call of errSpy.mock.calls) {
+        expect(JSON.stringify(call)).not.toContain(EMAIL);
+      }
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
+
 // ─── 8+9+10. Rate limit IP + validation + collapse lỗi OTP ─────────────────────
 
 describe("requestPasswordRecoveryAction — rate limit + validation + collapse", () => {
   it("IP rate limit: request thứ 6 trong 10 phút → lỗi form rate-limit (5 / 10 phút / IP)", async () => {
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     // 5 request đầu (identifier lạ, không tốn OTP) → đều qua được limiter
@@ -487,7 +606,7 @@ describe("requestPasswordRecoveryAction — rate limit + validation + collapse",
 
   it("hết window 10 phút → budget IP reset, request lại được", async () => {
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     for (let i = 0; i < 5; i++) await requestRecovery(`khong.co.${i}@loaviet.test`);
@@ -501,7 +620,7 @@ describe("requestPasswordRecoveryAction — rate limit + validation + collapse",
 
   it("identifier không đúng dạng email CŨNG phone → lỗi nhập liệu TRƯỚC khi tra cứu (không đụng db)", async () => {
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     // 5 giá trị rác — đúng budget IP 5/10 phút, không request nào chạm db
@@ -519,11 +638,13 @@ describe("requestPasswordRecoveryAction — rate limit + validation + collapse",
   it("cooldown OTP (request thứ 2 trong 60s cho identifier có thật) → COLLAPSE về cùng thông báo trung tính", async () => {
     const neutral = await captureNeutralMessage();
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
 
     const first = await requestRecovery(EMAIL);
-    const second = await requestRecovery(EMAIL); // requestOtp → OTP_RATE_LIMITED (cooldown)
+    await runScheduledAfter(); // request 1: tạo row + gửi mã (post-response)
+    const second = await requestRecovery(EMAIL);
+    await runScheduledAfter(); // request 2: cooldown chặn — không mã thứ hai
     // Collapse: kẻ dò không phân biệt được "tồn tại nhưng cooldown" vs "không tồn tại"
     expect(first).toEqual({ success: neutral });
     expect(second).toEqual({ success: neutral });
@@ -534,32 +655,30 @@ describe("requestPasswordRecoveryAction — rate limit + validation + collapse",
   it("delivery fail (adapter throw) → COLLAPSE về cùng thông báo trung tính (provider fail-closed không thành oracle)", async () => {
     const neutral = await captureNeutralMessage();
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
     delivery.sendOtp.mockImplementationOnce(() => {
       throw new Error("provider down");
     });
 
     const res = await requestRecovery(EMAIL);
+    await runScheduledAfter(); // requestOtp tự catch → xoá row → typed error → collapse
     expect(res).toEqual({ success: neutral });
+    // Row mồ côi bị xoá (không mã đã hash nhưng chưa ai nhận)
+    expect(dbState.otpRows.filter((r) => r.target === EMAIL)).toHaveLength(0);
   });
 });
 
-// ─── 3+4. Confirm — hash mới + revoke MỌI session + lỗi typed ─────────────────
+// ─── 3+4+11+14. Confirm — tx atomic + revoke mọi session + lỗi typed ──────────
 
 describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồi mọi session", () => {
   const seedVerifiedEmailUser = (): void => {
     dbState.users.push(
-      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: "2026-10-01T00:00:00.000Z", phone: null }),
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: VERIFIED_AT, phone: null }),
     );
   };
 
-  const requestCode = async (): Promise<string> => {
-    await requestRecovery(EMAIL);
-    return lastSentCode();
-  };
-
-  it("mã hợp lệ → hash mật khẩu MỚI (verify được) + revokeAllUserSessions KHÔNG exceptSessionId (Review Focus 3)", async () => {
+  it("mã hợp lệ → hash mới trong CÙNG tx với revokeAllUserSessionsTx KHÔNG exceptSessionId (Review Focus 3 + fix #3 atomic)", async () => {
     seedVerifiedEmailUser();
     const code = await requestCode();
 
@@ -572,16 +691,19 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(res.success).toBeDefined();
     expect(res.error).toBeUndefined();
 
+    // Mật khẩu mới + thu hồi session sống chết cùng MỘT transaction (fix #3) —
+    // thất bại giữa chừng không để lại mật khẩu mới + session cũ còn tác quyền.
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(revokeAllTxSpy).toHaveBeenCalledTimes(1);
+    expect(revokeAllTxSpy).toHaveBeenCalledWith(dbState.tx, "user-1", "password_recovery");
+    // Variant non-tx KHÔNG được dùng (đường rời đã bỏ)
+    expect(revokeAllSpy).not.toHaveBeenCalled();
+
     // Hash mới — mật khẩu cũ KHÔNG còn verify được, mật khẩu mới verify được
     const user = dbState.users.find((u) => u.id === "user-1")!;
     expect(user.passwordHash).not.toBe(OLD_HASH);
     expect(await verifyPassword("mat-khau-moi-123", user.passwordHash as string)).toBe(true);
     expect(await verifyPassword("mat-kau-cu-123", user.passwordHash as string)).toBe(false);
-
-    // Review Focus 3: revoke MỌI session — gọi ĐÚNG 2 tham số, KHÔNG có
-    // exceptSessionId (session hiện tại cũng chết — stale-session reuse đóng).
-    expect(revokeAllSpy).toHaveBeenCalledTimes(1);
-    expect(revokeAllSpy).toHaveBeenCalledWith("user-1", "password_recovery");
 
     // audit "user.recovery_completed" + notify in-app + security notice kênh đã xác minh
     expect(
@@ -593,30 +715,69 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     );
   });
 
-  it("mã hợp lệ qua kênh PHONE đã xác minh → hash mới + revoke mọi session (lost-email path khép kín)", async () => {
+  it("mã hợp lệ qua kênh PHONE đã xác minh → hash mới + revoke mọi session trong tx (lost-email path khép kín)", async () => {
     dbState.users.push(
       makeUser({
         id: "user-1",
         email: EMAIL,
         emailVerifiedAt: null,
         phone: PHONE,
-        phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+        phoneVerifiedAt: VERIFIED_AT,
       }),
     );
-    await requestRecovery(PHONE);
-    const code = lastSentCode();
+    const code = await requestCode(PHONE);
 
     const res = await confirmRecovery({ identifier: PHONE, code, newPassword: "moi-moi-moi" });
     expect(res.success).toBeDefined();
     const user = dbState.users.find((u) => u.id === "user-1")!;
     expect(await verifyPassword("moi-moi-moi", user.passwordHash as string)).toBe(true);
-    expect(revokeAllSpy).toHaveBeenCalledWith("user-1", "password_recovery");
+    expect(transactionMock).toHaveBeenCalledTimes(1);
+    expect(revokeAllTxSpy).toHaveBeenCalledWith(dbState.tx, "user-1", "password_recovery");
     expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
       expect.objectContaining({ to: PHONE, channel: "phone" }),
     );
   });
 
-  it("sai mã → lỗi typed, mật khẩu KHÔNG đổi, KHÔNG revoke session nào", async () => {
+  it("(fix #1) notice gửi tới MỌI kênh ĐÃ XÁC MINH — recover qua phone → EMAIL cũ cũng được báo (và ngược lại)", async () => {
+    dbState.users.push(
+      makeUser({
+        id: "user-1",
+        email: EMAIL,
+        emailVerifiedAt: VERIFIED_AT,
+        phone: PHONE,
+        phoneVerifiedAt: VERIFIED_AT,
+      }),
+    );
+
+    // Flow A: mất email → recover qua PHONE → notice phải tới CẢ phone LẪN email
+    const codePhone = await requestCode(PHONE);
+    const viaPhone = await confirmRecovery({ identifier: PHONE, code: codePhone, newPassword: "lan-phone-123" });
+    expect(viaPhone.success).toBeDefined();
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: PHONE, channel: "phone", subjectKey: "password_reset" }),
+    );
+    // Kênh email (KHÔNG dùng cho recovery) CŨNG được báo — nạn nhân thấy chiếm tài khoản
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: EMAIL, channel: "email", subjectKey: "password_reset" }),
+    );
+
+    // Flow B (vice versa): mất phone → recover qua EMAIL → notice tới CẢ hai kênh
+    delivery.sendSecurityNotice.mockClear();
+    vi.advanceTimersByTime(61_000); // qua cooldown OTP 60s
+    const codeEmail = await requestCode(EMAIL);
+    const viaEmail = await confirmRecovery({ identifier: EMAIL, code: codeEmail, newPassword: "lan-email-123" });
+    expect(viaEmail.success).toBeDefined();
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: EMAIL, channel: "email" }),
+    );
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: PHONE, channel: "phone" }),
+    );
+    // Mỗi completion → đúng 2 notice (mỗi kênh đã xác minh 1 lần)
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledTimes(2);
+  });
+
+  it("sai mã → lỗi typed, mật khẩu KHÔNG đổi, KHÔNG revoke session nào, KHÔNG mở tx", async () => {
     seedVerifiedEmailUser();
     const code = await requestCode();
 
@@ -629,6 +790,8 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(res.success).toBeUndefined();
     expect(res.error).toBeDefined();
     expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
+    expect(transactionMock).not.toHaveBeenCalled();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
     expect(revokeAllSpy).not.toHaveBeenCalled();
     expect(
       dbState.auditRows.find((r) => r.action === "user.recovery_completed"),
@@ -644,7 +807,7 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(res.success).toBeUndefined();
     expect(res.error).toBeDefined();
     expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
-    expect(revokeAllSpy).not.toHaveBeenCalled();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
   });
 
   it("dùng lại mã đã consume → cùng lỗi collapsed (single-use, spec §5.3)", async () => {
@@ -681,7 +844,82 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(unknown.error).toBe(wrongCode.error);
     expect(unknown.success).toBeUndefined();
     expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
-    expect(revokeAllSpy).not.toHaveBeenCalled();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
+  });
+
+  it("(fix #5) confirm với mã HỢP LỆ nhưng kênh CHƯA xác minh (row seed trực tiếp) → vẫn fail, mã KHÔNG bị consume", async () => {
+    dbState.users.push(
+      makeUser({ id: "user-1", email: EMAIL, emailVerifiedAt: null, phone: null }),
+    );
+    // Row OTP hợp lệ tồn tại (seed trực tiếp qua OTP core — bypass action) —
+    // kẻ có mã thật cũng KHÔNG đặt lại được qua kênh chưa xác minh
+    const seeded = await requestOtp({
+      userId: "user-1",
+      purpose: "password_recovery",
+      channel: "email",
+      target: EMAIL,
+    });
+    expect(seeded.ok).toBe(true);
+    const code = lastSentCode();
+
+    const res = await confirmRecovery({ identifier: EMAIL, code, newPassword: "gi-do-123" });
+    expect(res.success).toBeUndefined();
+    expect(res.error).toBeDefined();
+    expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
+    // Mã KHÔNG bị consume — verified-channel check chặn TRƯỚC verifyOtp
+    expect(dbState.otpRows.find((r) => r.target === EMAIL)!.consumedAt).toBeNull();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
+  });
+
+  it("(fix #5) mã của purpose KHÁC (email_verification) KHÔNG dùng được cho recovery (purpose binding)", async () => {
+    seedVerifiedEmailUser();
+    // Mã do luồng xác minh email (Task 6) cấp — không phải mã recovery
+    const seeded = await requestOtp({
+      userId: "user-1",
+      purpose: "email_verification",
+      channel: "email",
+      target: EMAIL,
+    });
+    expect(seeded.ok).toBe(true);
+    const code = lastSentCode();
+
+    const res = await confirmRecovery({ identifier: EMAIL, code, newPassword: "gi-do-123" });
+    expect(res.success).toBeUndefined();
+    expect(res.error).toBeDefined();
+    expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
+    // Row email_verification KHÔNG bị consume bởi recovery
+    expect(dbState.otpRows.find((r) => r.purpose === "email_verification")!.consumedAt).toBeNull();
+  });
+
+  it("(fix #5) sai / hết hạn / dùng lại → lỗi byte-đối-byte như nhau (không phân biệt loại fail)", async () => {
+    dbState.users.push(
+      makeUser({ id: "user-1", email: "mot@loaviet.test", emailVerifiedAt: VERIFIED_AT, phone: null }),
+      makeUser({ id: "user-2", email: "hai@loaviet.test", emailVerifiedAt: VERIFIED_AT, phone: null }),
+      makeUser({ id: "user-3", email: "ba@loaviet.test", emailVerifiedAt: VERIFIED_AT, phone: null }),
+    );
+
+    // user-1: sai mã
+    const code1 = await requestCode("mot@loaviet.test");
+    const wrong = await confirmRecovery({ identifier: "mot@loaviet.test", code: wrongCodeFor(code1), newPassword: "gi-do-123" });
+
+    // user-2: hết hạn
+    const code2 = await requestCode("hai@loaviet.test");
+    vi.advanceTimersByTime(10 * 60_000 + 1_000);
+    const expired = await confirmRecovery({ identifier: "hai@loaviet.test", code: code2, newPassword: "gi-do-123" });
+
+    // user-3: dùng lại mã đã consume
+    const code3 = await requestCode("ba@loaviet.test");
+    expect((await confirmRecovery({ identifier: "ba@loaviet.test", code: code3, newPassword: "lan-mot-123" })).success).toBeDefined();
+    const reused = await confirmRecovery({ identifier: "ba@loaviet.test", code: code3, newPassword: "lan-hai-123" });
+
+    // Ba lỗi byte-đối-byte như nhau — không leak LOẠI fail (spec §7.7)
+    expect(wrong.error).toBe(expired.error);
+    expect(expired.error).toBe(reused.error);
+    expect(wrong.success).toBeUndefined();
+    // Mật khẩu: user-1/2 giữ cũ, user-3 giữ của lần 1
+    expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
+    expect(dbState.users.find((u) => u.id === "user-2")!.passwordHash).toBe(OLD_HASH);
+    expect(await verifyPassword("lan-mot-123", dbState.users.find((u) => u.id === "user-3")!.passwordHash as string)).toBe(true);
   });
 
   it("identifier khớp kênh CHƯA xác minh → cùng lỗi collapsed (không đặt lại được qua kênh chưa xác minh)", async () => {
@@ -693,7 +931,7 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(res.success).toBeUndefined();
     expect(res.error).toBeDefined();
     expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
-    expect(revokeAllSpy).not.toHaveBeenCalled();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
   });
 
   it("mật khẩu mới quá ngắn → lỗi nhập liệu, mật khẩu KHÔNG đổi, mã KHÔNG bị consume", async () => {
@@ -708,7 +946,7 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(dbState.otpRows.find((r) => r.target === EMAIL)!.consumedAt).toBeNull();
   });
 
-  it("confirm cũng có IP rate limit riêng (spec §7.1 — OTP verify endpoint)", async () => {
+  it("confirm có IP rate limit riêng (spec §7.1 — OTP verify endpoint)", async () => {
     seedVerifiedEmailUser();
     const code = await requestCode();
 
@@ -722,11 +960,42 @@ describe("confirmPasswordRecoveryAction — đặt lại mật khẩu + thu hồ
     expect(eleventh.error).toContain("Quá nhiều lần thử");
     // Mã ĐÚNG cũng không qua được khi IP bị chặn — mật khẩu giữ nguyên
     expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
-    expect(revokeAllSpy).not.toHaveBeenCalled();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
+  });
+
+  it("(fix #4) per-identifier limit: confirm thứ 6 cho CÙNG identifier → CÙNG lỗi collapsed (không phải lỗi rate-limit riêng)", async () => {
+    seedVerifiedEmailUser();
+    const code = await requestCode();
+
+    // 5 lần "thử" cho EMAIL (mật khẩu rác — lỗi nhập liệu, KHÔNG đụng OTP row)
+    // vẫn tiêu tốn budget per-identifier: brute-force MỘT tài khoản từ nhiều IP
+    // không mua được thêm attempt (spec §7.1 "target resource").
+    for (let i = 0; i < 5; i++) {
+      const res = await confirmRecovery({ identifier: EMAIL, code, newPassword: "12345" });
+      expect(res.error).toBeDefined();
+      expect(res.error).not.toContain("Quá nhiều lần thử");
+    }
+    // Mã chưa bị consume, chưa bị khóa attempts
+    expect(dbState.otpRows.find((r) => r.target === EMAIL)!.consumedAt).toBeNull();
+    expect(dbState.otpRows.find((r) => r.target === EMAIL)!.attempts).toBe(0);
+
+    // Lần thứ 6 — MÃ ĐÚNG, mật khẩu hợp lệ — vẫn bị chặn theo IDENTIFIER
+    // (IP budget 10 chưa cạn: 6 < 10) và trả CÙNG lỗi collapsed như sai mã.
+    const sixth = await confirmRecovery({ identifier: EMAIL, code, newPassword: "moi-that-123" });
+    expect(sixth.success).toBeUndefined();
+    expect(sixth.error).toBeDefined();
+    expect(sixth.error).not.toContain("Quá nhiều lần thử");
+    // Byte-equal với lỗi sai mã — kẻ dò không phân biệt "identifier bị khóa" vs "mã sai"
+    const wrongRes = await confirmRecovery({ identifier: "khac.hoan-toan@loaviet.test", code, newPassword: "moi-that-123" });
+    expect(sixth.error).toBe(wrongRes.error);
+    // Mật khẩu KHÔNG đổi, mã KHÔNG bị consume (chặn trước verify)
+    expect(dbState.users.find((u) => u.id === "user-1")!.passwordHash).toBe(OLD_HASH);
+    expect(dbState.otpRows.find((r) => r.target === EMAIL)!.consumedAt).toBeNull();
+    expect(revokeAllTxSpy).not.toHaveBeenCalled();
   });
 });
 
-// ─── 12. Spec §4.8 — không emit identifier thô / mã OTP ra log ────────────────
+// ─── 12. Spec §4.8 — không emit identifier thô / mã OTP / mật khẩu ra log ────
 
 describe("recovery actions — KHÔNG emit PII/OTP ra log (spec §4.8)", () => {
   const argText = (a: unknown): string => {
@@ -739,32 +1008,37 @@ describe("recovery actions — KHÔNG emit PII/OTP ra log (spec §4.8)", () => {
     }
   };
 
-  it("mọi path (gửi, không khớp, sai mã, confirm thành công) không log email/phone/mã OTP", async () => {
+  it("mọi path (gửi, không khớp, sai mã, confirm thành công) không log email/phone/mã OTP/mật khẩu", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const eventSpy = vi.spyOn(observability, "captureEvent");
+    const errorCaptureSpy = vi.spyOn(observability, "captureError").mockImplementation(() => {});
 
     dbState.users.push(
       makeUser({
         id: "user-1",
         email: EMAIL,
-        emailVerifiedAt: "2026-10-01T00:00:00.000Z",
+        emailVerifiedAt: VERIFIED_AT,
         phone: PHONE,
-        phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+        phoneVerifiedAt: VERIFIED_AT,
       }),
     );
 
     try {
       await requestRecovery(EMAIL); // gửi thành công
+      await runScheduledAfter();
       const code = lastSentCode();
       await requestRecovery("khong.co@loaviet.test"); // không khớp
       await requestRecovery(PHONE); // kênh phone
+      await runScheduledAfter();
       await confirmRecovery({ identifier: EMAIL, code: wrongCodeFor(code), newPassword: "gi-do-123" }); // sai mã
       await confirmRecovery({ identifier: EMAIL, code, newPassword: "moi-that-123" }); // thành công
 
       const dumps: string[] = [];
-      for (const spy of [logSpy, errSpy, warnSpy, eventSpy]) {
+      for (const spy of [logSpy, errSpy, warnSpy, infoSpy, debugSpy, eventSpy, errorCaptureSpy]) {
         for (const call of spy.mock.calls) {
           for (const arg of call) dumps.push(argText(arg));
         }
@@ -773,11 +1047,17 @@ describe("recovery actions — KHÔNG emit PII/OTP ra log (spec §4.8)", () => {
       expect(dump).not.toContain(code);
       expect(dump).not.toContain(EMAIL);
       expect(dump).not.toContain(PHONE);
+      // Mật khẩu mới KHÔNG bao giờ xuất hiện ở log (spec §4.8)
+      expect(dump).not.toContain("moi-that-123");
+      expect(dump).not.toContain("gi-do-123");
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
       warnSpy.mockRestore();
+      infoSpy.mockRestore();
+      debugSpy.mockRestore();
       eventSpy.mockRestore();
+      errorCaptureSpy.mockRestore();
     }
   });
 });
