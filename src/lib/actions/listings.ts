@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { slugify } from "@/src/lib/utils";
+import { isModerationLocked } from "@/src/lib/moderation";
 import {
   assertSellerPublicationAllowed,
   formatMissingRequirements,
@@ -154,13 +155,23 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.sellerId !== user.id) return;
 
+  // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
+  // seller KHÔNG được toggle (không un-remove qua nút hiện lại); helper từ
+  // moderation vocab — KHÔNG hardcode chuỗi status.
+  if (isModerationLocked(listing.status)) {
+    throw new Error("LISTING_MODERATION_LOCKED");
+  }
+
   if (listing.status === "approved") {
     // Ẩn tin = transition RA khỏi công khai — luôn được phép (gỡ tin khỏi chợ
     // không cần gate; hiện lại mới là transition vào công khai).
-    // CAS theo status đã đọc — duyệt/ẩn song song không ghi đè nhau.
-    await db.orm.public.Listing
+    // CAS theo status đã đọc — duyệt/ẩn song song không ghi đè nhau;
+    // SHOULD-FIX 3: takedown đổi row underneath giữa read và write →
+    // conditional write hit 0 rows → typed error (thua thay vì clobber).
+    const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "approved" })
       .updateAll({ status: "hidden" });
+    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
   } else if (listing.status === "hidden") {
     // Hiện lại = transition vào CÔNG KHAI — publication gate (spec §4.4, Task 10):
     // seller bị revoke verification / suspend membership không tự đưa tin
@@ -168,9 +179,11 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
     // surface — seller thấy tin không hiện lại).
     const blocked = await runPublicationGate(user.id);
     if (blocked) return;
-    await db.orm.public.Listing
+    // CAS như trên — 0 rows → typed error (row đổi tay giữa read và write).
+    const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "hidden" })
       .updateAll({ status: "approved" });
+    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
   }
 
   revalidatePath("/sell/my");
@@ -199,6 +212,12 @@ export async function updateListingAction(
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.sellerId !== user.id) {
     return { error: "Không tìm thấy tin đăng" };
+  }
+  // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
+  // seller KHÔNG được sửa (không edit để thoát takedown); helper từ moderation
+  // vocab — KHÔNG hardcode chuỗi status.
+  if (isModerationLocked(listing.status)) {
+    throw new Error("LISTING_MODERATION_LOCKED");
   }
   if (listing.status === "sold") {
     return { error: "Không thể sửa tin đã bán" };
@@ -239,9 +258,7 @@ export async function updateListingAction(
   const oldUrls = oldImages.map((i) => i.url);
   const removed = oldUrls.filter((u) => !images.includes(u));
   for (const url of removed) {
-    // deleteAll (KHÔNG .delete()): (listingId, url) KHÔNG có unique constraint —
-    // nhiều row có thể cùng url; terminal đơn-row chỉ xoá row ĐẦU.
-    await db.orm.public.ListingImage.where({ listingId, url }).deleteAll();
+    await db.orm.public.ListingImage.where({ listingId, url }).delete();
   }
   let sort = 0;
   for (const url of images) {
@@ -255,7 +272,9 @@ export async function updateListingAction(
   }
 
   // CAS theo status đã đọc — admin duyệt/từ chối song song không bị ghi đè
-  // bởi lần sửa này (0 row = trạng thái đã đổi tay, seller tải lại).
+  // bởi lần sửa này. SHOULD-FIX 3 (Batch 3 Task 6): 0 rows = trạng thái đã
+  // đổi tay giữa read và write (duyệt/từ chối, hoặc moderation takedown) —
+  // conditional write THUA thay vì clobber, typed error cho seller tải lại.
   const claimed = await db.orm.public.Listing
     .where({ id: listingId, status: listing.status })
     .updateAll({
@@ -272,7 +291,7 @@ export async function updateListingAction(
       status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
     });
   if (claimed.length === 0) {
-    return { error: "Tin vừa thay đổi trạng thái (đã được duyệt/từ chối) — tải lại trang và thử lại." };
+    throw new Error("LISTING_MODERATION_LOCKED");
   }
   const finalModelId = productModelId ?? listing.productModelId;
   if (finalModelId && listing.price !== Math.round(price)) {
@@ -295,19 +314,32 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
 
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.sellerId !== user.id) return;
+  // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
+  // seller KHÔNG được xóa — nguồn của moderation record không bị phá bởi
+  // chính subject của nó; helper từ moderation vocab.
+  if (isModerationLocked(listing.status)) {
+    throw new Error("LISTING_MODERATION_LOCKED");
+  }
   if (listing.status === "sold") return;
 
   const orderItems = await db.orm.public.OrderItem.where({ listingId }).all();
   if (orderItems.length > 0) {
-    // đã nằm trong đơn — chỉ cho ẩn
-    await db.orm.public.Listing.where({ id: listingId }).update({ status: "hidden" });
+    // đã nằm trong đơn — chỉ cho ẩn. CAS theo status đã đọc (SHOULD-FIX 3):
+    // 0 rows = row đổi tay giữa read và write → typed error, KHÔNG clobber.
+    const claimed = await db.orm.public.Listing
+      .where({ id: listingId, status: listing.status })
+      .updateAll({ status: "hidden" });
+    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
   } else {
-    // deleteAll (KHÔNG .delete()): xoá MỌI ảnh / cart item của tin — terminal
-    // đơn-row chỉ xoá row ĐẦU (hiện FK cascade của Listing.delete() đang che
-    // mask; deleteAll đúng nghĩa luôn).
-    await db.orm.public.ListingImage.where({ listingId }).deleteAll();
-    await db.orm.public.CartItem.where({ listingId }).deleteAll();
-    await db.orm.public.Listing.where({ id: listingId }).delete();
+    // Xóa CÓ ĐIỀU KIỆN theo status đã đọc (SHOULD-FIX 3): 0 rows = row đổi tay
+    // (moderation takedown) → typed error, row SỐNG SÓT — ảnh/cart chỉ dọn
+    // SAU khi claim thành công (không phá dữ liệu khi claim thua).
+    const claimed = await db.orm.public.Listing
+      .where({ id: listingId, status: listing.status })
+      .delete();
+    if (claimed === null) throw new Error("LISTING_MODERATION_LOCKED");
+    await db.orm.public.ListingImage.where({ listingId }).delete();
+    await db.orm.public.CartItem.where({ listingId }).delete();
   }
 
   revalidatePath("/sell/my");

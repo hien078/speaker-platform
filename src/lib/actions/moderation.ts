@@ -4,13 +4,19 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 import { db } from "@/src/prisma/db.client";
-import { requireCapability, requireCapabilityWithStepUp } from "@/src/lib/rbac";
+import { requireCapability, requireCapabilityWithStepUp, capabilitiesOf } from "@/src/lib/rbac";
 import { auditEventTx, redactDetail } from "@/src/lib/audit-event";
 import { notify } from "@/src/lib/notify";
 import { captureError } from "@/src/lib/observability";
+import { MODERATION_DECISION_REASON_LABELS, SUSPENSION_REASON_LABELS } from "@/src/lib/constants";
 import {
   SUSPENSION_REASON_CODES,
   SUSPENSION_NOTE_MAX_LENGTH,
+  MODERATION_ASSIGNMENT_REASON_CODES,
+  MODERATION_CASE_STATES,
+  MODERATION_DECISION_REASON_CODES,
+  MODERATION_PRIORITIES,
+  canTransition,
   getCaseSubjectUserId,
   type ModerationCaseState,
   type ReportTargetType,
@@ -55,22 +61,27 @@ const suspensionReasonSchema = z.enum(SUSPENSION_REASON_CODES, {
   error: () => "Lý do đình chỉ không hợp lệ.",
 });
 
+const assignmentReasonSchema = z.enum(MODERATION_ASSIGNMENT_REASON_CODES, {
+  error: () => "Lý do phân công không hợp lệ.",
+});
+
+const decisionReasonSchema = z.enum(MODERATION_DECISION_REASON_CODES, {
+  error: () => "Lý do quyết định không hợp lệ.",
+});
+
+const caseStateSchema = z.enum(MODERATION_CASE_STATES, {
+  error: () => "Trạng thái case không hợp lệ.",
+});
+
+const prioritySchema = z.enum(MODERATION_PRIORITIES, {
+  error: () => "Mức ưu tiên không hợp lệ.",
+});
+
 /**
- * PROVISIONAL (A8 — FD-3): nhãn lý do đình chỉ cho notify + form select.
- * Vocabulary implementation thỏa yêu cầu "typed reasons" (spec §5.5) — GIÁ TRỊ
- * không phải spec-sourced; founder-acknowledged trước beta (Batch 8 register).
- * (SUSPENSION_REASON_LABELS canonical thuộc Task 6 — src/lib/constants.ts;
- * map cục bộ ở đây vì constants.ts do Task 4/6 sở hữu theo file-conflict rules.)
+ * PROVISIONAL (A8 — FD-3): nhãn lý do đình chỉ cho notify + form select —
+ * CANONICAL từ Task 6: src/lib/constants.ts (map cục bộ trước đây đã thay
+ * bằng import — một nguồn duy nhất, không drift).
  */
-const SUSPENSION_REASON_LABELS: Record<SuspensionReasonCode, string> = {
-  confirmed_abuse: "Lạm dụng đã được xác nhận",
-  confirmed_scam: "Lừa đảo đã được xác nhận",
-  confirmed_harassment: "Quấy rối đã được xác nhận",
-  confirmed_spam: "Spam đã được xác nhận",
-  prohibited_content: "Đăng nội dung bị cấm",
-  terms_violation: "Vi phạm điều khoản",
-  other_reviewed_reason: "Lý do khác (đã review)",
-};
 
 /** Case state còn có thể gắn sanction (S5) — dismissed/appealed/closed fail closed. */
 const ACTIONABLE_CASE_STATES: readonly ModerationCaseState[] = [
@@ -373,4 +384,367 @@ export async function liftSuspensionAction(formData: FormData): Promise<void> {
   });
 
   revalidatePath("/admin/users");
+}
+
+// ─── Task 6: moderation console — assign / transition / takedown ──────────────
+
+/**
+ * Conflict-of-interest (S9 — fail closed; recusal POLICY = Ambiguity A7):
+ * admin là SUBJECT hoặc REPORTER của case thì không được ra quyết định trên
+ * case đó. Subject ưu tiên từ ModerationEvidence.subjectUserId (bất biến —
+ * chụp tại report time, sống qua edit/delete của source), fallback live
+ * lookup getCaseSubjectUserId khi case không có evidence.
+ */
+async function assertActorNotConflicted(
+  caseRow: { id: string; targetType: string; targetId: string },
+  actorId: string,
+): Promise<void> {
+  const evidence = await db.orm.public.ModerationEvidence
+    .where({ caseId: caseRow.id })
+    .select("subjectUserId")
+    .first();
+  const subjectUserId =
+    evidence?.subjectUserId ??
+    (await getCaseSubjectUserId(caseRow.targetType as ReportTargetType, caseRow.targetId));
+  if (subjectUserId !== null && subjectUserId === actorId) {
+    throw new Error("MODERATOR_CONFLICT");
+  }
+  const reported = await db.orm.public.AbuseReport
+    .where({ caseId: caseRow.id, reporterId: actorId })
+    .first();
+  if (reported !== null) throw new Error("MODERATOR_CONFLICT");
+}
+
+/**
+ * Phân công case (Batch 3 Task 6 — spec §5.5 case assignment + §5.4.1
+ * report.resolve ✓ cells + §5.5 typed reasons). formData: caseId, moderatorId,
+ * reasonCode.
+ *
+ * Assignee eligibility: tồn tại + capabilitiesOf(adminRole) có report.resolve
+ * (analyst làm assignee → ASSIGNEE_NOT_ELIGIBLE — fail closed). Case closed →
+ * CASE_CLOSED (S8). CAS trên (state, assignedModeratorId) vừa đọc FRESH trong
+ * tx — concurrent assign thứ hai → CASE_ASSIGNMENT_CONFLICT (0 rows → throw
+ * ra khỏi callback → tx rollback, Global Constraints).
+ */
+export async function assignModerationCaseAction(formData: FormData): Promise<void> {
+  const caseId = String(formData.get("caseId") ?? "").trim();
+  const moderatorId = String(formData.get("moderatorId") ?? "").trim();
+
+  // 1. super/ops/moderator (ô ✓ report.resolve — analyst/support fail closed A1).
+  const ctx = await requireCapability("report.resolve");
+
+  // 2. Typed ASSIGNMENT reason (PROVISIONAL A8 — spec §5.5 "typed reasons").
+  const reasonParsed = assignmentReasonSchema.safeParse(
+    String(formData.get("reasonCode") ?? ""),
+  );
+  if (!reasonParsed.success) throw new Error("INVALID_ASSIGNMENT_REASON");
+
+  if (!caseId || !moderatorId) throw new Error("INVALID_CASE_OR_MODERATOR");
+
+  // 3. Assignee eligibility — KHÔNG tin form: analyst id submit lên cũng bị chặn.
+  const assignee = await db.orm.public.User.first({ id: moderatorId });
+  if (assignee === null) throw new Error("ASSIGNEE_NOT_ELIGIBLE");
+  if (!capabilitiesOf(assignee.adminRole).includes("report.resolve")) {
+    throw new Error("ASSIGNEE_NOT_ELIGIBLE");
+  }
+
+  // 4. Case checks (S8/S9) — mọi lỗi throw TRƯỚC tx (zero writes).
+  const caseRow = await db.orm.public.ModerationCase.first({ id: caseId });
+  if (caseRow === null) throw new Error("CASE_NOT_FOUND");
+  if (caseRow.state === "closed") throw new Error("CASE_CLOSED");
+  await assertActorNotConflicted(caseRow, ctx.user.id);
+
+  // 5. tx — CAS trên assignee cũ + state; RE-READ case BÊN TRONG tx
+  //    (Global Constraints #5 — không tin read trước tx cho một claim).
+  await db.transaction(async (tx) => {
+    const fresh = await tx.orm.public.ModerationCase.first({ id: caseId });
+    if (fresh === null) throw new Error("CASE_NOT_FOUND");
+    const freshState = fresh.state as ModerationCaseState;
+    if (freshState === "closed") throw new Error("CASE_CLOSED");
+
+    // CAS trên (state, assignedModeratorId) vừa đọc: NULL khớp qua isNull()
+    // (Prisma 8 — KHÔNG qua { field: null }).
+    const claimed = await tx.orm.public.ModerationCase
+      .where({ id: caseId, state: freshState })
+      .where((c) =>
+        fresh.assignedModeratorId == null
+          ? c.assignedModeratorId.isNull()
+          : c.assignedModeratorId.eq(fresh.assignedModeratorId),
+      )
+      .updateAll({ assignedModeratorId: moderatorId });
+    if (claimed.length === 0) throw new Error("CASE_ASSIGNMENT_CONFLICT");
+
+    // Case-scoped history (spec §5.5) — append-only.
+    await tx.orm.public.ModerationAction.create({
+      caseId,
+      actorId: ctx.user.id,
+      actionType: "case.assigned",
+      targetType: "moderation_case",
+      targetId: caseId,
+      reasonCode: reasonParsed.data,
+      note: null,
+    });
+
+    // Audit (spec §4.6) — sống chết cùng tx chính (auditEventTx).
+    await auditEventTx(tx, {
+      actorId: ctx.user.id,
+      action: "moderation.case_assigned",
+      resourceType: "moderation_case",
+      resourceId: caseId,
+      reason: reasonParsed.data,
+      sessionId: ctx.session.id,
+    });
+  });
+
+  revalidatePath("/admin/moderation");
+  revalidatePath(`/admin/moderation/${caseId}`);
+}
+
+/**
+ * Chuyển trạng thái case (Batch 3 Task 6 — spec §5.5 states + §10.1 concurrent
+ * update). formData: caseId, toState, reasonCode, note?, priority?.
+ *
+ * Bảng hợp pháp = MODERATION_TRANSITIONS (moderation-vocab — closed terminal).
+ * ATOMIC CLAIM theo state vừa đọc FRESH trong tx → 0 rows = CASE_ALREADY_MOVED
+ * (concurrent moderator). appealed → closed ĐÓNG kèm Appeal row (bookkeeping —
+ * decision POLICY vẫn là A4). Note qua redactDetail TẠI WRITE TIME vào CẢ
+ * ModerationAction.note LẪN AuditEvent.detail (spec §4.8).
+ */
+export async function transitionModerationCaseAction(formData: FormData): Promise<void> {
+  const caseId = String(formData.get("caseId") ?? "").trim();
+  const toStateRaw = String(formData.get("toState") ?? "").trim();
+  const noteRaw = String(formData.get("note") ?? "");
+  const priorityRaw = String(formData.get("priority") ?? "").trim() || undefined;
+
+  // 1. super/ops/moderator (report.resolve).
+  const ctx = await requireCapability("report.resolve");
+
+  // 2. Validate — typed, KHÔNG db write khi sai.
+  const toParsed = caseStateSchema.safeParse(toStateRaw);
+  if (!toParsed.success) throw new Error("INVALID_CASE_STATE");
+  const toState = toParsed.data;
+  const reasonParsed = decisionReasonSchema.safeParse(
+    String(formData.get("reasonCode") ?? ""),
+  );
+  if (!reasonParsed.success) throw new Error("INVALID_DECISION_REASON");
+  let priority: (typeof MODERATION_PRIORITIES)[number] | undefined;
+  if (priorityRaw !== undefined) {
+    const p = prioritySchema.safeParse(priorityRaw);
+    if (!p.success) throw new Error("INVALID_PRIORITY");
+    priority = p.data;
+  }
+  // Note → redactDetail TRƯỚC khi lưu (write-time — spec §4.8).
+  const note = noteRaw.trim() || null;
+  const safeNote = note === null ? null : redactDetail(note);
+
+  if (!caseId) throw new Error("INVALID_CASE");
+
+  // 3. Case checks: tồn tại → canTransition (bảng §5.5) → actor conflict (S9).
+  const caseRow = await db.orm.public.ModerationCase.first({ id: caseId });
+  if (caseRow === null) throw new Error("CASE_NOT_FOUND");
+  if (!canTransition(caseRow.state as ModerationCaseState, toState)) {
+    throw new Error("INVALID_TRANSITION");
+  }
+  await assertActorNotConflicted(caseRow, ctx.user.id);
+
+  // 4. tx — MỘT tx cho claim + appeal bookkeeping + action + audit (S8).
+  await db.transaction(async (tx) => {
+    // RE-READ fresh (Global Constraints #5) — re-validate bảng chuyển trạng
+    // trên giá trị fresh: state đổi tay sang hướng bất hợp pháp → fail closed.
+    const fresh = await tx.orm.public.ModerationCase.first({ id: caseId });
+    if (fresh === null) throw new Error("CASE_NOT_FOUND");
+    const freshState = fresh.state as ModerationCaseState;
+    if (!canTransition(freshState, toState)) throw new Error("INVALID_TRANSITION");
+
+    // ATOMIC CLAIM (spec §10.1 "Concurrent ... update"): 0 rows → case đã đổi
+    // tay giữa read và write → throw ra khỏi callback → tx rollback.
+    const claimed = await tx.orm.public.ModerationCase
+      .where({ id: caseId, state: freshState })
+      .updateAll({ state: toState, priority: priority ?? fresh.priority });
+    if (claimed.length === 0) throw new Error("CASE_ALREADY_MOVED");
+
+    // appealed → closed: đóng Appeal row (bookkeeping — A4 decision workflow
+    // KHÔNG được xây ở đây; 0 rows = không có appeal submitted — no-op an toàn).
+    if (toState === "closed" && freshState === "appealed") {
+      await tx.orm.public.Appeal
+        .where({ caseId, state: "submitted" })
+        .updateAll({ state: "closed", closedAt: new Date().toISOString() });
+    }
+
+    // Case-scoped history (append-only — spec §5.5).
+    await tx.orm.public.ModerationAction.create({
+      caseId,
+      actorId: ctx.user.id,
+      actionType: "case.transitioned",
+      targetType: "moderation_case",
+      targetId: caseId,
+      reasonCode: reasonParsed.data,
+      note: safeNote,
+    });
+
+    // Audit — detail chỉ typed refs (to-state) + note ĐÃ redact (spec §4.8).
+    const detailParts = [`to:${toState}`];
+    if (safeNote !== null) detailParts.push(safeNote);
+    await auditEventTx(tx, {
+      actorId: ctx.user.id,
+      action: "moderation.case_transitioned",
+      resourceType: "moderation_case",
+      resourceId: caseId,
+      reason: reasonParsed.data,
+      sessionId: ctx.session.id,
+      detail: redactDetail(detailParts.join("; ")),
+    });
+  });
+
+  revalidatePath("/admin/moderation");
+  revalidatePath(`/admin/moderation/${caseId}`);
+}
+
+/**
+ * Moderation takedown (Batch 3 Task 6 — R4/R2: Batch 3 là first writer của
+ * `removed`). formData: listingId, reasonCode, note?, caseId?.
+ *
+ * R4: atomic updateAll({ status: "removed" }) với status ∈ {approved, hidden,
+ * pending} — 0 rows → LISTING_NOT_TAKEDOWN_ELIGIBLE. KHÔNG BAO GIỜ viết
+ * rejected/rejectionReason — lý do sống trong ModerationAction như TYPED CODE.
+ * Claim CẢ hidden (seller tự ẩn để né) LẪN pending (gỡ khỏi hàng duyệt).
+ * Seller-side lock (R5) khóa `removed` tại listings.ts — restore là appeal
+ * outcome (A4), KHÔNG được xây ở đây. KHÔNG đụng finance (Batch 1 preserved).
+ *
+ * caseId? (S5/S6): case phải tồn tại, target PHẢI là chính listing này, state
+ * ∈ actionable; case pre-action → atomically `actioned` (resolved_by_sanction)
+ * trong cùng tx — appeal link người dùng nhận được trỏ vào case ĐANG actioned.
+ * previousStatus ghi vào AuditEvent.detail (SHOULD-FIX 5 — cho A4 restore).
+ */
+export async function takeDownListingAction(formData: FormData): Promise<void> {
+  const listingId = String(formData.get("listingId") ?? "").trim();
+  const caseId = String(formData.get("caseId") ?? "").trim() || null;
+  const noteRaw = String(formData.get("note") ?? "");
+
+  // 1. super/ops/moderator (ô ✓ listing.moderate — support/analyst fail closed).
+  const ctx = await requireCapability("listing.moderate");
+
+  // 2. Typed decision reason (PROVISIONAL A8) + note redact tại write time.
+  const reasonParsed = decisionReasonSchema.safeParse(
+    String(formData.get("reasonCode") ?? ""),
+  );
+  if (!reasonParsed.success) throw new Error("INVALID_DECISION_REASON");
+  const note = noteRaw.trim() || null;
+  const safeNote = note === null ? null : redactDetail(note);
+
+  if (!listingId) throw new Error("INVALID_LISTING");
+
+  // 3. Case checks (S5/S9) — chỉ khi gắn case; mọi lỗi throw TRƯỚC tx.
+  if (caseId !== null) {
+    const caseRow = await db.orm.public.ModerationCase.first({ id: caseId });
+    if (caseRow === null) throw new Error("CASE_NOT_ACTIONABLE");
+    // Target match theo TARGET (khác suspend — match theo SUBJECT): case phải
+    // là về CHÍNH listing này.
+    if (caseRow.targetType !== "listing" || caseRow.targetId !== listingId) {
+      throw new Error("CASE_TARGET_MISMATCH");
+    }
+    if (!ACTIONABLE_CASE_STATES.includes(caseRow.state as ModerationCaseState)) {
+      throw new Error("CASE_NOT_ACTIONABLE");
+    }
+    await assertActorNotConflicted(caseRow, ctx.user.id);
+  }
+
+  // 4. tx — đọc listing TRONG tx (SHOULD-FIX 5), atomic claim, case→actioned,
+  //    action + audit cùng tx (violation LUÔN throw ra khỏi callback).
+  let sellerId = "";
+  await db.transaction(async (tx) => {
+    const listing = await tx.orm.public.Listing.first({ id: listingId });
+    if (listing === null) throw new Error("LISTING_NOT_FOUND");
+    sellerId = listing.sellerId;
+    // previousStatus → AuditEvent.detail (cho A4 restore tương lai).
+    const previousStatus = listing.status;
+
+    // ATOMIC (R4): claim approved|hidden|pending → removed (mệnh đề IN qua
+    // callback — như escrow.test.ts). 0 rows → throw ra khỏi callback →
+    // tx rollback (KHÔNG silent-success).
+    const claimed = await tx.orm.public.Listing
+      .where({ id: listingId })
+      .where((l) => l.status.in(["approved", "hidden", "pending"]))
+      .updateAll({ status: "removed" });
+    if (claimed.length === 0) throw new Error("LISTING_NOT_TAKEDOWN_ELIGIBLE");
+
+    if (caseId !== null) {
+      // RE-READ case BÊN TRONG tx + CAS theo state fresh (S6 — sanction atomic
+      // với actioned; 0 rows → CASE_ALREADY_MOVED → rollback TOÀN BỌ kể cả
+      // takedown vừa claim).
+      const freshCase = await tx.orm.public.ModerationCase.first({ id: caseId });
+      if (freshCase === null) throw new Error("CASE_NOT_ACTIONABLE");
+      const freshState = freshCase.state as ModerationCaseState;
+      if (PRE_ACTION_CASE_STATES.includes(freshState)) {
+        const claimedCase = await tx.orm.public.ModerationCase
+          .where({ id: caseId, state: freshState })
+          .updateAll({ state: "actioned" });
+        if (claimedCase.length === 0) throw new Error("CASE_ALREADY_MOVED");
+        await tx.orm.public.ModerationAction.create({
+          caseId,
+          actorId: ctx.user.id,
+          actionType: "case.transitioned",
+          targetType: "moderation_case",
+          targetId: caseId,
+          reasonCode: "resolved_by_sanction",
+          note: null,
+        });
+      } else if (freshState !== "actioned") {
+        // Case rời khỏi actionable giữa pre-check và tx → fail closed.
+        throw new Error("CASE_NOT_ACTIONABLE");
+      }
+      // freshState === "actioned": sanction khác đã actioned — chỉ gắn takedown.
+    }
+
+    // Case-scoped history (append-only) — typed reason, note ĐÃ redact.
+    await tx.orm.public.ModerationAction.create({
+      caseId,
+      actorId: ctx.user.id,
+      actionType: "listing.taken_down",
+      targetType: "listing",
+      targetId: listingId,
+      reasonCode: reasonParsed.data,
+      note: safeNote,
+    });
+
+    // Audit — detail: prev:<status> (A4 restore) + case ref + note đã redact.
+    const detailParts: string[] = [`prev:${previousStatus}`];
+    if (caseId !== null) detailParts.push(`case:${caseId}`);
+    if (safeNote !== null) detailParts.push(safeNote);
+    await auditEventTx(tx, {
+      actorId: ctx.user.id,
+      subjectId: sellerId,
+      action: "moderation.listing_taken_down",
+      resourceType: "listing",
+      resourceId: listingId,
+      reason: reasonParsed.data,
+      sessionId: ctx.session.id,
+      detail: redactDetail(detailParts.join("; ")),
+    });
+  });
+
+  // 5. Notify seller (best-effort — KHÔNG sống chết với takedown đã commit —
+  //    try/catch + captureError THẬT như suspendUserAction; lỗi notify KHÔNG
+  //    biến takedown đã commit thành 500). Copy là PLACEHOLDER (FD-3) —
+  //    takedown-notification wording là founder-authored content (Batch 8
+  //    register). Link /appeal/<caseId> KHÔNG gửi ở task này — Task 7 thêm
+  //    (page thuộc Task 7 — không commit nào có dead link). Meta KHÔNG PII.
+  try {
+    await notify(
+      sellerId,
+      "listing",
+      "Tin bị gỡ khỏi hiển thị", // PLACEHOLDER (FD-3) — Batch 8 register
+      MODERATION_DECISION_REASON_LABELS[reasonParsed.data], // PROVISIONAL (A8)
+      "/sell/my",
+    );
+  } catch (notifyError) {
+    captureError("moderation", notifyError, {
+      action: "moderation.listing_taken_down_notify",
+      subjectId: sellerId, // typed ref — KHÔNG PII (spec §4.8)
+    });
+  }
+
+  revalidatePath("/admin/listings");
+  revalidatePath("/listings");
+  if (caseId !== null) revalidatePath(`/admin/moderation/${caseId}`);
 }

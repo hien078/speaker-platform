@@ -1,5 +1,13 @@
 /** Nhãn tiếng Việt cho các enum — dùng chung toàn app */
-import type { ReportReasonCode } from "@/src/lib/moderation-vocab";
+import type {
+  ReportReasonCode,
+  ModerationCaseState,
+  ModerationPriority,
+  ModerationDecisionReasonCode,
+  ModerationAssignmentReasonCode,
+  ModerationActionType,
+  SuspensionReasonCode,
+} from "@/src/lib/moderation-vocab";
 
 export const ROLE_LABELS: Record<string, string> = {
   buyer: "Người mua",
@@ -14,6 +22,10 @@ export const LISTING_STATUS_LABELS: Record<string, string> = {
   rejected: "Bị từ chối",
   hidden: "Đã ẩn",
   sold: "Đã bán",
+  // R8 (Batch 3 ↔ 4 Reconciliation): moderation takedown (R4) — seller /sell/my
+  // + console render trạng thái với nhãn con người; Batch 4 Task 5 chỉ thêm
+  // `archived`. KHÔNG dùng cho seller self-hide.
+  removed: "Đã gỡ bởi kiểm duyệt",
 };
 
 export const LISTING_STATUS_BADGE: Record<string, string> = {
@@ -23,6 +35,8 @@ export const LISTING_STATUS_BADGE: Record<string, string> = {
   rejected: "bg-red-500/15 text-red-400",
   hidden: "bg-zinc-700/60 text-zinc-300",
   sold: "bg-sky-500/15 text-sky-400",
+  // R8 — badge cho `removed` (moderation takedown)
+  removed: "bg-red-500/15 text-red-400",
 };
 
 export const CONDITION_LABELS: Record<string, string> = {
@@ -123,4 +137,72 @@ export const REPORT_REASON_LABELS: Record<ReportReasonCode, string> = {
   unsafe_behavior: "Hành vi không an toàn",
   identity_impersonation: "Mạo danh",
   other: "Khác",
+};
+
+// ─── Moderation console (Batch 3 Task 6 — spec §5.5) ──────────────────────────
+
+/**
+ * PROVISIONAL (A8 — FD-3): các label moderation dưới đây là founder-authored
+ * content pending — Batch 8 Founder Decision Register; giá trị hiện tại là
+ * placeholder rõ ràng, founder có thể đổi qua thay đổi additive trước beta
+ * (vocabulary hằng số sống ở src/lib/moderation-vocab.ts — đổi GIÁ TRỊ là
+ * additive; label map theo sau).
+ */
+
+/** Bảy trạng thái case — spec §5.5 verbatim (khớp enum moderation_case_state). */
+export const MODERATION_CASE_STATE_LABELS: Record<ModerationCaseState, string> = {
+  open: "Mới",
+  triaged: "Đã phân loại",
+  investigating: "Đang điều tra",
+  actioned: "Đã xử lý",
+  dismissed: "Bỏ qua",
+  appealed: "Đang kháng cáo",
+  closed: "Đã đóng",
+};
+
+/** Mức ưu tiên case — semantics SLA/escalation = Ambiguity A5 (chỉ là data). */
+export const MODERATION_PRIORITY_LABELS: Record<ModerationPriority, string> = {
+  low: "Thấp",
+  normal: "Bình thường",
+  high: "Cao",
+};
+
+/** Nhãn lý do đình chỉ — canonical (Task 6; thay map cục bộ ở actions/moderation.ts + admin/users). */
+export const SUSPENSION_REASON_LABELS: Record<SuspensionReasonCode, string> = {
+  confirmed_abuse: "Lạm dụng đã được xác nhận",
+  confirmed_scam: "Lừa đảo đã được xác nhận",
+  confirmed_harassment: "Quấy rối đã được xác nhận",
+  confirmed_spam: "Spam đã được xác nhận",
+  prohibited_content: "Đăng nội dung bị cấm",
+  terms_violation: "Vi phạm điều khoản",
+  other_reviewed_reason: "Lý do khác (đã review)",
+};
+
+/** Nhãn lý do quyết định (transition/takedown) — PROVISIONAL (A8). */
+export const MODERATION_DECISION_REASON_LABELS: Record<ModerationDecisionReasonCode, string> = {
+  no_violation_found: "Không tìm thấy vi phạm",
+  insufficient_evidence: "Không đủ bằng chứng",
+  policy_violation_confirmed: "Xác nhận vi phạm chính sách",
+  resolved_by_sanction: "Đã xử lý bằng biện pháp",
+  duplicate_case: "Trùng trường hợp khác",
+  appeal_closed: "Kháng cáo đã đóng",
+  other_reviewed_reason: "Lý do khác (đã review)",
+};
+
+/** Nhãn lý do phân công case — PROVISIONAL (A8). */
+export const MODERATION_ASSIGNMENT_REASON_LABELS: Record<ModerationAssignmentReasonCode, string> = {
+  triage_assignment: "Phân công phân loại",
+  reassignment: "Phân công lại",
+  other_reviewed_reason: "Lý do khác (đã review)",
+};
+
+/** Nhãn action type cho lịch sử case (section Hành động của case page). */
+export const MODERATION_ACTION_TYPE_LABELS: Record<ModerationActionType, string> = {
+  "evidence.captured": "Chụp bằng chứng",
+  "case.assigned": "Phân công case",
+  "case.transitioned": "Chuyển trạng thái",
+  "listing.taken_down": "Gỡ tin đăng",
+  "user.suspended": "Đình chỉ người dùng",
+  "user.suspension_lifted": "Gỡ đình chỉ",
+  "appeal.recorded": "Ghi nhận kháng cáo",
 };

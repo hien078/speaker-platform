@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   FileSearch,
   Package,
+  Flag,
   AlertTriangle,
   Users,
   Settings,
@@ -36,6 +37,10 @@ const NAV: NavItem[] = [
   { href: "/admin", label: "Tổng quan", icon: LayoutDashboard, capability: "analytics.read" },
   { href: "/admin/listings", label: "Duyệt tin đăng", icon: FileSearch, capability: "listing.moderate" },
   { href: "/admin/catalog", label: "Catalog model", icon: AudioLines, capability: "listing.moderate" },
+  // Batch 3 Task 6 (spec §5.5) — moderation case queue; report.resolve ✓ cells
+  // (super/ops/moderator — analyst/support fail closed A1). CONVENIENCE ONLY:
+  // trang/action tự requireCapability (spec §4.5).
+  { href: "/admin/moderation", label: "Báo cáo & kiểm duyệt", icon: Flag, capability: "report.resolve" },
   { href: "/admin/orders", label: "Đơn hàng", icon: Package, dormant: true },
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle, dormant: true },
   { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote, dormant: true },
