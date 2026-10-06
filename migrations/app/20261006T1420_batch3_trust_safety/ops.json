@@ -1,0 +1,2168 @@
+[
+  {
+    "id": "dropCheckConstraint.Listing.Listing_status_check_cc925b6c",
+    "label": "Drop check constraint \"Listing_status_check_cc925b6c\" on \"Listing\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_status_check_cc925b6c",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_status_check_cc925b6c\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_cc925b6c",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"Listing_status_check_cc925b6c\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" DROP CONSTRAINT \"Listing_status_check_cc925b6c\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_status_check_cc925b6c\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_cc925b6c",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.AbuseReport",
+    "label": "Create table \"AbuseReport\"",
+    "summary": "Creates table \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"AbuseReport\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"AbuseReport\"",
+        "sql": "CREATE TABLE \"public\".\"AbuseReport\" (\n  \"caseId\" text NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"note\" text,\n  \"reasonCode\" text NOT NULL,\n  \"reporterId\" text,\n  \"targetId\" text NOT NULL,\n  \"targetType\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"AbuseReport_reasonCode_check_4123daed\" CHECK (\"reasonCode\" IN ('suspected_scam', 'harassment', 'spam', 'counterfeit_claim', 'misleading_listing', 'prohibited_content', 'unsafe_behavior', 'identity_impersonation', 'other')),\n  CONSTRAINT \"AbuseReport_targetType_check_7d298aee\" CHECK (\"targetType\" IN ('listing', 'user', 'message'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"AbuseReport\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.Appeal",
+    "label": "Create table \"Appeal\"",
+    "summary": "Creates table \"Appeal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "Appeal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"Appeal\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"Appeal\"",
+        "sql": "CREATE TABLE \"public\".\"Appeal\" (\n  \"appellantId\" text,\n  \"caseId\" text NOT NULL,\n  \"closedAt\" timestamptz,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"state\" text DEFAULT 'submitted' NOT NULL,\n  \"statement\" text,\n  \"updatedAt\" timestamptz NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"Appeal_state_check_7c0e4b2e\" CHECK (\"state\" IN ('submitted', 'closed'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"Appeal\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.ModerationAction",
+    "label": "Create table \"ModerationAction\"",
+    "summary": "Creates table \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ModerationAction\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ModerationAction\"",
+        "sql": "CREATE TABLE \"public\".\"ModerationAction\" (\n  \"actionType\" text NOT NULL,\n  \"actorId\" text,\n  \"caseId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"note\" text,\n  \"reasonCode\" text,\n  \"targetId\" text,\n  \"targetType\" text,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ModerationAction\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.ModerationCase",
+    "label": "Create table \"ModerationCase\"",
+    "summary": "Creates table \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ModerationCase\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ModerationCase\"",
+        "sql": "CREATE TABLE \"public\".\"ModerationCase\" (\n  \"assignedModeratorId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"priority\" text DEFAULT 'normal' NOT NULL,\n  \"reasonCategory\" text NOT NULL,\n  \"state\" text DEFAULT 'open' NOT NULL,\n  \"targetId\" text NOT NULL,\n  \"targetType\" text NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"ModerationCase_priority_check_f81d8d9b\" CHECK (\"priority\" IN ('low', 'normal', 'high')),\n  CONSTRAINT \"ModerationCase_reasonCategory_check_db40a994\" CHECK (\"reasonCategory\" IN ('suspected_scam', 'harassment', 'spam', 'counterfeit_claim', 'misleading_listing', 'prohibited_content', 'unsafe_behavior', 'identity_impersonation', 'other')),\n  CONSTRAINT \"ModerationCase_state_check_a778d74c\" CHECK (\"state\" IN ('open', 'triaged', 'investigating', 'actioned', 'dismissed', 'appealed', 'closed')),\n  CONSTRAINT \"ModerationCase_targetType_check_7d298aee\" CHECK (\"targetType\" IN ('listing', 'user', 'message'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ModerationCase\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.ModerationEvidence",
+    "label": "Create table \"ModerationEvidence\"",
+    "summary": "Creates table \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ModerationEvidence\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ModerationEvidence\"",
+        "sql": "CREATE TABLE \"public\".\"ModerationEvidence\" (\n  \"capturedAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"caseId\" text NOT NULL,\n  \"classification\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"relevantSnapshot\" json NOT NULL,\n  \"reporterUserId\" text,\n  \"sourceResourceId\" text NOT NULL,\n  \"sourceResourceType\" text NOT NULL,\n  \"subjectUserId\" text,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ModerationEvidence\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.UserBlock",
+    "label": "Create table \"UserBlock\"",
+    "summary": "Creates table \"UserBlock\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"UserBlock\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"UserBlock\"",
+        "sql": "CREATE TABLE \"public\".\"UserBlock\" (\n  \"blockedId\" text NOT NULL,\n  \"blockerId\" text NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"UserBlock\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.UserSuspension",
+    "label": "Create table \"UserSuspension\"",
+    "summary": "Creates table \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"UserSuspension\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"UserSuspension\"",
+        "sql": "CREATE TABLE \"public\".\"UserSuspension\" (\n  \"id\" text NOT NULL,\n  \"liftReasonCode\" text,\n  \"liftedAt\" timestamptz,\n  \"liftedById\" text,\n  \"note\" text,\n  \"reasonCode\" text NOT NULL,\n  \"status\" text DEFAULT 'active' NOT NULL,\n  \"suspendedAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"suspendedById\" text,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"UserSuspension_status_check_826da613\" CHECK (\"status\" IN ('active', 'lifted'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"UserSuspension\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.AbuseReport.AbuseReport_caseId_reporterId_key",
+    "label": "Add unique constraint on \"AbuseReport\" (caseId, reporterId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "AbuseReport_caseId_reporterId_key",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"AbuseReport_caseId_reporterId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_caseId_reporterId_key",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"AbuseReport_caseId_reporterId_key\"",
+        "sql": "ALTER TABLE \"public\".\"AbuseReport\" ADD CONSTRAINT \"AbuseReport_caseId_reporterId_key\" UNIQUE (\"caseId\", \"reporterId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"AbuseReport_caseId_reporterId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_caseId_reporterId_key",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.Appeal.Appeal_caseId_key",
+    "label": "Add unique constraint on \"Appeal\" (caseId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "Appeal_caseId_key",
+        "table": "Appeal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Appeal_caseId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_caseId_key",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"Appeal_caseId_key\"",
+        "sql": "ALTER TABLE \"public\".\"Appeal\" ADD CONSTRAINT \"Appeal_caseId_key\" UNIQUE (\"caseId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Appeal_caseId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_caseId_key",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.Listing.Listing_status_check_505de324",
+    "label": "Add check constraint \"Listing_status_check_505de324\" on \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_status_check_505de324",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_status_check_505de324\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_505de324",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"Listing_status_check_505de324\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD CONSTRAINT \"Listing_status_check_505de324\" CHECK (\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_status_check_505de324\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_505de324",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.UserBlock.UserBlock_blockerId_blockedId_key",
+    "label": "Add unique constraint on \"UserBlock\" (blockerId, blockedId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "UserBlock_blockerId_blockedId_key",
+        "table": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"UserBlock_blockerId_blockedId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockerId_blockedId_key",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"UserBlock_blockerId_blockedId_key\"",
+        "sql": "ALTER TABLE \"public\".\"UserBlock\" ADD CONSTRAINT \"UserBlock_blockerId_blockedId_key\" UNIQUE (\"blockerId\", \"blockedId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"UserBlock_blockerId_blockedId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockerId_blockedId_key",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AbuseReport.AbuseReport_caseId_createdAt_idx_18fcd752",
+    "label": "Create index \"AbuseReport_caseId_createdAt_idx_18fcd752\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AbuseReport_caseId_createdAt_idx_18fcd752",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AbuseReport_caseId_createdAt_idx_18fcd752\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_caseId_createdAt_idx_18fcd752\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AbuseReport_caseId_createdAt_idx_18fcd752\"",
+        "sql": "CREATE INDEX \"AbuseReport_caseId_createdAt_idx_18fcd752\" ON \"public\".\"AbuseReport\" (\"caseId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AbuseReport_caseId_createdAt_idx_18fcd752\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_caseId_createdAt_idx_18fcd752\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AbuseReport.AbuseReport_caseId_idx_f7093793",
+    "label": "Create index \"AbuseReport_caseId_idx_f7093793\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AbuseReport_caseId_idx_f7093793",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AbuseReport_caseId_idx_f7093793\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_caseId_idx_f7093793\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AbuseReport_caseId_idx_f7093793\"",
+        "sql": "CREATE INDEX \"AbuseReport_caseId_idx_f7093793\" ON \"public\".\"AbuseReport\" (\"caseId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AbuseReport_caseId_idx_f7093793\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_caseId_idx_f7093793\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AbuseReport.AbuseReport_reporterId_createdAt_idx_468b5f4f",
+    "label": "Create index \"AbuseReport_reporterId_createdAt_idx_468b5f4f\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AbuseReport_reporterId_createdAt_idx_468b5f4f",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AbuseReport_reporterId_createdAt_idx_468b5f4f\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_reporterId_createdAt_idx_468b5f4f\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AbuseReport_reporterId_createdAt_idx_468b5f4f\"",
+        "sql": "CREATE INDEX \"AbuseReport_reporterId_createdAt_idx_468b5f4f\" ON \"public\".\"AbuseReport\" (\"reporterId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AbuseReport_reporterId_createdAt_idx_468b5f4f\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_reporterId_createdAt_idx_468b5f4f\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AbuseReport.AbuseReport_reporterId_idx_aa245831",
+    "label": "Create index \"AbuseReport_reporterId_idx_aa245831\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AbuseReport_reporterId_idx_aa245831",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AbuseReport_reporterId_idx_aa245831\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_reporterId_idx_aa245831\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AbuseReport_reporterId_idx_aa245831\"",
+        "sql": "CREATE INDEX \"AbuseReport_reporterId_idx_aa245831\" ON \"public\".\"AbuseReport\" (\"reporterId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AbuseReport_reporterId_idx_aa245831\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_reporterId_idx_aa245831\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AbuseReport.AbuseReport_targetType_targetId_idx_7a5ee9cb",
+    "label": "Create index \"AbuseReport_targetType_targetId_idx_7a5ee9cb\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AbuseReport_targetType_targetId_idx_7a5ee9cb",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AbuseReport_targetType_targetId_idx_7a5ee9cb\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_targetType_targetId_idx_7a5ee9cb\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AbuseReport_targetType_targetId_idx_7a5ee9cb\"",
+        "sql": "CREATE INDEX \"AbuseReport_targetType_targetId_idx_7a5ee9cb\" ON \"public\".\"AbuseReport\" (\"targetType\", \"targetId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AbuseReport_targetType_targetId_idx_7a5ee9cb\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AbuseReport_targetType_targetId_idx_7a5ee9cb\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Appeal.Appeal_appellantId_idx_ae4cf735",
+    "label": "Create index \"Appeal_appellantId_idx_ae4cf735\" on \"Appeal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Appeal_appellantId_idx_ae4cf735",
+        "table": "Appeal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Appeal_appellantId_idx_ae4cf735\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Appeal_appellantId_idx_ae4cf735\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Appeal_appellantId_idx_ae4cf735\"",
+        "sql": "CREATE INDEX \"Appeal_appellantId_idx_ae4cf735\" ON \"public\".\"Appeal\" (\"appellantId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Appeal_appellantId_idx_ae4cf735\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Appeal_appellantId_idx_ae4cf735\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationAction.ModerationAction_actorId_createdAt_idx_0e9f1adf",
+    "label": "Create index \"ModerationAction_actorId_createdAt_idx_0e9f1adf\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationAction_actorId_createdAt_idx_0e9f1adf",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationAction_actorId_createdAt_idx_0e9f1adf\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationAction_actorId_createdAt_idx_0e9f1adf\"",
+        "sql": "CREATE INDEX \"ModerationAction_actorId_createdAt_idx_0e9f1adf\" ON \"public\".\"ModerationAction\" (\"actorId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationAction_actorId_createdAt_idx_0e9f1adf\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationAction.ModerationAction_actorId_idx_a58f6b4b",
+    "label": "Create index \"ModerationAction_actorId_idx_a58f6b4b\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationAction_actorId_idx_a58f6b4b",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationAction_actorId_idx_a58f6b4b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationAction_actorId_idx_a58f6b4b\"",
+        "sql": "CREATE INDEX \"ModerationAction_actorId_idx_a58f6b4b\" ON \"public\".\"ModerationAction\" (\"actorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationAction_actorId_idx_a58f6b4b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationAction.ModerationAction_caseId_createdAt_idx_18fcd752",
+    "label": "Create index \"ModerationAction_caseId_createdAt_idx_18fcd752\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationAction_caseId_createdAt_idx_18fcd752",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationAction_caseId_createdAt_idx_18fcd752\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_caseId_createdAt_idx_18fcd752\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationAction_caseId_createdAt_idx_18fcd752\"",
+        "sql": "CREATE INDEX \"ModerationAction_caseId_createdAt_idx_18fcd752\" ON \"public\".\"ModerationAction\" (\"caseId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationAction_caseId_createdAt_idx_18fcd752\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_caseId_createdAt_idx_18fcd752\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationAction.ModerationAction_caseId_idx_f7093793",
+    "label": "Create index \"ModerationAction_caseId_idx_f7093793\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationAction_caseId_idx_f7093793",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationAction_caseId_idx_f7093793\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_caseId_idx_f7093793\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationAction_caseId_idx_f7093793\"",
+        "sql": "CREATE INDEX \"ModerationAction_caseId_idx_f7093793\" ON \"public\".\"ModerationAction\" (\"caseId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationAction_caseId_idx_f7093793\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_caseId_idx_f7093793\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationAction.ModerationAction_targetType_targetId_createdAt_idx_e37b8716",
+    "label": "Create index \"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationAction_targetType_targetId_createdAt_idx_e37b8716",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\"",
+        "sql": "CREATE INDEX \"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\" ON \"public\".\"ModerationAction\" (\"targetType\", \"targetId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationAction_targetType_targetId_createdAt_idx_e37b8716\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationCase.ModerationCase_assignedModeratorId_idx_19bc61ea",
+    "label": "Create index \"ModerationCase_assignedModeratorId_idx_19bc61ea\" on \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationCase_assignedModeratorId_idx_19bc61ea",
+        "table": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationCase_assignedModeratorId_idx_19bc61ea\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_assignedModeratorId_idx_19bc61ea\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationCase_assignedModeratorId_idx_19bc61ea\"",
+        "sql": "CREATE INDEX \"ModerationCase_assignedModeratorId_idx_19bc61ea\" ON \"public\".\"ModerationCase\" (\"assignedModeratorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationCase_assignedModeratorId_idx_19bc61ea\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_assignedModeratorId_idx_19bc61ea\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationCase.ModerationCase_state_updatedAt_idx_f9692f3e",
+    "label": "Create index \"ModerationCase_state_updatedAt_idx_f9692f3e\" on \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationCase_state_updatedAt_idx_f9692f3e",
+        "table": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationCase_state_updatedAt_idx_f9692f3e\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_state_updatedAt_idx_f9692f3e\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationCase_state_updatedAt_idx_f9692f3e\"",
+        "sql": "CREATE INDEX \"ModerationCase_state_updatedAt_idx_f9692f3e\" ON \"public\".\"ModerationCase\" (\"state\", \"updatedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationCase_state_updatedAt_idx_f9692f3e\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_state_updatedAt_idx_f9692f3e\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationCase.ModerationCase_targetType_targetId_idx_7a5ee9cb",
+    "label": "Create index \"ModerationCase_targetType_targetId_idx_7a5ee9cb\" on \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationCase_targetType_targetId_idx_7a5ee9cb",
+        "table": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationCase_targetType_targetId_idx_7a5ee9cb\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_targetType_targetId_idx_7a5ee9cb\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationCase_targetType_targetId_idx_7a5ee9cb\"",
+        "sql": "CREATE INDEX \"ModerationCase_targetType_targetId_idx_7a5ee9cb\" ON \"public\".\"ModerationCase\" (\"targetType\", \"targetId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationCase_targetType_targetId_idx_7a5ee9cb\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationCase_targetType_targetId_idx_7a5ee9cb\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationCase.moderation_case_one_active_per_target_reason_7f3ba3cd",
+    "label": "Create index \"moderation_case_one_active_per_target_reason_7f3ba3cd\" on \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "moderation_case_one_active_per_target_reason_7f3ba3cd",
+        "table": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"moderation_case_one_active_per_target_reason_7f3ba3cd\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"moderation_case_one_active_per_target_reason_7f3ba3cd\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"moderation_case_one_active_per_target_reason_7f3ba3cd\"",
+        "sql": "CREATE UNIQUE INDEX \"moderation_case_one_active_per_target_reason_7f3ba3cd\" ON \"public\".\"ModerationCase\" (\"targetType\", \"targetId\", \"reasonCategory\") WHERE ((state IN ('open', 'triaged', 'investigating')))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"moderation_case_one_active_per_target_reason_7f3ba3cd\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"moderation_case_one_active_per_target_reason_7f3ba3cd\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationEvidence.ModerationEvidence_caseId_capturedAt_idx_0525a671",
+    "label": "Create index \"ModerationEvidence_caseId_capturedAt_idx_0525a671\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationEvidence_caseId_capturedAt_idx_0525a671",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationEvidence_caseId_capturedAt_idx_0525a671\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_caseId_capturedAt_idx_0525a671\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationEvidence_caseId_capturedAt_idx_0525a671\"",
+        "sql": "CREATE INDEX \"ModerationEvidence_caseId_capturedAt_idx_0525a671\" ON \"public\".\"ModerationEvidence\" (\"caseId\", \"capturedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationEvidence_caseId_capturedAt_idx_0525a671\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_caseId_capturedAt_idx_0525a671\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationEvidence.ModerationEvidence_caseId_idx_f7093793",
+    "label": "Create index \"ModerationEvidence_caseId_idx_f7093793\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationEvidence_caseId_idx_f7093793",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationEvidence_caseId_idx_f7093793\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_caseId_idx_f7093793\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationEvidence_caseId_idx_f7093793\"",
+        "sql": "CREATE INDEX \"ModerationEvidence_caseId_idx_f7093793\" ON \"public\".\"ModerationEvidence\" (\"caseId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationEvidence_caseId_idx_f7093793\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_caseId_idx_f7093793\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationEvidence.ModerationEvidence_reporterUserId_idx_24dc5c40",
+    "label": "Create index \"ModerationEvidence_reporterUserId_idx_24dc5c40\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationEvidence_reporterUserId_idx_24dc5c40",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationEvidence_reporterUserId_idx_24dc5c40\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_reporterUserId_idx_24dc5c40\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationEvidence_reporterUserId_idx_24dc5c40\"",
+        "sql": "CREATE INDEX \"ModerationEvidence_reporterUserId_idx_24dc5c40\" ON \"public\".\"ModerationEvidence\" (\"reporterUserId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationEvidence_reporterUserId_idx_24dc5c40\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_reporterUserId_idx_24dc5c40\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationEvidence.ModerationEvidence_subjectUserId_idx_60714ffd",
+    "label": "Create index \"ModerationEvidence_subjectUserId_idx_60714ffd\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ModerationEvidence_subjectUserId_idx_60714ffd",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ModerationEvidence_subjectUserId_idx_60714ffd\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_subjectUserId_idx_60714ffd\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ModerationEvidence_subjectUserId_idx_60714ffd\"",
+        "sql": "CREATE INDEX \"ModerationEvidence_subjectUserId_idx_60714ffd\" ON \"public\".\"ModerationEvidence\" (\"subjectUserId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ModerationEvidence_subjectUserId_idx_60714ffd\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ModerationEvidence_subjectUserId_idx_60714ffd\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ModerationEvidence.moderation_evidence_source_idx_d7306d73",
+    "label": "Create index \"moderation_evidence_source_idx_d7306d73\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "moderation_evidence_source_idx_d7306d73",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"moderation_evidence_source_idx_d7306d73\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"moderation_evidence_source_idx_d7306d73\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"moderation_evidence_source_idx_d7306d73\"",
+        "sql": "CREATE INDEX \"moderation_evidence_source_idx_d7306d73\" ON \"public\".\"ModerationEvidence\" (\"sourceResourceType\", \"sourceResourceId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"moderation_evidence_source_idx_d7306d73\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"moderation_evidence_source_idx_d7306d73\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserBlock.UserBlock_blockedId_idx_e3047657",
+    "label": "Create index \"UserBlock_blockedId_idx_e3047657\" on \"UserBlock\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserBlock_blockedId_idx_e3047657",
+        "table": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserBlock_blockedId_idx_e3047657\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock_blockedId_idx_e3047657\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserBlock_blockedId_idx_e3047657\"",
+        "sql": "CREATE INDEX \"UserBlock_blockedId_idx_e3047657\" ON \"public\".\"UserBlock\" (\"blockedId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserBlock_blockedId_idx_e3047657\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock_blockedId_idx_e3047657\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserBlock.UserBlock_blockerId_idx_a25bd35c",
+    "label": "Create index \"UserBlock_blockerId_idx_a25bd35c\" on \"UserBlock\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserBlock_blockerId_idx_a25bd35c",
+        "table": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserBlock_blockerId_idx_a25bd35c\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock_blockerId_idx_a25bd35c\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserBlock_blockerId_idx_a25bd35c\"",
+        "sql": "CREATE INDEX \"UserBlock_blockerId_idx_a25bd35c\" ON \"public\".\"UserBlock\" (\"blockerId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserBlock_blockerId_idx_a25bd35c\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserBlock_blockerId_idx_a25bd35c\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSuspension.UserSuspension_liftedById_idx_3b725051",
+    "label": "Create index \"UserSuspension_liftedById_idx_3b725051\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSuspension_liftedById_idx_3b725051",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSuspension_liftedById_idx_3b725051\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_liftedById_idx_3b725051\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSuspension_liftedById_idx_3b725051\"",
+        "sql": "CREATE INDEX \"UserSuspension_liftedById_idx_3b725051\" ON \"public\".\"UserSuspension\" (\"liftedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSuspension_liftedById_idx_3b725051\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_liftedById_idx_3b725051\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSuspension.UserSuspension_status_suspendedAt_idx_67dc6dbd",
+    "label": "Create index \"UserSuspension_status_suspendedAt_idx_67dc6dbd\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSuspension_status_suspendedAt_idx_67dc6dbd",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSuspension_status_suspendedAt_idx_67dc6dbd\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_status_suspendedAt_idx_67dc6dbd\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSuspension_status_suspendedAt_idx_67dc6dbd\"",
+        "sql": "CREATE INDEX \"UserSuspension_status_suspendedAt_idx_67dc6dbd\" ON \"public\".\"UserSuspension\" (\"status\", \"suspendedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSuspension_status_suspendedAt_idx_67dc6dbd\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_status_suspendedAt_idx_67dc6dbd\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSuspension.UserSuspension_suspendedById_idx_441458ac",
+    "label": "Create index \"UserSuspension_suspendedById_idx_441458ac\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSuspension_suspendedById_idx_441458ac",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSuspension_suspendedById_idx_441458ac\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_suspendedById_idx_441458ac\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSuspension_suspendedById_idx_441458ac\"",
+        "sql": "CREATE INDEX \"UserSuspension_suspendedById_idx_441458ac\" ON \"public\".\"UserSuspension\" (\"suspendedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSuspension_suspendedById_idx_441458ac\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_suspendedById_idx_441458ac\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSuspension.UserSuspension_userId_status_idx_e4a128ba",
+    "label": "Create index \"UserSuspension_userId_status_idx_e4a128ba\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSuspension_userId_status_idx_e4a128ba",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSuspension_userId_status_idx_e4a128ba\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_userId_status_idx_e4a128ba\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSuspension_userId_status_idx_e4a128ba\"",
+        "sql": "CREATE INDEX \"UserSuspension_userId_status_idx_e4a128ba\" ON \"public\".\"UserSuspension\" (\"userId\", \"status\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSuspension_userId_status_idx_e4a128ba\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSuspension_userId_status_idx_e4a128ba\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSuspension.user_suspension_one_active_c770076c",
+    "label": "Create index \"user_suspension_one_active_c770076c\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "user_suspension_one_active_c770076c",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"user_suspension_one_active_c770076c\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"user_suspension_one_active_c770076c\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"user_suspension_one_active_c770076c\"",
+        "sql": "CREATE UNIQUE INDEX \"user_suspension_one_active_c770076c\" ON \"public\".\"UserSuspension\" (\"userId\") WHERE ((status = 'active'))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"user_suspension_one_active_c770076c\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"user_suspension_one_active_c770076c\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AbuseReport.AbuseReport_reporterId_fkey",
+    "label": "Add foreign key \"AbuseReport_reporterId_fkey\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AbuseReport_reporterId_fkey",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AbuseReport_reporterId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_reporterId_fkey",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AbuseReport_reporterId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AbuseReport\"\nADD CONSTRAINT \"AbuseReport_reporterId_fkey\"\nFOREIGN KEY (\"reporterId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AbuseReport_reporterId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_reporterId_fkey",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AbuseReport.AbuseReport_caseId_fkey",
+    "label": "Add foreign key \"AbuseReport_caseId_fkey\" on \"AbuseReport\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AbuseReport_caseId_fkey",
+        "table": "AbuseReport"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AbuseReport_caseId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_caseId_fkey",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AbuseReport_caseId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AbuseReport\"\nADD CONSTRAINT \"AbuseReport_caseId_fkey\"\nFOREIGN KEY (\"caseId\")\nREFERENCES \"public\".\"ModerationCase\" (\"id\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AbuseReport_caseId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AbuseReport_caseId_fkey",
+          "public",
+          "\"public\".\"AbuseReport\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.Appeal.Appeal_caseId_fkey",
+    "label": "Add foreign key \"Appeal_caseId_fkey\" on \"Appeal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "Appeal_caseId_fkey",
+        "table": "Appeal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"Appeal_caseId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_caseId_fkey",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"Appeal_caseId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"Appeal\"\nADD CONSTRAINT \"Appeal_caseId_fkey\"\nFOREIGN KEY (\"caseId\")\nREFERENCES \"public\".\"ModerationCase\" (\"id\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"Appeal_caseId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_caseId_fkey",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.Appeal.Appeal_appellantId_fkey",
+    "label": "Add foreign key \"Appeal_appellantId_fkey\" on \"Appeal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "Appeal_appellantId_fkey",
+        "table": "Appeal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"Appeal_appellantId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_appellantId_fkey",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"Appeal_appellantId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"Appeal\"\nADD CONSTRAINT \"Appeal_appellantId_fkey\"\nFOREIGN KEY (\"appellantId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"Appeal_appellantId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Appeal_appellantId_fkey",
+          "public",
+          "\"public\".\"Appeal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationAction.ModerationAction_caseId_fkey",
+    "label": "Add foreign key \"ModerationAction_caseId_fkey\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationAction_caseId_fkey",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationAction_caseId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationAction_caseId_fkey",
+          "public",
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationAction_caseId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationAction\"\nADD CONSTRAINT \"ModerationAction_caseId_fkey\"\nFOREIGN KEY (\"caseId\")\nREFERENCES \"public\".\"ModerationCase\" (\"id\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationAction_caseId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationAction_caseId_fkey",
+          "public",
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationAction.ModerationAction_actorId_fkey",
+    "label": "Add foreign key \"ModerationAction_actorId_fkey\" on \"ModerationAction\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationAction_actorId_fkey",
+        "table": "ModerationAction"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationAction_actorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationAction_actorId_fkey",
+          "public",
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationAction_actorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationAction\"\nADD CONSTRAINT \"ModerationAction_actorId_fkey\"\nFOREIGN KEY (\"actorId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationAction_actorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationAction_actorId_fkey",
+          "public",
+          "\"public\".\"ModerationAction\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationCase.ModerationCase_assignedModeratorId_fkey",
+    "label": "Add foreign key \"ModerationCase_assignedModeratorId_fkey\" on \"ModerationCase\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationCase_assignedModeratorId_fkey",
+        "table": "ModerationCase"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationCase_assignedModeratorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationCase_assignedModeratorId_fkey",
+          "public",
+          "\"public\".\"ModerationCase\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationCase_assignedModeratorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationCase\"\nADD CONSTRAINT \"ModerationCase_assignedModeratorId_fkey\"\nFOREIGN KEY (\"assignedModeratorId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationCase_assignedModeratorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationCase_assignedModeratorId_fkey",
+          "public",
+          "\"public\".\"ModerationCase\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationEvidence.ModerationEvidence_caseId_fkey",
+    "label": "Add foreign key \"ModerationEvidence_caseId_fkey\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationEvidence_caseId_fkey",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationEvidence_caseId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_caseId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationEvidence_caseId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationEvidence\"\nADD CONSTRAINT \"ModerationEvidence_caseId_fkey\"\nFOREIGN KEY (\"caseId\")\nREFERENCES \"public\".\"ModerationCase\" (\"id\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationEvidence_caseId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_caseId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationEvidence.ModerationEvidence_subjectUserId_fkey",
+    "label": "Add foreign key \"ModerationEvidence_subjectUserId_fkey\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationEvidence_subjectUserId_fkey",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationEvidence_subjectUserId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_subjectUserId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationEvidence_subjectUserId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationEvidence\"\nADD CONSTRAINT \"ModerationEvidence_subjectUserId_fkey\"\nFOREIGN KEY (\"subjectUserId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationEvidence_subjectUserId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_subjectUserId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ModerationEvidence.ModerationEvidence_reporterUserId_fkey",
+    "label": "Add foreign key \"ModerationEvidence_reporterUserId_fkey\" on \"ModerationEvidence\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ModerationEvidence_reporterUserId_fkey",
+        "table": "ModerationEvidence"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ModerationEvidence_reporterUserId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_reporterUserId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ModerationEvidence_reporterUserId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ModerationEvidence\"\nADD CONSTRAINT \"ModerationEvidence_reporterUserId_fkey\"\nFOREIGN KEY (\"reporterUserId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ModerationEvidence_reporterUserId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ModerationEvidence_reporterUserId_fkey",
+          "public",
+          "\"public\".\"ModerationEvidence\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserBlock.UserBlock_blockerId_fkey",
+    "label": "Add foreign key \"UserBlock_blockerId_fkey\" on \"UserBlock\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserBlock_blockerId_fkey",
+        "table": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserBlock_blockerId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockerId_fkey",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserBlock_blockerId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserBlock\"\nADD CONSTRAINT \"UserBlock_blockerId_fkey\"\nFOREIGN KEY (\"blockerId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserBlock_blockerId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockerId_fkey",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserBlock.UserBlock_blockedId_fkey",
+    "label": "Add foreign key \"UserBlock_blockedId_fkey\" on \"UserBlock\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserBlock_blockedId_fkey",
+        "table": "UserBlock"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserBlock_blockedId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockedId_fkey",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserBlock_blockedId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserBlock\"\nADD CONSTRAINT \"UserBlock_blockedId_fkey\"\nFOREIGN KEY (\"blockedId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserBlock_blockedId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserBlock_blockedId_fkey",
+          "public",
+          "\"public\".\"UserBlock\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserSuspension.UserSuspension_userId_fkey",
+    "label": "Add foreign key \"UserSuspension_userId_fkey\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserSuspension_userId_fkey",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserSuspension_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_userId_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserSuspension_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserSuspension\"\nADD CONSTRAINT \"UserSuspension_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserSuspension_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_userId_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserSuspension.UserSuspension_suspendedById_fkey",
+    "label": "Add foreign key \"UserSuspension_suspendedById_fkey\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserSuspension_suspendedById_fkey",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserSuspension_suspendedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_suspendedById_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserSuspension_suspendedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserSuspension\"\nADD CONSTRAINT \"UserSuspension_suspendedById_fkey\"\nFOREIGN KEY (\"suspendedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserSuspension_suspendedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_suspendedById_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserSuspension.UserSuspension_liftedById_fkey",
+    "label": "Add foreign key \"UserSuspension_liftedById_fkey\" on \"UserSuspension\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserSuspension_liftedById_fkey",
+        "table": "UserSuspension"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserSuspension_liftedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_liftedById_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserSuspension_liftedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserSuspension\"\nADD CONSTRAINT \"UserSuspension_liftedById_fkey\"\nFOREIGN KEY (\"liftedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserSuspension_liftedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSuspension_liftedById_fkey",
+          "public",
+          "\"public\".\"UserSuspension\""
+        ]
+      }
+    ]
+  }
+]
