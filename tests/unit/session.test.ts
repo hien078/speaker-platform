@@ -379,17 +379,21 @@ describe("getSessionFromCookie — reject không hợp lệ (fail closed)", () =
 // ─── 5. Revoke helpers + inventory ────────────────────────────────────────────
 
 describe("revoke helpers", () => {
-  it("revokeSession ghi revokedAt + revokedReason — idempotent (reason gốc giữ nguyên)", async () => {
+  it("revokeSession ghi revokedAt + revokedReason — idempotent (reason gốc giữ nguyên), trả count (review fix #4 Task 9)", async () => {
     await createSession(BUYER.id as string);
     const { session } = (await getSessionFromCookie())!;
-    await revokeSession(session.id, "logout");
+    // Lần đầu: 1 row vừa thu hồi
+    const first = await revokeSession(session.id, "logout");
+    expect(first).toBe(1);
     const row = dbState.sessions.find((r) => r.id === session.id)!;
     expect(row.revokedAt).not.toBeNull();
     expect(row.revokedReason).toBe("logout");
 
     // revoke lần 2 với reason khác → no-op (idempotent, không ghi đè reason gốc)
+    // — count 0 cho caller (admin-identity) biết KHÔNG có gì xảy ra → không audit.
     const revokedAtBefore = row.revokedAt;
-    await revokeSession(session.id, "other_reason");
+    const second = await revokeSession(session.id, "other_reason");
+    expect(second).toBe(0);
     expect(row.revokedAt).toBe(revokedAtBefore);
     expect(row.revokedReason).toBe("logout");
   });

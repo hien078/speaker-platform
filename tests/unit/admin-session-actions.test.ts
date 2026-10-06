@@ -85,6 +85,8 @@ const dbState = vi.hoisted(() => ({
   codes: [] as Array<Record<string, unknown>>,
   audits: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
+  /** Fix #2 (review): ép AuditEvent.create throw — chứng minh audit trong tx rollback mutation. */
+  failAuditCreate: false,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -189,10 +191,21 @@ vi.mock("@/src/prisma/db.client", () => {
       createdAt: new Date().toISOString(),
       usedAt: null, // nullable column — DB thật luôn có null, mock phải trung thực
     })),
-    AuditEvent: makeModel(dbState.audits, () => ({
-      id: `audit-${dbState.audits.length + 1}`,
-      createdAt: new Date().toISOString(),
-    })),
+    AuditEvent: (() => {
+      const base = makeModel(dbState.audits, () => ({
+        id: `audit-${dbState.audits.length + 1}`,
+        createdAt: new Date().toISOString(),
+      }));
+      // Fix #2 (review): seam ép audit insert fail — auditEventTx trong tx phải
+      // kéo rollback theo (mã khôi phục cũ sống lại), không "xoá xong mới chết".
+      return {
+        ...base,
+        create: async (data: Row) => {
+          if (dbState.failAuditCreate) throw new Error("AUDIT_INSERT_DOWN");
+          return base.create(data);
+        },
+      };
+    })(),
     Notification: makeModel(dbState.notifications, () => ({
       id: `notif-${dbState.notifications.length + 1}`,
     })),
@@ -201,9 +214,39 @@ vi.mock("@/src/prisma/db.client", () => {
   return {
     db: {
       orm,
-      // tx passthrough — cùng store; rollback thật do integration test lo
-      transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
-        fn({ orm: { public: { ...models } } }),
+      // Tx có ROLLBACK THẬT (review fix #2): snapshot store trước fn, restore
+      // khi fn throw — auditEventTx trong tx phải sống chết cùng mutation
+      // (audit fail → mã khôi phục cũ sống lại, không bao giờ "đã xoá mà
+      // không có audit"). Các model khác không bị tx chạm nhưng snapshot đủ 6
+      // cho an toàn.
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+        const snap = {
+          users: dbState.users.map((r) => ({ ...r })),
+          sessions: dbState.sessions.map((r) => ({ ...r })),
+          mfas: dbState.mfas.map((r) => ({ ...r })),
+          codes: dbState.codes.map((r) => ({ ...r })),
+          audits: dbState.audits.map((r) => ({ ...r })),
+          notifications: dbState.notifications.map((r) => ({ ...r })),
+        };
+        try {
+          return await fn({ orm: { public: { ...models } } });
+        } catch (e) {
+          const restore = (
+            rows: Array<Record<string, unknown>>,
+            saved: Array<Record<string, unknown>>,
+          ) => {
+            rows.length = 0;
+            rows.push(...saved);
+          };
+          restore(dbState.users, snap.users);
+          restore(dbState.sessions, snap.sessions);
+          restore(dbState.mfas, snap.mfas);
+          restore(dbState.codes, snap.codes);
+          restore(dbState.audits, snap.audits);
+          restore(dbState.notifications, snap.notifications);
+          throw e;
+        }
+      },
     },
   };
 });
@@ -214,6 +257,7 @@ import { resetRateLimits } from "@/src/lib/rate-limit";
 import { resetTotpReplayProtection, verifyAdminMfaCode, enrollAdminMfa } from "@/src/lib/admin-mfa";
 import { hotpCode } from "@/src/lib/totp";
 import { getSessionFromCookie, SESSION_COOKIE } from "@/src/lib/session";
+import { requireCapabilityWithStepUp } from "@/src/lib/rbac";
 import {
   revokeUserSessionAction,
   revokeAllUserSessionsAction,
@@ -326,6 +370,7 @@ beforeEach(() => {
   dbState.users.push({ ...ADMIN_SUPER }, { ...ADMIN_OPS }, { ...ADMIN_MOD }, { ...ADMIN_SUPPORT }, { ...BUYER });
   cookieState.store.clear();
   headerState.headers = new Headers();
+  dbState.failAuditCreate = false;
   enrolled = null;
   resetRateLimits();
   resetTotpReplayProtection(); // store replay in-process — reset giữa các case
@@ -385,16 +430,35 @@ describe("revokeUserSessionAction — requireCapability(session.revoke)", () => 
     expect(dbState.sessions.every((s) => s.revokedAt === null)).toBe(true);
   });
 
-  it("admin thu hồi phiên HIỆN TẠI của chính mình → revoke sạch, lookup sau fail (logout sạch)", async () => {
+  it("admin thu hồi phiên HIỆN TẠI của chính mình → destroySession (reason 'logout' + xóa cookie) + redirect /login — logout sạch (review fix #3)", async () => {
     const currentId = login(ADMIN_OPS, { isAdmin: true });
 
-    await revokeUserSessionAction(fd({ sessionId: currentId }));
+    // redirect() throw NEXT_REDIRECT — hành động kết thúc bằng chuyển hướng sạch
+    await expect(revokeUserSessionAction(fd({ sessionId: currentId }))).rejects.toThrow(
+      "NEXT_REDIRECT:/login",
+    );
 
     const row = dbState.sessions.find((s) => s.id === currentId)!;
     expect(row.revokedAt).not.toBeNull();
-    expect(row.revokedReason).toBe("admin_revoked");
-    // session bị revoke → request sau logged out (Review Focus 3 — fail closed)
+    expect(row.revokedReason).toBe("logout"); // session HIỆN TẠI = logout, không phải admin_revoked
+    expect(cookieState.store.has(SESSION_COOKIE)).toBe(false); // cookie đã xóa — không trạng thái zombie
+    const evt = dbState.audits.find((r) => r.action === "session.revoked");
+    expect(evt).toMatchObject({ actorId: "admin-ops", subjectId: "admin-ops", reason: "logout" });
+    // request sau → logged out (Review Focus 3 — fail closed)
     expect(await getSessionFromCookie()).toBeNull();
+  });
+
+  it("session ĐÃ revoke từ trước → idempotent: KHÔNG audit mới, reason gốc giữ nguyên (review fix #4)", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+    const victim = seedSession("sess-done", BUYER.id, {
+      revokedAt: "2026-10-01T00:00:00.000Z",
+      revokedReason: "logout",
+    });
+
+    await revokeUserSessionAction(fd({ sessionId: "sess-done" }));
+
+    expect(victim.revokedReason).toBe("logout"); // không bị ghi đè
+    expect(dbState.audits.filter((r) => r.action === "session.revoked")).toHaveLength(0);
   });
 });
 
@@ -455,6 +519,66 @@ describe("revokeAllUserSessionsAction — requireCapability(session.revoke)", ()
       actorId: "admin-super",
       subjectId: "admin-super",
     });
+  });
+
+  it("GIÁ TRỊ exceptSessionId từ form BỊ BỎ QUA — nhắm user KHÁC thì except crafted không giữ sống session nào (review fix #1, LOW-MED)", async () => {
+    // Kẻ tấn công trong role có session.revoke (ops_admin á ý) nhồi exceptSessionId
+    // = session ĐÁ ĐÁNH CẮP của user đích → mọi session của user đích vẫn chết.
+    login(ADMIN_OPS, { isAdmin: true });
+    const v1 = seedSession("v-s1", BUYER.id);
+    const v2 = seedSession("v-s2", BUYER.id); // session "giữ sống" crafted
+    const v3 = seedSession("v-s3", BUYER.id);
+
+    await revokeAllUserSessionsAction(fd({
+      userId: BUYER.id,
+      exceptSessionId: "v-s2", // crafted — phải bị BỎ QUA
+    }));
+
+    // TẤT CẢ session của user đích bị thu hồi — kể cả session trong except crafted
+    for (const row of [v1, v2, v3]) {
+      expect(row.revokedAt).not.toBeNull();
+      expect(row.revokedReason).toBe("admin_revoked_all");
+    }
+    // audit THÀNH THẬT: force-logout toàn bộ (count = 3), không đọc sai
+    const evt = dbState.audits.find((r) => r.action === "session.revoked_all");
+    expect(evt).toMatchObject({ subjectId: "user-buyer", reason: "admin_revoked_all" });
+    expect(evt!.detail).toBe("count=3");
+  });
+
+  it("GIÁ TRỊ except crafted cho CHÍNH MÌNH cũng bị bỏ qua — except luôn derive = session hiện tại (review fix #1)", async () => {
+    const currentId = login(ADMIN_SUPER, { isAdmin: true });
+    const other = seedSession("self-2", ADMIN_SUPER.id);
+
+    // crafted except = session KHÁC của chính mình → bị bỏ qua, except vẫn là session hiện tại
+    await revokeAllUserSessionsAction(fd({
+      userId: ADMIN_SUPER.id,
+      exceptSessionId: "self-2",
+    }));
+
+    expect(other.revokedAt).not.toBeNull(); // session crafted-khác vẫn chết
+    expect(dbState.sessions.find((s) => s.id === currentId)!.revokedAt).toBeNull(); // hiện tại sống
+  });
+
+  it("tự thu hồi TẤT CẢ (form /admin/users nhắm chính mình, không except) → destroySession + redirect /login — không zombie (review fix #3)", async () => {
+    const currentId = login(ADMIN_OPS, { isAdmin: true });
+    const other = seedSession("ops-2", ADMIN_OPS.id);
+
+    await expect(revokeAllUserSessionsAction(fd({ userId: ADMIN_OPS.id }))).rejects.toThrow(
+      "NEXT_REDIRECT:/login",
+    );
+
+    // session KHÁC: reason admin_revoked_all; session HIỆN TẠI: reason "logout" + cookie xóa
+    expect(other.revokedAt).not.toBeNull();
+    expect(other.revokedReason).toBe("admin_revoked_all");
+    const current = dbState.sessions.find((s) => s.id === currentId)!;
+    expect(current.revokedAt).not.toBeNull();
+    expect(current.revokedReason).toBe("logout");
+    expect(cookieState.store.has(SESSION_COOKIE)).toBe(false);
+    // audit session.revoked_all — subject chính mình, count = mọi session kể cả hiện tại
+    const evt = dbState.audits.find((r) => r.action === "session.revoked_all");
+    expect(evt).toMatchObject({ actorId: "admin-ops", subjectId: "admin-ops" });
+    expect(evt!.detail).toBe("count=2");
+    expect(await getSessionFromCookie()).toBeNull();
   });
 });
 
@@ -544,6 +668,35 @@ describe("stepUpAction — step-up từ /admin/security", () => {
     expect(blocked.error).toMatch(/Quá nhiều lần thử/);
     expect(dbState.sessions.find((s) => s.userId === ADMIN_OPS.id)!.steppedUpAt).toBeNull();
     expect(dbState.audits.filter((r) => r.action === "admin.step_up")).toHaveLength(0);
+  });
+
+  it("budget DÙNG CHUNG với rbac (review fix #5): 10 lần sai qua stepUpAction → requireCapabilityWithStepUp (mã ĐÚNG) bị chặn MFA_RATE_LIMITED", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+
+    for (let i = 0; i < 10; i++) {
+      await stepUpAction({}, fd({ mfaCode: "000000" }));
+    }
+
+    // Cùng bucket stepup:mfa:session/user/ip — guard rbac thấy budget đã cạn,
+    // KHÔNG verify (mã đúng cũng bị từ chối) → không thể "step-up qua form rồi
+    // gọi action nhạy cảm" để vòng qua rate limit của guard.
+    await expect(
+      requireCapabilityWithStepUp("seller.verify", currentTotp()),
+    ).rejects.toThrow("MFA_RATE_LIMITED");
+    expect(dbState.sessions.find((s) => s.userId === ADMIN_OPS.id)!.steppedUpAt).toBeNull();
+  });
+
+  it("TOTP replay (RFC 6238 §5.2): cùng mã dùng ở stepUpAction lần 2 → bị từ chối (review fix #5)", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+    const code = currentTotp();
+
+    const first = await stepUpAction({}, fd({ mfaCode: code }));
+    expect(first.error).toBeUndefined();
+
+    // Cùng mã, cùng time-step → replay → verifyAdminMfaCode null → error
+    const second = await stepUpAction({}, fd({ mfaCode: code }));
+    expect(second.error).toBeTruthy();
+    expect(second.error).not.toMatch(/Quá nhiều lần thử/); // là replay, không phải rate limit
   });
 });
 
@@ -658,6 +811,53 @@ describe("regenerateRecoveryCodesAction — sinh lại mã khôi phục (tự ph
     expect(state.recoveryCodes).toBeUndefined();
     expect(dbState.codes).toHaveLength(codesBefore); // mã của admin khác giữ nguyên
     expect(dbState.audits.filter((r) => r.action === "admin.mfa_recovery_codes_regenerated")).toHaveLength(0);
+  });
+
+  it("audit ghi BÊN TRONG tx (review fix #2): audit fail → ROLLBACK — mã cũ sống, không bao giờ 'đã xoá mà không có audit'", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+    const oldCodes = enrolled!.recoveryCodes;
+    const codesBefore = dbState.codes.length;
+    dbState.failAuditCreate = true; // ép audit insert fail giữa tx
+
+    // auditEventTx cùng tx → throw lan ra → rollback (throw-out rule: không catch trong tx)
+    await expect(regenerateRecoveryCodesAction({}, fd({ mfaCode: currentTotp() }))).rejects.toThrow(
+      "AUDIT_INSERT_DOWN",
+    );
+
+    // ROLLBACK: 10 row mã cũ nguyên vẹn — không phải "zero codes" như trước fix
+    expect(dbState.codes).toHaveLength(codesBefore);
+    expect(await verifyAdminMfaCode(ADMIN_OPS.id, oldCodes[0]!)).toBe("recovery_code");
+    expect(dbState.audits.filter((r) => r.action === "admin.mfa_recovery_codes_regenerated")).toHaveLength(0);
+  });
+
+  it("rate limit riêng cho regenerate (review fix #5): 10 lần sai → lần 11 (mã ĐÚNG) bị chặn, không mutation", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+    const oldCodes = enrolled!.recoveryCodes;
+
+    for (let i = 0; i < 10; i++) {
+      const state = await regenerateRecoveryCodesAction({}, fd({ mfaCode: "000000" }));
+      expect(state.error).toBeTruthy();
+    }
+
+    // lần 11 — mã ĐÚNG nhưng bucket stepup:mfa:* đã đầy (kiểm tra TRƯỚC verify)
+    const blocked = await regenerateRecoveryCodesAction({}, fd({ mfaCode: currentTotp() }));
+    expect(blocked.error).toMatch(/Quá nhiều lần thử/);
+    expect(blocked.recoveryCodes).toBeUndefined();
+    expect(await verifyAdminMfaCode(ADMIN_OPS.id, oldCodes[0]!)).toBe("recovery_code"); // mã cũ sống
+  });
+
+  it("budget DÙNG CHUNG với stepUpAction (review fix #5): 10 lần sai qua form step-up → regenerate bị chặn", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+
+    for (let i = 0; i < 10; i++) {
+      await stepUpAction({}, fd({ mfaCode: "000000" }));
+    }
+
+    // Cùng bucket — regenerate không phải surface brute-force riêng
+    const blocked = await regenerateRecoveryCodesAction({}, fd({ mfaCode: currentTotp() }));
+    expect(blocked.error).toMatch(/Quá nhiều lần thử/);
+    expect(blocked.recoveryCodes).toBeUndefined();
+    expect(dbState.codes).toHaveLength(10); // mã cũ nguyên vẹn
   });
 });
 

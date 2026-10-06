@@ -186,11 +186,17 @@ export async function getSessionFromCookie(): Promise<{
   return { session: toSessionInfo(row), user: toSessionUser(row.user, row.id) };
 }
 
-/** Thu hồi một session (idempotent — session đã revoke không bị ghi đè reason). */
-export async function revokeSession(sessionId: string, reason: string): Promise<void> {
-  await db.orm.public.UserSession.where({ id: sessionId })
+/**
+ * Thu hồi một session (idempotent — session đã revoke không bị ghi đè reason).
+ * Trả về số row VỪA thu hồi (review fix #4 Task 9): 1 = vừa revoke, 0 = đã
+ * revoke từ trước / không tồn tại — caller (admin-identity.ts) dùng để chỉ
+ * audit khi có gì THẬT SỰ xảy ra.
+ */
+export async function revokeSession(sessionId: string, reason: string): Promise<number> {
+  const revoked = await db.orm.public.UserSession.where({ id: sessionId })
     .where((s) => s.revokedAt.isNull())
     .updateAll({ revokedAt: nowIso(), revokedReason: reason });
+  return revoked.length;
 }
 
 /**

@@ -173,8 +173,8 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
 
 /**
  * Bucket rate limit cho lần submit mã MFA ở step-up (review fix #2 — spec §7.2):
- * cookie admin bị đánh cắp → brute force 000000-999999 qua guard này. Ba bucket
- * (đều 10 lần / 10 phút, window trượt — không khóa vĩnh viễn):
+ * cookie admin bị đánh cắp → brute force 000000-999999 qua surface này. Ba
+ * bucket (đều 10 lần / 10 phút, window trượt — không khóa vĩnh viễn):
  * - per-SESSION (stepup:mfa:session:<id>) — đúng session bị đánh cắp;
  * - per-USER (stepup:mfa:user:<id>) — kẻ đổi session token của cùng user;
  * - per-IP (stepup:mfa:ip:<ip>) — kẻ phân tán.
@@ -184,8 +184,17 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
  */
 const STEP_UP_MFA_RULE: RateLimitRule = { limit: 10, windowMs: 10 * 60_000 };
 
-/** Kiểm tra cả 3 bucket step-up — trả retryAfterSec khi bị chặn, null khi cho qua. Fail open. */
-async function stepUpMfaLimited(userId: string, sessionId: string): Promise<number | null> {
+/**
+ * Kiểm tra cả 3 bucket step-up — trả retryAfterSec khi bị chặn, null khi cho
+ * qua. Fail open (limiter lỗi → không chặn).
+ *
+ * Task 9 review fix #5: EXPORT dùng chung cho admin-identity.ts
+ * (stepUpAction / regenerateRecoveryCodesAction) — MỘT nguồn duy nhất cho
+ * keys + rule; budget stepup:mfa:* DÙNG CHUNG mọi surface submit mã MFA
+ * (guard rbac lẫn form /admin/security), không surface nào là oracle
+ * brute-force riêng.
+ */
+export async function stepUpMfaLimited(userId: string, sessionId: string): Promise<number | null> {
   try {
     const ip = clientIpFromHeaders(await headers());
     const keys = [

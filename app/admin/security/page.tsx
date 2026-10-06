@@ -116,6 +116,8 @@ export default async function AdminSecurityPage() {
             className="mt-4 border-t border-[var(--line)] pt-4"
           >
             <input type="hidden" name="userId" value={user.id} />
+            {/* TÍN HIỆU "giữ session hiện tại" — action bỏ qua GIÁ TRỊ, except luôn
+                derive server-side = session hiện tại của chính admin (review fix #1). */}
             <input type="hidden" name="exceptSessionId" value={session.id} />
             <button type="submit" className="btn-secondary text-sm">
               Đăng xuất các thiết bị khác

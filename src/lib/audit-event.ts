@@ -23,6 +23,10 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   (review fix Task 8): admin.login — login admin thành công sau MFA
  *   (reason = factor "totp"|"recovery_code"); admin.mfa_failed — lần sai mã
  *   MFA ở login/step-up (reason typed theo surface, KHÔNG chứa mã thô).
+ *   (Task 9): admin.mfa_recovery_codes_regenerated — admin tự sinh lại 10 mã
+ *   khôi phục của chính mình sau khi verify mã MFA (reason = factor
+ *   "totp"|"recovery_code", detail count — KHÔNG chứa mã thô); ghi qua
+ *   auditEventTx TRONG cùng transaction xoá/tạo mã (audit fail → rollback).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay
