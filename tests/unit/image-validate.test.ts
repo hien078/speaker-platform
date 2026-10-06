@@ -96,3 +96,50 @@ describe("validateImage — từ chối payload nguy hiểm", () => {
     expect(res.ok).toBe(false);
   });
 });
+
+describe("validateImage — caps Batch 4 (50MP / 12k px — nguồn duy nhất src/lib/image-process.ts)", () => {
+  // Cap cũ 40MP/10k px đã chặn 41MP từ trước — bộ case DI CHUYỂN theo cap,
+  // không bịa case "25MP fails" chưa từng tồn tại (plan Task 3).
+
+  it(
+    "50MP (8164×6123) passes — cap admits 48MP phone sensors (siết từ 40MP)",
+    { timeout: 30_000 },
+    async () => {
+      // 8164×6123 = 49.988.172 px ≤ 50MP (plan dẫn 8165×6124 nhưng tích đó
+      // 50.002.460 px > cap — xem report; giữ nguyên ý "50MP 4:3 qua cap")
+      const buf = await sharp({ create: { width: 8164, height: 6123, channels: 3, background: "#111111" } })
+        .jpeg()
+        .toBuffer();
+      const res = await validateImage(buf, "image/jpeg", MAX);
+      expect(res).toMatchObject({ ok: true, width: 8164, height: 6123 });
+    },
+  );
+
+  it(
+    "51MP (8500×6000) → TOO_MANY_PIXELS under the 50MP cap",
+    { timeout: 30_000 },
+    async () => {
+      const buf = await sharp({ create: { width: 8500, height: 6000, channels: 3, background: "#111111" } })
+        .jpeg()
+        .toBuffer();
+      const res = await validateImage(buf, "image/jpeg", MAX);
+      expect(res).toEqual({ ok: false, reason: "TOO_MANY_PIXELS" });
+    },
+  );
+
+  it("12,001px cạnh → TOO_LARGE_DIMENSIONS under the 12k cap (cap cũ 10k px)", async () => {
+    const buf = await sharp({ create: { width: 12_001, height: 10, channels: 3, background: "#111111" } })
+      .png()
+      .toBuffer();
+    const res = await validateImage(buf, "image/png", MAX);
+    expect(res).toEqual({ ok: false, reason: "TOO_LARGE_DIMENSIONS" });
+  });
+
+  it("12,000px cạnh (đúng cap) passes", async () => {
+    const buf = await sharp({ create: { width: 12_000, height: 10, channels: 3, background: "#111111" } })
+      .png()
+      .toBuffer();
+    const res = await validateImage(buf, "image/png", MAX);
+    expect(res).toMatchObject({ ok: true, width: 12_000, height: 10 });
+  });
+});

@@ -1,5 +1,6 @@
 import "server-only";
 import sharp from "sharp";
+import { IMAGE_MAX_DIM, IMAGE_MAX_PIXELS } from "@/src/lib/image-process";
 
 /**
  * Validate ảnh upload — KHÔNG tin MIME do client khai báo:
@@ -8,6 +9,10 @@ import sharp from "sharp";
  *    (chống SVG/script payload, chống file cắt cụt).
  * 3. Cap kích thước + số pixel — chống resource exhaustion lúc render.
  * SVG không bao giờ cho phép (script payload chạy trong <img> trên vài browser cũ).
+ *
+ * Batch 4 Task 3: caps (50MP / 12k px — siết từ 40MP / 10k) chuyển về
+ * src/lib/image-process.ts làm NGUỒN DUY NHẤT — re-encode pipeline dùng
+ * chung cùng bộ cap, không định nghĩa lại ở đây.
  */
 
 const MAGIC: { mime: string; ext: string; bytes: number[] }[] = [
@@ -16,9 +21,6 @@ const MAGIC: { mime: string; ext: string; bytes: number[] }[] = [
   { mime: "image/gif", ext: "gif", bytes: [0x47, 0x49, 0x46, 0x38] }, // "GIF8" (7a/9a)
   { mime: "image/webp", ext: "webp", bytes: [0x52, 0x49, 0x46, 0x46] }, // "RIFF" + bytes 8..11 == "WEBP"
 ];
-
-const MAX_DIM = 10_000; // px mỗi cạnh
-const MAX_PIXELS = 40_000_000; // 40MP
 
 export type ImageValidation =
   | { ok: true; ext: string; width: number; height: number }
@@ -62,10 +64,10 @@ export async function validateImage(
     const width = meta.width ?? 0;
     const height = meta.height ?? 0;
     if (width < 1 || height < 1) return { ok: false, reason: "BAD_DIMENSIONS" };
-    if (width > MAX_DIM || height > MAX_DIM) {
+    if (width > IMAGE_MAX_DIM || height > IMAGE_MAX_DIM) {
       return { ok: false, reason: "TOO_LARGE_DIMENSIONS" };
     }
-    if (width * height > MAX_PIXELS) return { ok: false, reason: "TOO_MANY_PIXELS" };
+    if (width * height > IMAGE_MAX_PIXELS) return { ok: false, reason: "TOO_MANY_PIXELS" };
     return { ok: true, ext: entry.ext, width, height };
   } catch {
     return { ok: false, reason: "DECODE_FAILED" };

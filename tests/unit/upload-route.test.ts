@@ -1,0 +1,343 @@
+/**
+ * POST /api/upload — Batch 4 Task 3 upload hardening (spec §5.6.4/§7.5).
+ *
+ * Hợp đồng (plan Task 3):
+ *  - 401 TRƯỚC khi buffer file (hiện có — pin lại);
+ *  - Content-Length > ~5.5MB → 413 TRƯỚC request.formData() (early body reject);
+ *  - file.size > cap → 400 TRƯỚC khi buffer (arrayBuffer không được gọi);
+ *  - file ghi ra là buffer ĐÃ RE-ENCODE (WebP, EXIF/GPS strip), KHÔNG BAO GIỜ
+ *    buffer gốc (Review Focus 1);
+ *  - ListingImageUpload row (ownership) ghi TRƯỚC file — ROW FIRST; writeFile
+ *    fail → xoá row best-effort + 500 (row mồ côi vô hại, file mồ côi mới là
+ *    vấn đề);
+ *  - per-USER rate limit ≤ per-IP (§7.1) — 21st upload trong 10 phút → 429
+ *    (test bật TRUST_PROXY_HEADERS + đổi x-real-ip mỗi request, nếu không
+ *    bucket IP "local" chung sẽ chặn trước, che mất bucket per-user);
+ *  - re-encode fail → 400, KHÔNG ghi file, KHÔNG tạo row;
+ *  - SVG (khai báo svg+xml hoặc giả danh png) → validateImage từ chối
+ *    (MIME_NOT_ALLOWED / MAGIC_MISMATCH) — pin lại ở tầng route.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import sharp from "sharp";
+
+vi.mock("server-only", () => ({}));
+
+// ─── fs mock — spy writeFile/mkdir, KHÔNG chạm đĩa thật ───────────────────────
+
+const orderState = vi.hoisted(() => ({ events: [] as string[] }));
+const fsState = vi.hoisted(() => ({
+  writes: [] as Array<{ path: string; buffer: Buffer }>,
+}));
+
+vi.mock("node:fs/promises", () => ({
+  mkdir: vi.fn(async () => {
+    orderState.events.push("mkdir");
+  }),
+  writeFile: vi.fn(async (p: unknown, data: unknown) => {
+    orderState.events.push("write");
+    fsState.writes.push({ path: String(p), buffer: Buffer.from(data as Uint8Array) });
+  }),
+}));
+
+// ─── db mock — in-memory ListingImageUpload (ownership row) ──────────────────
+
+const dbState = vi.hoisted(() => ({
+  uploads: [] as Array<Record<string, unknown>>,
+  createdKeys: [] as string[],
+  deletes: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock("@/src/prisma/db.client", () => ({
+  db: {
+    orm: {
+      public: {
+        ListingImageUpload: {
+          create: vi.fn(async (data: Record<string, unknown>) => {
+            const row = { id: `upload-${dbState.uploads.length + 1}`, ...data };
+            dbState.uploads.push(row);
+            dbState.createdKeys.push(String(data.storageKey));
+            orderState.events.push("row");
+            return row;
+          }),
+          where: (pred: Record<string, unknown>) => ({
+            deleteAndCount: vi.fn(async () => {
+              dbState.deletes.push(pred);
+              orderState.events.push("delete");
+              const before = dbState.uploads.length;
+              dbState.uploads = dbState.uploads.filter(
+                (r) => !Object.entries(pred).every(([k, v]) => r[k] === v),
+              );
+              return before - dbState.uploads.length;
+            }),
+          }),
+        },
+      },
+    },
+  },
+}));
+
+// ─── auth mock — session user fixture ────────────────────────────────────────
+
+const authState = vi.hoisted(() => ({ user: null as null | { id: string } }));
+
+vi.mock("@/src/lib/auth", () => ({
+  getCurrentUser: vi.fn(async () => authState.user),
+}));
+
+// ─── observability mock — pin captureError scope/reason, giữ output sạch ─────
+
+const obsState = vi.hoisted(() => ({
+  errors: [] as Array<{ scope: string; message: string; meta?: Record<string, unknown> }>,
+}));
+
+vi.mock("@/src/lib/observability", () => ({
+  captureError: vi.fn((scope: string, error: unknown, meta?: Record<string, unknown>) => {
+    obsState.errors.push({
+      scope,
+      message: error instanceof Error ? error.message : String(error),
+      meta,
+    });
+  }),
+  captureEvent: vi.fn(),
+}));
+
+import { POST } from "../../app/api/upload/route";
+import { resetRateLimits } from "@/src/lib/rate-limit";
+import { IMAGE_MAX_BYTES, reencodeImage } from "@/src/lib/image-process";
+import { writeFile } from "node:fs/promises";
+
+const root = fileURLToPath(new URL("../..", import.meta.url));
+const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
+
+async function tinyPng(): Promise<Buffer> {
+  return sharp({ create: { width: 1, height: 1, channels: 3, background: "#000" } })
+    .png()
+    .toBuffer();
+}
+
+/** Buffer<ArrayBufferLike> không gán được cho BlobPart — copy qua Uint8Array. */
+function pngFile(buf: Buffer, name = "a.png", type = "image/png"): File {
+  return new File([new Uint8Array(buf)], name, { type });
+}
+
+function uploadRequest(file: File, headers: Record<string, string> = {}): Request {
+  const fd = new FormData();
+  fd.append("file", file);
+  return new Request("http://localhost:3000/api/upload", { method: "POST", body: fd, headers });
+}
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  resetRateLimits();
+  orderState.events.length = 0;
+  fsState.writes.length = 0;
+  dbState.uploads.length = 0;
+  dbState.createdKeys.length = 0;
+  dbState.deletes.length = 0;
+  obsState.errors.length = 0;
+  authState.user = { id: "user-1" };
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("POST /api/upload — auth + early rejects", () => {
+  it("unauthenticated POST → 401 before any file buffering", async () => {
+    authState.user = null;
+    const request = uploadRequest(pngFile(await tinyPng()));
+    const formDataSpy = vi.spyOn(request, "formData");
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(401);
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("Content-Length over ~5.5MB → 413 before request.formData()", async () => {
+    const request = new Request("http://localhost:3000/api/upload", {
+      method: "POST",
+      headers: { "content-length": String(IMAGE_MAX_BYTES + 512 * 1024 + 1) },
+    });
+    const formDataSpy = vi.spyOn(request, "formData").mockResolvedValue(new FormData());
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(413);
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("file.size over cap → 400 before buffering (arrayBuffer not called)", async () => {
+    const file = pngFile(await tinyPng());
+    Object.defineProperty(file, "size", { value: IMAGE_MAX_BYTES + 1 });
+    const arrayBufferSpy = vi.spyOn(file, "arrayBuffer");
+    const fd = new FormData();
+    fd.append("file", file);
+    const request = new Request("http://localhost:3000/api/upload", { method: "POST" });
+    vi.spyOn(request, "formData").mockResolvedValue(fd);
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(400);
+    expect(arrayBufferSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("POST /api/upload — re-encode + ownership row (Review Focus 1)", () => {
+  it("the stored file is the re-encode output, not the upload", async () => {
+    const input = await sharp({ create: { width: 300, height: 200, channels: 3, background: "#c0ffee" } })
+      .png()
+      .toBuffer();
+
+    const res = await POST(uploadRequest(pngFile(input)));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    expect(body.url).toMatch(/^\/uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp$/);
+
+    expect(fsState.writes.length).toBe(1);
+    const written = fsState.writes[0]!.buffer;
+    const expected = await reencodeImage(input);
+    expect(expected.ok).toBe(true);
+    if (!expected.ok) return;
+    // file ghi ra == re-encode output, != upload bytes (Review Focus 1)
+    expect(written.equals(expected.buffer)).toBe(true);
+    expect(written.equals(input)).toBe(false);
+    const writtenMeta = await sharp(written).metadata();
+    expect(writtenMeta.format).toBe("webp");
+  });
+
+  it("storageKey is shared by row + file + response URL; the row is created BEFORE the file write", async () => {
+    const input = await tinyPng();
+
+    const res = await POST(uploadRequest(pngFile(input)));
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { url: string };
+    const storageKey = body.url.replace("/uploads/", "");
+
+    // cùng một storageKey cho cả row lẫn file — sinh TRƯỚC cả hai
+    expect(dbState.createdKeys).toEqual([storageKey]);
+    expect(fsState.writes.length).toBe(1);
+    expect(fsState.writes[0]!.path).toContain(storageKey);
+    // ROW FIRST — row mồ côi vô hại, file mồ côi (public, không owner) mới là vấn đề
+    expect(orderState.events).toEqual(["mkdir", "row", "write"]);
+
+    // row ownership ghi đúng nội dung re-encode
+    const row = dbState.uploads[0]!;
+    expect(row.ownerUserId).toBe("user-1");
+    expect(row.storageKey).toBe(storageKey);
+    expect(row.bytes).toBe(fsState.writes[0]!.buffer.length);
+    const expected = await reencodeImage(input);
+    if (!expected.ok) throw new Error("reencode failed in fixture");
+    expect(row.width).toBe(expected.width);
+    expect(row.height).toBe(expected.height);
+  });
+
+  it("a writeFile failure deletes the row (best-effort) and returns 500", async () => {
+    // mockImplementationOnce (không phải mockRejectedValueOnce) để event "write"
+    // vẫn được ghi lại trước khi throw — chứng minh thứ tự row → write → delete
+    vi.mocked(writeFile).mockImplementationOnce(async (p: unknown, data: unknown) => {
+      orderState.events.push("write");
+      fsState.writes.push({ path: String(p), buffer: Buffer.from(data as Uint8Array) });
+      throw new Error("EIO");
+    });
+    const input = await tinyPng();
+
+    const res = await POST(uploadRequest(pngFile(input)));
+
+    expect(res.status).toBe(500);
+    // row đã tạo bị xoá theo đúng storageKey — không để lại row mồ côi
+    expect(dbState.deletes).toEqual([{ storageKey: dbState.createdKeys[0] }]);
+    expect(dbState.uploads.length).toBe(0);
+    expect(orderState.events).toEqual(["mkdir", "row", "write", "delete"]);
+  });
+});
+
+describe("POST /api/upload — rate limits (§7.1)", () => {
+  it("per-user limit: 21st upload within 10 min → 429 (per-IP bucket không chặn trước)", { timeout: 60_000 }, async () => {
+    // TRUST_PROXY_HEADERS + x-real-ip khác nhau mỗi request — nếu không mọi
+    // request chung bucket IP "local" và limit IP (20) sẽ chặn trước,
+    // che mất bucket per-user cần chứng minh
+    vi.stubEnv("TRUST_PROXY_HEADERS", "true");
+    const input = await tinyPng();
+
+    let last: Response | null = null;
+    for (let i = 0; i < 21; i++) {
+      const file = pngFile(input);
+      last = await POST(uploadRequest(file, { "x-real-ip": `10.0.${Math.floor(i / 250)}.${i % 250}` }));
+    }
+
+    expect(last!.status).toBe(429);
+    const body = (await last!.json()) as { error: string };
+    expect(body.error).toBe("RATE_LIMITED");
+    // 20 upload đầu thành công (row + file), request 21 bị chặn TRƯỚC khi buffer
+    expect(dbState.uploads.length).toBe(20);
+    expect(fsState.writes.length).toBe(20);
+  });
+});
+
+describe("POST /api/upload — re-encode failure fail closed", () => {
+  it("re-encode failure → 400, no file written, no upload row", async () => {
+    // PNG header intact (validateImage pass) nhưng thân ảnh corrupt →
+    // re-encode fail — đúng lớp thứ hai sau validate
+    const png = await sharp({ create: { width: 200, height: 200, channels: 3, background: "#336699" } })
+      .png()
+      .toBuffer();
+    const corrupt = Buffer.from(png);
+    for (let i = Math.floor(png.length * 0.5); i < Math.floor(png.length * 0.5) + 40; i++) {
+      corrupt[i] = 0xff;
+    }
+
+    const res = await POST(uploadRequest(pngFile(corrupt)));
+
+    expect(res.status).toBe(400);
+    expect(fsState.writes.length).toBe(0);
+    expect(dbState.uploads.length).toBe(0);
+    // reason có scope để truy vết — KHÔNG leak nội dung ảnh
+    expect(
+      obsState.errors.some((e) => e.scope === "upload" && e.message.includes("re-encode")),
+    ).toBe(true);
+  });
+});
+
+describe("POST /api/upload — SVG/MIME spoof (pin lại ở tầng route)", () => {
+  it("SVG declared image/svg+xml → rejected by validateImage (MIME_NOT_ALLOWED)", async () => {
+    const svg = new File([`<svg onload="alert(1)"><script>alert(1)</script></svg>`], "a.svg", {
+      type: "image/svg+xml",
+    });
+
+    const res = await POST(uploadRequest(svg));
+
+    expect(res.status).toBe(400);
+    expect(obsState.errors.some((e) => e.message.includes("MIME_NOT_ALLOWED"))).toBe(true);
+    expect(fsState.writes.length).toBe(0);
+    expect(dbState.uploads.length).toBe(0);
+  });
+
+  it("SVG bytes declared image/png → MAGIC_MISMATCH", async () => {
+    const svg = new File(
+      [`<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"></svg>`],
+      "a.png",
+      { type: "image/png" },
+    );
+
+    const res = await POST(uploadRequest(svg));
+
+    expect(res.status).toBe(400);
+    expect(obsState.errors.some((e) => e.message.includes("MAGIC_MISMATCH"))).toBe(true);
+    expect(fsState.writes.length).toBe(0);
+  });
+});
+
+describe("/uploads serving headers (next.config.ts — spec §7.5)", () => {
+  it("serves /uploads with nosniff + CSP default-src 'none'; sandbox", () => {
+    const src = read("next.config.ts");
+    expect(src).toContain('source: "/uploads/:path*"');
+    expect(src).toContain('"X-Content-Type-Options"');
+    expect(src).toContain('"nosniff"');
+    expect(src).toContain("default-src 'none'; sandbox");
+  });
+});
