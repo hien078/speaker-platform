@@ -7,13 +7,27 @@
  * Các case pin theo plan Task 5 Step 1 + Review Focus 3 (no PII) + Review
  * Focus 4 (finance-boundary watermark) + Global Constraints (drift test
  * FINANCE_TABLES ⊆ contract, OTP_MAX_ATTEMPTS duplicate có drift test).
+ *
+ * Review fix (commit "fix(ops): accurate finance-boundary signals"):
+ * - Phân loại table theo WRITER THẬT (grep từng bảng): finance-only (CRITICAL
+ *   mọi ins/upd/del) / cascade-affected (CRITICAL ins/upd, delete WARN —
+ *   deleteListingAction xoá CartItem trực tiếp + FK Cascade xoá Offer/
+ *   ExchangeOffer) / non-finance (PriceHistory — createListingAction/
+ *   updateListingAction/mergeModelAction KHÔNG guard; Cart — registerAction/
+ *   finishLogin; Review — submitReviewAction không guard, finding cho Task 8).
+ * - TRUNCATE vô hình với n_tup_* → so row count trong state file (v2).
+ * - State file hỏng / counter giảm (stats reset) ở lần KHÔNG phải đầu → WARN.
+ * - Health 503 phân biệt với unreachable (httpStatus trong detail).
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  CASCADE_AFFECTED_TABLES,
   DEFAULT_THRESHOLDS,
+  FINANCE_ONLY_TABLES,
   FINANCE_TABLES,
+  NON_FINANCE_TABLES,
   OTP_MAX_ATTEMPTS,
   THRESHOLDS_PROPOSED_MARKER,
   computeTableDeltas,
@@ -37,22 +51,24 @@ const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
 // ─── 1. Health (/api/health) ─────────────────────────────────────────────────
 
 describe("evaluateHealth — /api/health", () => {
-  it("không gọi được health (null) → CRITICAL", () => {
+  it("không gọi được health (null — network/unreachable) → CRITICAL reason unreachable", () => {
     const alerts = evaluateHealth(null);
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("CRITICAL");
     expect(alerts[0]!.signal).toBe("health");
+    expect(alerts[0]!.detail.reason).toBe("unreachable");
   });
 
-  it("ok: false (db down) → CRITICAL", () => {
-    const alerts = evaluateHealth({ ok: false, db: "down" });
+  it("endpoint trả 503 + ok:false (db down) → CRITICAL, phân biệt httpStatus", () => {
+    const alerts = evaluateHealth({ ok: false, db: "down", httpStatus: 503 });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("CRITICAL");
     expect(alerts[0]!.signal).toBe("health");
+    expect(alerts[0]!.detail).toMatchObject({ db: "down", httpStatus: 503 });
   });
 
   it("ok: true → INFO (dòng evidence mỗi lần chạy)", () => {
-    const alerts = evaluateHealth({ ok: true, db: "up" });
+    const alerts = evaluateHealth({ ok: true, db: "up", httpStatus: 200 });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("INFO");
     expect(alerts[0]!.signal).toBe("health");
@@ -117,16 +133,18 @@ describe("evaluateAuthAbuse — AuditEvent/OtpCode counts trong window", () => {
   });
 });
 
-// ─── 4. Finance boundary — pg_stat_user_tables watermark (Review Focus 4) ────
+// ─── 4. Finance boundary — pg_stat watermark + phân loại writer (Review Focus 4) ─
 
 const zero = { inserts: 0, updates: 0, deletes: 0 };
 
-describe("evaluateFinanceBoundary — tuple-counter delta khi FINANCIAL_FEATURES_ENABLED=false", () => {
-  it("BẤT KỲ delta > 0 trên BẤT KỲ finance table nào khi disabled → CRITICAL kèm tên table", () => {
+describe("evaluateFinanceBoundary — phân loại theo writer THẬT của từng table", () => {
+  it("finance-only table: BẤT KỲ delta > 0 khi disabled → CRITICAL kèm tên table", () => {
     const alerts = evaluateFinanceBoundary({
       tableDeltas: { Order: { inserts: 2, updates: 0, deletes: 0 }, Payment: zero },
       rowCounts: { Order: 5, Payment: 0 },
       watermark: { Order: zero, Payment: zero },
+      previousRowCounts: { Order: 3, Payment: 0 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     });
     expect(alerts).toHaveLength(1);
@@ -136,22 +154,26 @@ describe("evaluateFinanceBoundary — tuple-counter delta khi FINANCIAL_FEATURES
     expect(alerts[0]!.detail).toMatchObject({ inserts: 2, rowCount: 5 });
   });
 
-  it("delta = 0 trên mọi table → không alert", () => {
+  it("delta = 0 và row count không đổi → không alert", () => {
     expect(
       evaluateFinanceBoundary({
         tableDeltas: { Order: zero, Payment: zero },
-        rowCounts: { Order: 0, Payment: 0 },
+        rowCounts: { Order: 3, Payment: 0 },
         watermark: { Order: zero, Payment: zero },
+        previousRowCounts: { Order: 3, Payment: 0 },
+        watermarkCorrupt: false,
         financialFeaturesEnabled: false,
       }),
     ).toEqual([]);
   });
 
-  it("lần đầu (watermark null) → baseline INFO, KHÔNG CRITICAL dù có delta", () => {
+  it("lần đầu (chưa có file state) → baseline INFO, KHÔNG CRITICAL dù có delta", () => {
     const alerts = evaluateFinanceBoundary({
       tableDeltas: { Order: { inserts: 99, updates: 0, deletes: 0 } },
       rowCounts: { Order: 99 },
       watermark: null,
+      previousRowCounts: null,
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     });
     expect(alerts).toHaveLength(1);
@@ -160,18 +182,37 @@ describe("evaluateFinanceBoundary — tuple-counter delta khi FINANCIAL_FEATURES
     expect(alerts.some((a) => a.severity === "CRITICAL")).toBe(false);
   });
 
-  it("counter GIẢM (stats_reset / PG restart) → re-baseline INFO, không CRITICAL giả", () => {
+  it("state file TỒN TẠI nhưng hỏng (lần không phải đầu) → re-baseline WARN, không CRITICAL giả", () => {
+    const alerts = evaluateFinanceBoundary({
+      tableDeltas: {},
+      rowCounts: {},
+      watermark: null,
+      previousRowCounts: null,
+      watermarkCorrupt: true,
+      financialFeaturesEnabled: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.severity).toBe("WARN");
+    expect(alerts[0]!.signal).toBe("finance-boundary-rebaseline");
+    expect(alerts[0]!.detail.reason).toBe("state-file-corrupt");
+    expect(alerts.some((a) => a.severity === "CRITICAL")).toBe(false);
+  });
+
+  it("counter GIẢM (stats_reset / PG restart) → re-baseline WARN, không CRITICAL giả", () => {
     const alerts = evaluateFinanceBoundary({
       tableDeltas: { Order: { inserts: -50, updates: 0, deletes: 0 }, Payment: zero },
       rowCounts: { Order: 0, Payment: 0 },
       watermark: { Order: { inserts: 50, updates: 0, deletes: 0 }, Payment: zero },
+      previousRowCounts: { Order: 0, Payment: 0 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     });
     expect(alerts.some((a) => a.severity === "CRITICAL")).toBe(false);
     const rebaseline = alerts.find((a) => a.signal === "finance-boundary-rebaseline");
     expect(rebaseline).toBeDefined();
-    expect(rebaseline!.severity).toBe("INFO");
+    expect(rebaseline!.severity).toBe("WARN");
     expect(rebaseline!.detail.table).toBe("Order");
+    expect(rebaseline!.detail.reason).toBe("stats-reset-or-pg-restart");
   });
 
   it("enabled === true → INFO (hoạt động hợp lệ), KHÔNG CRITICAL — alert là beta-specific", () => {
@@ -179,11 +220,101 @@ describe("evaluateFinanceBoundary — tuple-counter delta khi FINANCIAL_FEATURES
       tableDeltas: { Order: { inserts: 3, updates: 1, deletes: 0 } },
       rowCounts: { Order: 3 },
       watermark: { Order: zero },
+      previousRowCounts: { Order: 0 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: true,
     });
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("INFO");
     expect(alerts[0]!.signal).toBe("finance-boundary-activity");
+  });
+
+  it("cascade-affected table (CartItem/Offer/ExchangeOffer): delete delta → WARN (xoá listing cascade), KHÔNG CRITICAL", () => {
+    const alerts = evaluateFinanceBoundary({
+      tableDeltas: { CartItem: { inserts: 0, updates: 0, deletes: 4 }, Offer: zero, ExchangeOffer: zero },
+      rowCounts: { CartItem: 0, Offer: 0, ExchangeOffer: 0 },
+      watermark: { CartItem: zero, Offer: zero, ExchangeOffer: zero },
+      previousRowCounts: { CartItem: 4, Offer: 0, ExchangeOffer: 0 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.severity).toBe("WARN");
+    expect(alerts[0]!.signal).toBe("finance-boundary-cascade-delete");
+    expect(alerts[0]!.detail.table).toBe("CartItem");
+    expect(alerts[0]!.detail.deletes).toBe(4);
+    expect(alerts.some((a) => a.severity === "CRITICAL")).toBe(false);
+  });
+
+  it("cascade-affected table: insert/update delta khi disabled → VẪN CRITICAL (writer finance-only)", () => {
+    const alerts = evaluateFinanceBoundary({
+      tableDeltas: { Offer: { inserts: 1, updates: 0, deletes: 0 } },
+      rowCounts: { Offer: 1 },
+      watermark: { Offer: zero },
+      previousRowCounts: { Offer: 0 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.severity).toBe("CRITICAL");
+    expect(alerts[0]!.signal).toBe("finance-boundary-violation");
+    expect(alerts[0]!.detail.table).toBe("Offer");
+  });
+
+  it("TRUNCATE vô hình với n_tup_*: row count đổi + delta = 0 trên finance-only table → CRITICAL", () => {
+    const alerts = evaluateFinanceBoundary({
+      tableDeltas: { LedgerEntry: zero },
+      rowCounts: { LedgerEntry: 0 },
+      watermark: { LedgerEntry: zero },
+      previousRowCounts: { LedgerEntry: 120 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.severity).toBe("CRITICAL");
+    expect(alerts[0]!.signal).toBe("finance-boundary-violation");
+    expect(alerts[0]!.detail.table).toBe("LedgerEntry");
+    expect(alerts[0]!.detail).toMatchObject({ reason: "row-count-change", rowCount: 0, previousRowCount: 120 });
+  });
+
+  it("row count đổi + delta = 0 trên CASCADE table → WARN (không escalate thành CRITICAL)", () => {
+    const alerts = evaluateFinanceBoundary({
+      tableDeltas: { Offer: zero },
+      rowCounts: { Offer: 0 },
+      watermark: { Offer: zero },
+      previousRowCounts: { Offer: 9 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    });
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]!.severity).toBe("WARN");
+    expect(alerts[0]!.detail).toMatchObject({ table: "Offer", reason: "row-count-change" });
+  });
+
+  it("row count đổi khi finance ĐANG BẬT → không alert (hoạt động hợp lệ)", () => {
+    expect(
+      evaluateFinanceBoundary({
+        tableDeltas: { Order: zero },
+        rowCounts: { Order: 10 },
+        watermark: { Order: zero },
+        previousRowCounts: { Order: 0 },
+        watermarkCorrupt: false,
+        financialFeaturesEnabled: true,
+      }),
+    ).toEqual([]);
+  });
+
+  it("table mới vào monitored set (chưa có previousRowCount) → bỏ qua so row count, không CRITICAL giả", () => {
+    expect(
+      evaluateFinanceBoundary({
+        tableDeltas: { OrderStatusHistory: zero },
+        rowCounts: { OrderStatusHistory: 7 },
+        watermark: { OrderStatusHistory: zero },
+        previousRowCounts: {},
+        watermarkCorrupt: false,
+        financialFeaturesEnabled: false,
+      }),
+    ).toEqual([]);
   });
 
   it("nhiều table vi phạm → một CRITICAL cho từng table (mỗi dòng nêu đúng tên)", () => {
@@ -194,6 +325,8 @@ describe("evaluateFinanceBoundary — tuple-counter delta khi FINANCIAL_FEATURES
       },
       rowCounts: { Order: 1, LedgerEntry: 4 },
       watermark: { Order: zero, LedgerEntry: zero },
+      previousRowCounts: { Order: 0, LedgerEntry: 5 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     });
     expect(alerts).toHaveLength(2);
@@ -220,7 +353,7 @@ describe("computeTableDeltas — so watermark KHÔNG bị đảo chiều", () =>
   });
 });
 
-// ─── 5. Backup freshness + cron liveness ──────────────────────────────────────
+// ─── 5. Backup freshness + cron liveness (heartbeat) ──────────────────────────
 
 describe("evaluateBackupFreshness — backups/db-*.dump", () => {
   it("không có backup nào → CRITICAL", () => {
@@ -242,22 +375,22 @@ describe("evaluateBackupFreshness — backups/db-*.dump", () => {
   });
 });
 
-describe("evaluateCron — cron log freshness", () => {
-  it("không có dòng log nào (chưa cài cron) → WARN", () => {
+describe("evaluateCron — heartbeat cron (file do crontab/wrapper touch trước mỗi run)", () => {
+  it("không có heartbeat (chưa cài cron) → WARN", () => {
     const alerts = evaluateCron(null, 1);
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("WARN");
     expect(alerts[0]!.signal).toBe("cron-liveness");
   });
 
-  it("log cũ hơn maxAge → WARN", () => {
+  it("heartbeat cũ hơn maxAge → WARN", () => {
     const alerts = evaluateCron(2, 1);
     expect(alerts).toHaveLength(1);
     expect(alerts[0]!.severity).toBe("WARN");
     expect(alerts[0]!.detail).toMatchObject({ ageHours: 2, maxAgeHours: 1 });
   });
 
-  it("log tươi → không alert", () => {
+  it("heartbeat tươi → không alert", () => {
     expect(evaluateCron(0.2, 1)).toEqual([]);
   });
 });
@@ -268,7 +401,8 @@ describe("formatAlertLine — JSON 1 dòng qua PII shape scan (Review Focus 3)",
   /** Bộ alert đại diện mọi signal + severity — quét shape PII trên từng dòng. */
   const fixtureAlerts: Alert[] = [
     ...evaluateHealth(null),
-    ...evaluateHealth({ ok: true, db: "up" }),
+    ...evaluateHealth({ ok: true, db: "up", httpStatus: 200 }),
+    ...evaluateHealth({ ok: false, db: "down", httpStatus: 503 }),
     ...evaluateErrorRate(25, 15, 20),
     ...evaluateAuthAbuse(
       { recoveryRequested: 11, mfaRecoveryCodeUsed: 3, mfaFailed: 6, otpMaxAttempts: 6 },
@@ -279,24 +413,56 @@ describe("formatAlertLine — JSON 1 dòng qua PII shape scan (Review Focus 3)",
       tableDeltas: { Order: { inserts: 2, updates: 1, deletes: 3 }, Payment: zero },
       rowCounts: { Order: 12, Payment: 0 },
       watermark: { Order: zero, Payment: zero },
+      previousRowCounts: { Order: 6, Payment: 0 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    }),
+    ...evaluateFinanceBoundary({
+      tableDeltas: { CartItem: { inserts: 0, updates: 0, deletes: 2 } },
+      rowCounts: { CartItem: 0 },
+      watermark: { CartItem: zero },
+      previousRowCounts: { CartItem: 2 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     }),
     ...evaluateFinanceBoundary({
       tableDeltas: { Order: { inserts: -5, updates: 0, deletes: 0 } },
       rowCounts: { Order: 0 },
       watermark: { Order: { inserts: 5, updates: 0, deletes: 0 } },
+      previousRowCounts: { Order: 0 },
+      watermarkCorrupt: false,
+      financialFeaturesEnabled: false,
+    }),
+    ...evaluateFinanceBoundary({
+      tableDeltas: {},
+      rowCounts: {},
+      watermark: null,
+      previousRowCounts: null,
+      watermarkCorrupt: true,
+      financialFeaturesEnabled: false,
+    }),
+    ...evaluateFinanceBoundary({
+      tableDeltas: { LedgerEntry: zero },
+      rowCounts: { LedgerEntry: 0 },
+      watermark: { LedgerEntry: zero },
+      previousRowCounts: { LedgerEntry: 40 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     }),
     ...evaluateFinanceBoundary({
       tableDeltas: { Order: { inserts: 1, updates: 0, deletes: 0 } },
       rowCounts: { Order: 1 },
       watermark: { Order: zero },
+      previousRowCounts: { Order: 0 },
+      watermarkCorrupt: false,
       financialFeaturesEnabled: true,
     }),
     ...evaluateFinanceBoundary({
       tableDeltas: {},
       rowCounts: {},
       watermark: null,
+      previousRowCounts: null,
+      watermarkCorrupt: false,
       financialFeaturesEnabled: false,
     }),
     ...evaluateBackupFreshness(null, 26),
@@ -362,33 +528,80 @@ describe("DEFAULT_THRESHOLDS — proposed defaults đánh dấu rõ (FD-R35)", (
     expect(DEFAULT_THRESHOLDS.cronLogMaxAgeHours).toBeGreaterThan(0);
   });
 
-  it("monitoring-signals.md ghi FD-R35 cho ngưỡng + tín hiệu finance-boundary", () => {
+  it("monitoring-signals.md ghi FD-R35 + phân loại writer + crontab containerised", () => {
     const doc = read("docs/operations/monitoring-signals.md");
     expect(doc).toContain("FD-R35");
     expect(doc).toContain("finance-boundary");
     expect(doc).toContain("pg_stat_user_tables");
+    // Review fix: bảng phân loại writer + runner containerised
+    expect(doc).toContain("cascade-affected");
+    expect(doc).toContain("OrderStatusHistory");
+    expect(doc).toContain("PriceHistory");
+    expect(doc).toContain("ops-alerts-cron.sh");
   });
 });
 
-// ─── 8. Drift test — FINANCE_TABLES ⊆ contract + OTP_MAX_ATTEMPTS ─────────────
+// ─── 8. Phân loại table theo writer THẬT — drift test chặn model mới lọt silently ─
 
-describe("drift test — hằng số duplicate khớp contract/otp.ts (Global Constraints)", () => {
-  it("FINANCE_TABLES ⊆ model trong src/prisma/contract.prisma", () => {
-    const contract = read("src/prisma/contract.prisma");
-    const models = new Set([...contract.matchAll(/^model\s+(\w+)\s*\{/gm)].map((m) => m[1]));
-    for (const table of FINANCE_TABLES) {
-      expect(models.has(table), `FINANCE_TABLES có "${table}" nhưng contract không có model đó`).toBe(true);
+describe("phân loại finance table theo writer (grep-verified) — mọi model contract phải được phân loại", () => {
+  const contract = read("src/prisma/contract.prisma");
+  const contractModels = [...contract.matchAll(/^model\s+(\w+)\s*\{/gm)].map((m) => m[1]!);
+
+  it("MỌI model trong contract được phân loại đúng MỘT lớp (không bỏ sót — model mới phải được xếp)", () => {
+    expect(contractModels.length).toBeGreaterThan(0);
+    const classified = new Set<string>([
+      ...FINANCE_ONLY_TABLES,
+      ...CASCADE_AFFECTED_TABLES,
+      ...NON_FINANCE_TABLES,
+    ]);
+    for (const model of contractModels) {
+      expect(classified.has(model), `model "${model}" chưa được phân loại (finance-only/cascade-affected/non-finance)`).toBe(true);
+    }
+    // ba lớp rời nhau
+    for (const t of CASCADE_AFFECTED_TABLES) {
+      expect(FINANCE_ONLY_TABLES).not.toContain(t);
+      expect(NON_FINANCE_TABLES).not.toContain(t);
+    }
+    for (const t of FINANCE_ONLY_TABLES) {
+      expect(NON_FINANCE_TABLES).not.toContain(t);
     }
   });
 
-  it("các finance model chủ chốt đều trong FINANCE_TABLES (list không bị cắt lén)", () => {
-    const keyFinanceModels = [
-      "Order", "OrderItem", "Payment", "Payout", "WithdrawRequest", "LedgerEntry",
-      "Dispute", "CartItem", "Offer", "ExchangeOffer", "PlatformSetting", "PriceHistory",
-    ];
-    for (const model of keyFinanceModels) {
-      expect(FINANCE_TABLES).toContain(model);
+  it("FINANCE_TABLES (monitored) = finance-only ∪ cascade-affected — đủ 12 bảng đang theo dõi", () => {
+    expect([...FINANCE_TABLES].sort()).toEqual(
+      [...[...FINANCE_ONLY_TABLES, ...CASCADE_AFFECTED_TABLES]].sort(),
+    );
+    expect(FINANCE_TABLES.length).toBe(12);
+  });
+
+  it("finance-only: các bảng tiền chủ chốt đều có (writer đều sau assertFinancialFeaturesEnabled)", () => {
+    for (const t of [
+      "Order", "OrderItem", "Payment", "Payout", "WithdrawRequest",
+      "LedgerEntry", "Dispute", "OrderStatusHistory", "PlatformSetting",
+    ] as const) {
+      expect(FINANCE_ONLY_TABLES).toContain(t);
     }
+  });
+
+  it("PriceHistory KHÔNG monitored — writer không guard: createListingAction/updateListingAction/mergeModelAction (review fix 1)", () => {
+    // listings.ts:118 create, listings.ts:267 reprice, catalog.ts:39 merge — luồng
+    // listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue.
+    expect(FINANCE_TABLES).not.toContain("PriceHistory");
+    expect(NON_FINANCE_TABLES).toContain("PriceHistory");
+  });
+
+  it("Cart KHÔNG monitored — writer là registerAction/finishLogin (auth.ts, không finance guard)", () => {
+    expect(FINANCE_TABLES).not.toContain("Cart");
+    expect(NON_FINANCE_TABLES).toContain("Cart");
+  });
+
+  it("Review KHÔNG monitored — submitReviewAction không finance guard (finding cho security review Task 8)", () => {
+    expect(FINANCE_TABLES).not.toContain("Review");
+    expect(NON_FINANCE_TABLES).toContain("Review");
+  });
+
+  it("cascade-affected: CartItem/Offer/ExchangeOffer — ins/upd finance-guard, delete từ deleteListingAction + FK Cascade", () => {
+    expect([...CASCADE_AFFECTED_TABLES].sort()).toEqual(["CartItem", "ExchangeOffer", "Offer"]);
   });
 
   it("OTP_MAX_ATTEMPTS khớp src/lib/otp.ts (server-only — tsx không import được)", () => {
@@ -401,14 +614,15 @@ describe("drift test — hằng số duplicate khớp contract/otp.ts (Global Co
 
 // ─── 9. Watermark state file round-trips (Review Focus 4) ─────────────────────
 
-describe("state file backups/.ops-alerts-state.json — encode/decode round-trip", () => {
+describe("state file backups/.ops-alerts-state.json — encode/decode round-trip (v2 + rowCounts)", () => {
   const state: OpsAlertsState = {
-    version: 1,
+    version: 2,
     savedAt: "2026-10-06T00:00:00.000Z",
     financeCounters: {
       Order: { inserts: 12, updates: 3, deletes: 1 },
       Payment: { inserts: 0, updates: 0, deletes: 0 },
     },
+    rowCounts: { Order: 12, Payment: 0 },
   };
 
   it("decode(encode(state)) === state", () => {
@@ -423,16 +637,33 @@ describe("state file backups/.ops-alerts-state.json — encode/decode round-trip
     expect(decodeState(null)).toBeNull();
   });
 
-  it("file rác / sai shape → null (re-baseline, không CRITICAL giả)", () => {
+  it("file rác / sai shape / legacy v1 → null (re-baseline WARN, không CRITICAL giả)", () => {
     expect(decodeState("not json at all")).toBeNull();
     expect(decodeState("{}")).toBeNull();
+    // state v1 (commit trước — chưa có rowCounts) → đọc không được → re-baseline
+    expect(
+      decodeState(
+        JSON.stringify({ version: 1, savedAt: "2026-10-06T00:00:00.000Z", financeCounters: { Order: { inserts: 1, updates: 0, deletes: 0 } } }),
+      ),
+    ).toBeNull();
     expect(decodeState(JSON.stringify({ version: 2, savedAt: "x", financeCounters: {} }))).toBeNull();
     expect(
       decodeState(
         JSON.stringify({
-          version: 1,
+          version: 2,
           savedAt: "2026-10-06T00:00:00.000Z",
           financeCounters: { Order: { inserts: "not-a-number", updates: 0, deletes: 0 } },
+          rowCounts: { Order: 1 },
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      decodeState(
+        JSON.stringify({
+          version: 2,
+          savedAt: "2026-10-06T00:00:00.000Z",
+          financeCounters: { Order: { inserts: 1, updates: 0, deletes: 0 } },
+          rowCounts: { Order: "not-a-number" },
         }),
       ),
     ).toBeNull();

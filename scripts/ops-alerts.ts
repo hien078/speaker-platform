@@ -21,6 +21,13 @@
  * (`docker exec loaviet-app printenv FINANCIAL_FEATURES_ENABLED`) — cấu hình đã
  * deploy, KHÔNG phải env host (env host có thể lệch stack thật).
  *
+ * HOST KHÔNG CÓ NODE (docker-only): scripts/ops-alerts-cron.sh — wrapper POSIX
+ * chạy 2 tín hiệu cần docker CLI (docker logs / printenv) trên host, phần logic +
+ * query DB chạy trong image `migrate` của repo (node:22-alpine + node_modules có
+ * tsx — KHÔNG npx fetch runtime) qua compose network, DATABASE_URL có sẵn trong
+ * environment service migrate (pattern runbook §0
+ * docs/operations/admin-bootstrap-recovery-runbook.md). Xem monitoring-signals.md §0.
+ *
  * Dev (không có stack production): cùng bộ SQL fixed chạy qua raw lane của ORM
  * (`db.raw.sql` + `db.runtime().query` — @prisma/orm-postgres) với DATABASE_URL
  * từ MÔI TRƯỜNG THẬT (pattern D4 scripts/admin-bootstrap.ts: yêu cầu DATABASE_URL
@@ -33,10 +40,11 @@
  *
  * Scripts import plain modules ONLY (Global Constraints): KHÔNG import
  * server-only modules (otp.ts / financial-features.ts / env.ts /
- * observability.ts — tsx không nạp được). FINANCE_TABLES + OTP_MAX_ATTEMPTS là
- * hằng số DUPLICATE CỤC BỘ với drift test (tests/unit/ops-alerts.test.ts assert
- * khớp src/prisma/contract.prisma + src/lib/otp.ts — đổi contract mà quên
- * script thì test fail).
+ * observability.ts — tsx không nạp được). OTP_MAX_ATTEMPTS là hằng số DUPLICATE
+ * CỤC BỘ với drift test (tests/unit/ops-alerts.test.ts assert khớp
+ * src/lib/otp.ts). Danh sách table finance được PHÂN LOẠI THEO WRITER THẬT
+ * (grep từng bảng — xem FINANCE_ONLY_TABLES/CASCADE_AFFECTED_TABLES/
+ * NON_FINANCE_TABLES) và drift test assert MỌI model contract được phân loại.
  *
  * GHI NHẬN MÙ (monitoring-signals.md + security review):
  * - `admin.mfa_failed` (Batch 2 review fix Task 8) CÓ AuditEvent — script theo
@@ -45,26 +53,44 @@
  *   AuditEvent + OtpCode; thêm audit failed-login là finding trong security
  *   review (code change ngoài perimeter G3 → plan mới).
  * - Bucket rate-limit in-memory KHÔNG query được cross-process (RR-1).
+ * - submitReviewAction (src/lib/actions/reviews.ts) ghi Review cho đơn completed
+ *   KHÔNG finance guard — finding cho security review Task 8 (Review classified
+ *   non-finance — không monitored).
  *
  * Ngưỡng: DEFAULT_THRESHOLDS — PROPOSED DEFAULTS, founder chỉnh (FD-R35; spec
  * không định mức). Sửa ngưỡng = đổi hằng số, KHÔNG đổi logic (A2).
  *
- * Write duy nhất: backups/.ops-alerts-state.json (watermark pg_stat — gitignored,
- * backups/ đã chặn) — KHÔNG mutation dữ liệu nào, KHÔNG cần --apply.
+ * Write duy nhất: backups/.ops-alerts-state.json (watermark pg_stat + row count
+ * — gitignored, backups/ đã chặn) — KHÔNG mutation dữ liệu nào, KHÔNG cần --apply.
  */
 import { spawnSync } from "node:child_process";
 import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import * as path from "node:path";
 
-// ─── Hằng số (duplicate có drift test — xem header) ───────────────────────────
+// ─── Phân loại table theo writer THẬT (grep-verified — review fix) ────────────
 
 /**
- * Finance tables cần watermark ranh giới (Batch 1 shutdown — spec §4.1/§4.10).
- * DUPLICATE CỤC BỘ: financial-features.ts là server-only (tsx không nạp được);
- * drift test assert list này ⊆ model trong src/prisma/contract.prisma.
+ * FINANCE-ONLY — MỌI writer đều sau assertFinancialFeaturesEnabled() → khi
+ * FINANCIAL_FEATURES_ENABLED=false, BẤT KỲ ins/upd/del nào là vi phạm ranh giới
+ * Batch 1 (spec §4.1/§4.10) → CRITICAL. Delete chỉ xảy ra qua FK cascade từ
+ * xoá Order — không có app flow nào xoá Order.
+ *
+ * Writer evidence (file:line — xem monitoring-signals.md §2):
+ * - Order: orders.ts:24/158/200/237/283/340, offers.ts:21/61, escrow.ts:28,
+ *   helpers.ts:67 (processAutoReleases), admin.ts:107 (resolveDispute)
+ * - OrderItem: orders.ts:24 (createOrderAction), offers.ts:61 (respondOffer)
+ * - Payment: orders.ts:159 (payEscrow), escrow.ts:28, offers.ts:61, admin.ts:107
+ * - Payout: orders.ts:284 (confirmReceipt), exchange.ts:150, admin.ts:107
+ * - WithdrawRequest: withdraw.ts:25/71
+ * - LedgerEntry: ledger.ts:36 (recordLedgerTx — guard ở THÂN thư viện)
+ * - Dispute: orders.ts:385 (openDispute), admin.ts:107 (resolveDispute)
+ * - OrderStatusHistory: escrow.ts:28 (markEscrowPaid :57),
+ *   helpers.ts:36 recordStatusChange (mọi caller: orders/offers/admin — đã guard)
+ * - PlatformSetting: admin.ts:204 (updateSettingAction) + seed.ts (dev/test —
+ *   seed.ts:16 từ chối chạy ở NODE_ENV=production)
  */
-export const FINANCE_TABLES = [
+export const FINANCE_ONLY_TABLES = [
   "Order",
   "OrderItem",
   "Payment",
@@ -72,12 +98,60 @@ export const FINANCE_TABLES = [
   "WithdrawRequest",
   "LedgerEntry",
   "Dispute",
-  "CartItem",
-  "Offer",
-  "ExchangeOffer",
+  "OrderStatusHistory",
   "PlatformSetting",
-  "PriceHistory",
 ] as const;
+
+/**
+ * CASCADE-AFFECTED — ins/upd của writer đã finance-guard (CRITICAL khi disabled),
+ * NHƯNG delete đến từ luồng xoá listing bình thường (KHÔNG finance guard):
+ * deleteListingAction xoá CartItem trực tiếp (listings.ts:294) + FK
+ * `onDelete: Cascade` từ Listing (Offer/ExchangeOffer/CartItem — contract) →
+ * n_tup_del trên các bảng này là ĐỢI MONG → WARN, không CRITICAL (alert fatigue).
+ */
+export const CASCADE_AFFECTED_TABLES = ["CartItem", "Offer", "ExchangeOffer"] as const;
+
+/**
+ * NON-FINANCE — có writer KHÔNG finance guard (hoặc domain phi tài chính) →
+ * KHÔNG monitored (không trong FINANCE_TABLES). Bằng chứng writer chính:
+ * - PriceHistory: createListingAction listings.ts:118, updateListingAction
+ *   reprice listings.ts:267, mergeModelAction catalog.ts:39 — luồng listing/
+ *   catalog bình thường (review fix 1: CRITICAL mỗi lần đăng tin = alert fatigue)
+ * - Cart: registerAction auth.ts:122, finishLogin auth.ts:139 — luồng auth
+ * - Review: submitReviewAction reviews.ts:21 — KHÔNG finance guard (finding
+ *   security review Task 8)
+ * - các bảng còn lại: domain identity/catalog/moderation/audit (Batch 2) —
+ *   không phải ranh giới tài chính.
+ * Drift test assert MỌI model contract nằm đúng một lớp — model mới không thể
+ * bị bỏ sót silently.
+ */
+export const NON_FINANCE_TABLES = [
+  "User",
+  "Category",
+  "Brand",
+  "Listing",
+  "ListingImage",
+  "Cart",
+  "Conversation",
+  "Message",
+  "Review",
+  "AdminAuditLog",
+  "WishlistItem",
+  "ProductModel",
+  "PriceHistory",
+  "Notification",
+  "UserSession",
+  "OtpCode",
+  "SellerVerification",
+  "BetaCohortMembership",
+  "PolicyAcceptance",
+  "AdminMfa",
+  "AdminRecoveryCode",
+  "AuditEvent",
+] as const;
+
+/** Monitored set = finance-only ∪ cascade-affected (12 bảng — SQL + watermark). */
+export const FINANCE_TABLES = [...FINANCE_ONLY_TABLES, ...CASCADE_AFFECTED_TABLES] as const;
 
 /** Số lần thử OTP tối đa — duplicate src/lib/otp.ts (server-only); drift test pin. */
 export const OTP_MAX_ATTEMPTS = 5;
@@ -121,7 +195,7 @@ export type OpsAlertsThresholds = AuthAbuseThresholds & {
   errorLinesMax: number;
   /** Tuổi backup tối đa (giờ) → CRITICAL. */
   backupMaxAgeHours: number;
-  /** Tuổi log cron tối đa (giờ) → WARN. */
+  /** Tuổi heartbeat cron tối đa (giờ) → WARN. */
   cronLogMaxAgeHours: number;
 };
 
@@ -143,22 +217,39 @@ export const DEFAULT_THRESHOLDS: OpsAlertsThresholds & {
   proposed: THRESHOLDS_PROPOSED_MARKER,
 };
 
-/** Watermark state — backups/.ops-alerts-state.json (gitignored). */
+/** Watermark state — backups/.ops-alerts-state.json (gitignored). v2: + rowCounts. */
 export type OpsAlertsState = {
-  version: 1;
+  version: 2;
   savedAt: string;
   financeCounters: FinanceCounters;
+  /** Row count mỗi monitored table lần chạy trước — bắt TRUNCATE (vô hình với n_tup_*). */
+  rowCounts: Record<string, number>;
 };
 
 // ─── Pure decision functions (unit-test trực tiếp — fixture vào, Alert[] ra) ──
 
-/** /api/health — null = không gọi được (CRITICAL); ok → INFO (dòng evidence mỗi run). */
-export function evaluateHealth(healthJson: { ok: boolean; db?: string } | null): Alert[] {
+/**
+ * /api/health — null = không gọi được ở tầng network (CRITICAL reason
+ * "unreachable"); endpoint trả lời nhưng ok:false (vd 503 + db down) → CRITICAL
+ * kèm httpStatus (phân biệt với unreachable); ok → INFO (dòng evidence mỗi run).
+ */
+export function evaluateHealth(
+  healthJson: { ok: boolean; db?: string; httpStatus?: number } | null,
+): Alert[] {
   if (healthJson === null) {
     return [{ severity: "CRITICAL", signal: "health", detail: { reason: "unreachable" } }];
   }
   if (!healthJson.ok || healthJson.db === "down") {
-    return [{ severity: "CRITICAL", signal: "health", detail: { db: healthJson.db ?? "unknown" } }];
+    return [
+      {
+        severity: "CRITICAL",
+        signal: "health",
+        detail: {
+          db: healthJson.db ?? "unknown",
+          ...(healthJson.httpStatus !== undefined ? { httpStatus: healthJson.httpStatus } : {}),
+        },
+      },
+    ];
   }
   return [{ severity: "INFO", signal: "health", detail: { db: healthJson.db ?? "up" } }];
 }
@@ -228,62 +319,80 @@ export function evaluateAuthAbuse(
   return alerts;
 }
 
+const COUNTER_KEYS = ["inserts", "updates", "deletes"] as const;
+const isCascadeAffected = (table: string): boolean =>
+  (CASCADE_AFFECTED_TABLES as readonly string[]).includes(table);
+
 /**
- * Finance boundary (Review Focus 4) — MỌI delta > 0 trên MỌI finance table khi
- * FINANCIAL_FEATURES_ENABLED=false là CRITICAL (vi phạm ranh giới Batch 1).
+ * Finance boundary (Review Focus 4) — phân loại theo writer THẬT của từng table:
+ *
+ * - FINANCE-ONLY (mọi writer đã guard): BẤT KỲ ins/upd/del > 0 khi
+ *   FINANCIAL_FEATURES_ENABLED=false → CRITICAL (vi phạm ranh giới Batch 1).
+ * - CASCADE-AFFECTED (CartItem/Offer/ExchangeOffer): ins/upd > 0 → CRITICAL
+ *   (writer finance-only); delete → WARN — xoá listing bình thường cascade
+ *   (deleteListingAction listings.ts:294 + FK Cascade), không CRITICAL giả.
  *
  * TẠI SAO pg_stat_user_tables chứ không phải watermark createdAt/updatedAt (S3):
  * Payment/Payout không có updatedAt (status UPDATE vô hình), CartItem/OrderItem
- * KHÔNG có timestamp nào, DELETE xoá sạch dấu vết, raw SQL bypass ORM timestamps.
+ * không có timestamp nào, DELETE xoá sạch dấu vết, raw SQL bypass ORM timestamps.
  * pg_stat đếm physical row ins/upd/del BẤT KỂ write path nào — không cần schema
- * change (G2). Counters reset (stats_reset / PG restart) → delta âm → re-baseline
- * INFO, KHÔNG CRITICAL giả.
+ * change (G2). HAI lỗ hổng còn lại của counters:
+ * - TRUNCATE KHÔNG tăng n_tup_* → so thêm ROW COUNT với lần chạy trước (state
+ *   file v2) — đổi khi delta = 0 = operation vô hình với counters → CRITICAL
+ *   (finance-only) / WARN (cascade).
+ * - Counters reset (stats_reset / PG restart) → delta âm → re-baseline WARN
+ *   (KHÔNG CRITICAL giả), state file hỏng ở lần KHÔNG phải đầu → WARN tương tự.
+ *
+ * Finance đang BẬT (sau này, qua reviewed product decision): delta là hoạt động
+ * hợp lệ → INFO, không CRITICAL — alert này là beta-specific.
  */
 export function evaluateFinanceBoundary(finance: {
   tableDeltas: FinanceCounters;
   rowCounts: Record<string, number>;
+  /** Counters lần chạy trước — null = không có baseline hợp lệ để so. */
   watermark: FinanceCounters | null;
+  /** Row count lần chạy trước (cùng state file với watermark) — null = lần đầu. */
+  previousRowCounts: Record<string, number> | null;
+  /** true = file state TỒN TẠI nhưng parse fail (lần không phải đầu) → WARN. */
+  watermarkCorrupt: boolean;
   financialFeaturesEnabled: boolean;
 }): Alert[] {
-  // Lần đầu — chưa có watermark: dựng baseline, KHÔNG alert vi phạm (main() truyền
-  // delta 0; guard thêm ở đây để pure function không bao giờ CRITICAL lần đầu).
+  // Không có baseline hợp lệ: lần đầu → INFO baseline; state hỏng → WARN re-baseline
+  // (main() truyền delta 0 — guard ở đây để pure function không bao giờ CRITICAL
+  // khi không có gì để so).
   if (finance.watermark === null) {
     return [
-      {
-        severity: "INFO",
-        signal: "finance-boundary-baseline",
-        detail: { tables: FINANCE_TABLES.length, note: "baseline" },
-      },
+      finance.watermarkCorrupt
+        ? {
+            severity: "WARN",
+            signal: "finance-boundary-rebaseline",
+            detail: { reason: "state-file-corrupt" },
+          }
+        : {
+            severity: "INFO",
+            signal: "finance-boundary-baseline",
+            detail: { tables: FINANCE_TABLES.length, note: "baseline" },
+          },
     ];
   }
   const alerts: Alert[] = [];
   for (const table of FINANCE_TABLES) {
     const delta = finance.tableDeltas[table] ?? { inserts: 0, updates: 0, deletes: 0 };
-    const decreased = (["inserts", "updates", "deletes"] as const).filter((k) => delta[k] < 0);
-    const increased = (["inserts", "updates", "deletes"] as const).filter((k) => delta[k] > 0);
+    const decreased = COUNTER_KEYS.filter((k) => delta[k] < 0);
+    const increased = COUNTER_KEYS.filter((k) => delta[k] > 0);
+
     if (decreased.length > 0) {
-      // Counter GIẢM = stats_reset / PG restart → so watermark vô nghĩa → re-baseline.
+      // Counter GIẢM = stats_reset / PG restart → so watermark vô nghĩa → re-baseline
+      // WARN (review fix 6 — không phải INFO: monitoring continuity bị đứt).
       alerts.push({
-        severity: "INFO",
+        severity: "WARN",
         signal: "finance-boundary-rebaseline",
         detail: { table, counters: decreased.join(","), reason: "stats-reset-or-pg-restart" },
       });
     }
     if (increased.length > 0) {
-      if (!finance.financialFeaturesEnabled) {
-        alerts.push({
-          severity: "CRITICAL",
-          signal: "finance-boundary-violation",
-          detail: {
-            table,
-            inserts: delta.inserts,
-            updates: delta.updates,
-            deletes: delta.deletes,
-            rowCount: finance.rowCounts[table] ?? 0,
-          },
-        });
-      } else {
-        // Finance đang BẬT = hoạt động hợp lệ — INFO, KHÔNG CRITICAL (alert beta-specific).
+      if (finance.financialFeaturesEnabled) {
+        // Finance đang BẬT = hoạt động hợp lệ — INFO, KHÔNG CRITICAL (beta-specific).
         alerts.push({
           severity: "INFO",
           signal: "finance-boundary-activity",
@@ -296,7 +405,67 @@ export function evaluateFinanceBoundary(finance: {
             note: "finance-enabled",
           },
         });
+      } else if (isCascadeAffected(table) && delta.inserts === 0 && delta.updates === 0) {
+        // Cascade-affected: CHỈ deletes tăng → xoá listing cascade (deleteListingAction
+        // + FK) — đợi mong ở private beta → WARN, không CRITICAL (alert fatigue).
+        alerts.push({
+          severity: "WARN",
+          signal: "finance-boundary-cascade-delete",
+          detail: {
+            table,
+            deletes: delta.deletes,
+            rowCount: finance.rowCounts[table] ?? 0,
+            reason: "listing-delete-cascade-expected",
+          },
+        });
+      } else {
+        // Finance-only (ins/upd/del bất kỳ) hoặc cascade-affected với ins/upd:
+        // writer duy nhất là finance flow đã guard → vi phạm ranh giới Batch 1.
+        alerts.push({
+          severity: "CRITICAL",
+          signal: "finance-boundary-violation",
+          detail: {
+            table,
+            inserts: delta.inserts,
+            updates: delta.updates,
+            deletes: delta.deletes,
+            rowCount: finance.rowCounts[table] ?? 0,
+          },
+        });
       }
+      continue;
+    }
+    // Counters đứng yên — row count catch-all (TRUNCATE + stats lag vô hình với
+    // n_tup_*): đổi row count khi delta = 0 = operation counters không thấy.
+    if (
+      !finance.financialFeaturesEnabled &&
+      finance.previousRowCounts !== null &&
+      table in finance.previousRowCounts &&
+      (finance.rowCounts[table] ?? 0) !== finance.previousRowCounts[table]!
+    ) {
+      alerts.push(
+        isCascadeAffected(table)
+          ? {
+              severity: "WARN",
+              signal: "finance-boundary-cascade-delete",
+              detail: {
+                table,
+                reason: "row-count-change",
+                rowCount: finance.rowCounts[table] ?? 0,
+                previousRowCount: finance.previousRowCounts[table]!,
+              },
+            }
+          : {
+              severity: "CRITICAL",
+              signal: "finance-boundary-violation",
+              detail: {
+                table,
+                reason: "row-count-change",
+                rowCount: finance.rowCounts[table] ?? 0,
+                previousRowCount: finance.previousRowCounts[table]!,
+              },
+            },
+      );
     }
   }
   return alerts;
@@ -347,13 +516,18 @@ export function evaluateBackupFreshness(
   return [];
 }
 
-/** Cron liveness — log cron (chính output script này) không tươi → WARN. */
+/**
+ * Cron liveness — heartbeat (file do crontab/wrapper `touch` TRƯỚC mỗi lần chạy)
+ * không tươi → WARN. Heartbeat chứng minh CRON ĐANG CHẠY (cron entry còn + daemon
+ * sống), KHÔNG chứng minh script thành công — crash của script thấy qua thiếu
+ * dòng `ops-alerts-run` + stderr trong log (giới hạn ghi nhận monitoring-signals.md).
+ */
 export function evaluateCron(
   lastCronLogAgeHours: number | null,
   maxAgeHours: number,
 ): Alert[] {
   if (lastCronLogAgeHours === null) {
-    return [{ severity: "WARN", signal: "cron-liveness", detail: { cronLog: "missing" } }];
+    return [{ severity: "WARN", signal: "cron-liveness", detail: { heartbeat: "missing" } }];
   }
   if (lastCronLogAgeHours > maxAgeHours) {
     return [
@@ -388,15 +562,19 @@ export function encodeState(state: OpsAlertsState): string {
 
 /**
  * Parse state file → null khi: chưa có file (lần đầu → baseline), file rác,
- * sai shape/version (re-baseline — KHÔNG CRITICAL giả từ state hỏng).
+ * sai shape/version (kể cả legacy v1 — thiếu rowCounts) → re-baseline WARN,
+ * KHÔNG CRITICAL giả từ state hỏng.
  */
 export function decodeState(raw: string | null): OpsAlertsState | null {
   if (raw === null) return null;
   try {
     const parsed = JSON.parse(raw) as OpsAlertsState;
-    if (parsed?.version !== 1) return null;
+    if (parsed?.version !== 2) return null;
     if (typeof parsed?.savedAt !== "string") return null;
     if (parsed?.financeCounters === null || typeof parsed?.financeCounters !== "object") {
+      return null;
+    }
+    if (parsed?.rowCounts === null || typeof parsed?.rowCounts !== "object") {
       return null;
     }
     for (const counters of Object.values(parsed.financeCounters)) {
@@ -413,6 +591,9 @@ export function decodeState(raw: string | null): OpsAlertsState | null {
         return null;
       }
     }
+    for (const count of Object.values(parsed.rowCounts)) {
+      if (!Number.isInteger(count) || count < 0) return null;
+    }
     return parsed;
   } catch {
     return null;
@@ -421,9 +602,9 @@ export function decodeState(raw: string | null): OpsAlertsState | null {
 
 // ─── SQL fixed (docker + dev dùng chung — KHÔNG interpolation input người dùng) ─
 
-const quotedFinanceNames = FINANCE_TABLES.map((t) => `'${t}'`).join(", ");
+const quotedMonitoredNames = FINANCE_TABLES.map((t) => `'${t}'`).join(", ");
 
-const SQL_PG_STAT = `SELECT relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables WHERE relname IN (${quotedFinanceNames})`;
+const SQL_PG_STAT = `SELECT relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables WHERE relname IN (${quotedMonitoredNames})`;
 
 const SQL_FINANCE_ROW_COUNTS = FINANCE_TABLES.map(
   (t, i) => `${i === 0 ? "" : " UNION ALL "}SELECT '${t}' AS t, count(*) AS c FROM "${t}"`,
@@ -487,11 +668,13 @@ function parseSingleCount(rows: string[][]): number {
 
 // ─── IO seam — MỘT interface, 2 triển khai (docker production / dev ORM) ──────
 
+type HealthJson = { ok: boolean; db?: string; httpStatus?: number } | null;
+
 type OpsIo = {
   mode: "docker" | "dev";
-  /** /api/health — null = không gọi được. */
-  readHealth(): Promise<{ ok: boolean; db?: string } | null>;
-  /** captureError JSON lines trong window (docker logs app). */
+  /** /api/health — null = không gọi được ở tầng network; httpStatus phân biệt 503. */
+  readHealth(): Promise<HealthJson>;
+  /** captureError JSON lines trong window (docker logs app / env wrapper inject). */
   readErrorLineCount(windowMinutes: number): Promise<number>;
   readAuthAbuseCounts(windowMinutes: number): Promise<AuthAbuseCounts>;
   readFinanceCounters(): Promise<FinanceCounters>;
@@ -502,7 +685,9 @@ type OpsIo = {
 
 /** Chạy lệnh, bắt cả stdout+stderr (docker logs tách stream), throw khi exit ≠ 0. */
 function runCapture(command: string, args: string[]): { stdout: string; stderr: string } {
-  const res = spawnSync(command, args, { encoding: "utf8" });
+  // maxBuffer 16MB + --tail (caller) — docker logs 15 phút của app bận có thể
+  // vượt 1MB mặc định → ENOBUFS giết lệnh → WARN io-failed giả (review fix 7).
+  const res = spawnSync(command, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
   if (res.error) throw res.error;
   if (res.status !== 0) {
     throw new Error(
@@ -520,19 +705,48 @@ function psqlRows(out: string): string[][] {
     .map((l) => l.split("|"));
 }
 
-async function fetchHealth(url: string): Promise<{ ok: boolean; db?: string } | null> {
+async function fetchHealth(url: string): Promise<HealthJson> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { ok?: unknown; db?: unknown };
-    if (typeof json.ok !== "boolean") return null;
+    // Endpoint trả lời (kể cả 503) ≠ unreachable — parse body JSON, giữ httpStatus.
+    let body: { ok?: unknown; db?: unknown } = {};
+    try {
+      body = (await res.json()) as { ok?: unknown; db?: unknown };
+    } catch {
+      // body không phải JSON (proxy error page…) — vẫn phân biệt qua httpStatus
+    }
+    if (typeof body.ok !== "boolean") {
+      return { ok: false, db: undefined, httpStatus: res.status };
+    }
     return {
-      ok: json.ok,
-      db: typeof json.db === "string" ? json.db : undefined,
+      ok: body.ok,
+      db: typeof body.db === "string" ? body.db : undefined,
+      httpStatus: res.status,
     };
   } catch {
-    return null;
+    return null; // network/DNS/timeout — không gọi được gì cả
   }
+}
+
+// ─── Env-injected overrides (containerised runner — xem ops-alerts-cron.sh) ────
+
+/**
+ * Wrapper host-side (scripts/ops-alerts-cron.sh) precompute 2 tín hiệu cần
+ * docker CLI (container migrate KHÔNG có docker CLI) rồi inject qua env.
+ * Chỉ nhận giá trị đã validate; sai format → bỏ qua → IO nội bộ (fail-closed).
+ */
+function envInjectedCount(name: string): number | null {
+  const raw = process.env[name];
+  if (raw === undefined || raw === "") return null;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function envInjectedFlag(name: string): boolean | null {
+  const raw = process.env[name];
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  return null;
 }
 
 // ─── Docker mode (production — db KHÔNG publish port) ─────────────────────────
@@ -552,11 +766,17 @@ function makeDockerIo(): OpsIo {
     readHealth: () => fetchHealth(healthUrl),
     readErrorLineCount: (windowMinutes) => {
       // captureError ghi stderr của container app → docker logs tách 2 stream — ghép lại.
-      const { stdout, stderr } = runCapture("docker", ["logs", appContainer, "--since", `${windowMinutes}m`]);
+      // --tail cap output (maxBuffer 16MB ở runCapture — review fix 7).
+      const { stdout, stderr } = runCapture("docker", [
+        "logs",
+        appContainer,
+        "--since",
+        `${windowMinutes}m`,
+        "--tail",
+        "50000",
+      ]);
       const text = `${stdout}\n${stderr}`;
-      return Promise.resolve(
-        text.split("\n").filter((l) => l.includes('"level":"error"')).length,
-      );
+      return Promise.resolve(text.split("\n").filter((l) => l.includes('"level":"error"')).length);
     },
     readAuthAbuseCounts: (windowMinutes) => {
       // AuditEvent GROUP BY (3 action) + OtpCode count riêng — gộp vào AuthAbuseCounts.
@@ -567,9 +787,11 @@ function makeDockerIo(): OpsIo {
     readFinanceCounters: () => Promise.resolve(parsePgStat(psql(SQL_PG_STAT))),
     readFinanceRowCounts: () => Promise.resolve(parseRowCounts(psql(SQL_FINANCE_ROW_COUNTS))),
     readFinancialFeaturesEnabled: () => {
-      // Cấu hình ĐÃ DEPLOY trong container app — KHÔNG phải env host.
-      // Strict: chỉ literal "true" mới bật (src/lib/financial-features.ts);
-      // đọc không được (container down) → false — fail-closed: boundary check armed.
+      // Ưu tiên wrapper inject (containerised runner); không có → đọc từ container app.
+      // Strict: chỉ literal "true" mới bật (src/lib/financial-features.ts); đọc
+      // không được (container down) → false — fail-closed: boundary check armed.
+      const injected = envInjectedFlag("OPS_ALERTS_FINANCIAL_FEATURES_ENABLED");
+      if (injected !== null) return Promise.resolve(injected);
       try {
         const { stdout } = runCapture("docker", [
           "exec",
@@ -623,9 +845,13 @@ async function makeDevIo(): Promise<OpsIo> {
   return {
     mode: "dev",
     readHealth: () => fetchHealth(healthUrl),
-    // Dev không có container app → không đọc được docker logs — 0 (documented
-    // trong monitoring-signals.md; tín hiệu này là của production).
-    readErrorLineCount: () => Promise.resolve(0),
+    // Dev/containerised: docker logs không đọc được từ trong container — wrapper
+    // host-side đếm rồi inject qua OPS_ALERTS_ERROR_LINES (ops-alerts-cron.sh);
+    // không có env (dev thuần) → 0 (tín hiệu production-only, documented).
+    readErrorLineCount: () => {
+      const injected = envInjectedCount("OPS_ALERTS_ERROR_LINES");
+      return Promise.resolve(injected ?? 0);
+    },
     readAuthAbuseCounts: async (windowMinutes) => {
       const counts = parseAuthAbuse(
         toRows(await query(SQL_AUTH_ABUSE(windowMinutes), { action: "pg/text@1", c: "pg/int8@1" })),
@@ -648,13 +874,16 @@ async function makeDevIo(): Promise<OpsIo> {
       ),
     readFinanceRowCounts: async () =>
       parseRowCounts(toRows(await query(SQL_FINANCE_ROW_COUNTS, { t: "pg/text@1", c: "pg/int8@1" }))),
-    // Dev: env thật của process (strict literal "true" — cùng parse financial-features.ts).
-    readFinancialFeaturesEnabled: () =>
-      Promise.resolve(process.env.FINANCIAL_FEATURES_ENABLED === "true"),
+    // Dev: env thật của process (wrapper inject hoặc strict literal "true" —
+    // cùng parse financial-features.ts).
+    readFinancialFeaturesEnabled: () => {
+      const injected = envInjectedFlag("OPS_ALERTS_FINANCIAL_FEATURES_ENABLED");
+      return Promise.resolve(injected ?? process.env.FINANCIAL_FEATURES_ENABLED === "true");
+    },
   };
 }
 
-// ─── Host-side reads (backups/ + cron log — như nhau mọi mode) ─────────────────
+// ─── Host-side reads (backups/ + heartbeat — như nhau mọi mode) ────────────────
 
 function repoRoot(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -664,11 +893,11 @@ function stateFilePath(): string {
   return path.join(repoRoot(), "backups", ".ops-alerts-state.json");
 }
 
-function readStateFile(): string | null {
+function readStateFile(): { raw: string | null; existed: boolean } {
   try {
-    return readFileSync(stateFilePath(), "utf8");
+    return { raw: readFileSync(stateFilePath(), "utf8"), existed: true };
   } catch {
-    return null; // chưa có file — lần đầu → baseline
+    return { raw: null, existed: false }; // chưa có file — lần đầu → baseline
   }
 }
 
@@ -697,12 +926,16 @@ function readNewestBackupAgeHours(): number | null {
   return (Date.now() - newestMtime) / 3_600_000;
 }
 
-/** Tuổi (giờ) log cron (output script này qua redirect crontab) — null khi chưa có. */
-function readCronLogAgeHours(): number | null {
-  const logPath =
-    process.env.OPS_ALERTS_CRON_LOG ?? path.join(repoRoot(), "backups", "ops-alerts.log");
+/**
+ * Tuổi (giờ) của heartbeat cron — file do crontab/wrapper `touch` TRƯỚC mỗi lần
+ * chạy (xem monitoring-signals.md §crontab). null khi chưa có (chưa cài cron).
+ * Heartbeat = "cron đang chạy" (không phải "script thành công" — xem evaluateCron).
+ */
+function readHeartbeatAgeHours(): number | null {
+  const heartbeatPath =
+    process.env.OPS_ALERTS_CRON_HEARTBEAT ?? path.join(repoRoot(), "backups", ".ops-alerts-heartbeat");
   try {
-    const mtime = statSync(logPath).mtimeMs;
+    const mtime = statSync(heartbeatPath).mtimeMs;
     return (Date.now() - mtime) / 3_600_000;
   } catch {
     return null;
@@ -765,15 +998,33 @@ async function main(): Promise<void> {
     const counters = await io.readFinanceCounters();
     const rowCounts = await io.readFinanceRowCounts();
     const financialFeaturesEnabled = await io.readFinancialFeaturesEnabled();
-    const watermark = decodeState(readStateFile())?.financeCounters ?? null;
+    const stateFile = readStateFile();
+    const state = decodeState(stateFile.raw);
+    const watermark = state?.financeCounters ?? null;
+    const previousRowCounts = state?.rowCounts ?? null;
+    // File TỒN TẠI nhưng parse fail (kể cả legacy v1) → corrupt (lần không phải
+    // đầu) → WARN re-baseline, không CRITICAL giả.
+    const watermarkCorrupt = state === null && stateFile.existed;
     const tableDeltas = computeTableDeltas(counters, watermark);
     alerts.push(
-      ...evaluateFinanceBoundary({ tableDeltas, rowCounts, watermark, financialFeaturesEnabled }),
+      ...evaluateFinanceBoundary({
+        tableDeltas,
+        rowCounts,
+        watermark,
+        previousRowCounts,
+        watermarkCorrupt,
+        financialFeaturesEnabled,
+      }),
     );
-    // Watermark tiến lên KỂ CẢ khi không có alert (state file round-trip — Review Focus 4:
-    // watermark KHÔNG persist = mọi lần chạy đều "lần đầu" = nuốt hết vi phạm).
+    // Watermark + row count tiến lên KỂ CẢ khi không có alert (state file round-trip —
+    // Review Focus 4: watermark KHÔNG persist = mọi lần chạy đều "lần đầu" = nuốt hết vi phạm).
     writeStateFile(
-      encodeState({ version: 1, savedAt: new Date().toISOString(), financeCounters: counters }),
+      encodeState({
+        version: 2,
+        savedAt: new Date().toISOString(),
+        financeCounters: counters,
+        rowCounts,
+      }),
     );
   } catch (e) {
     ioFail(alerts, "finance-boundary", "CRITICAL", e);
@@ -786,9 +1037,9 @@ async function main(): Promise<void> {
     ioFail(alerts, "backup-freshness", "CRITICAL", e);
   }
 
-  // 6) Cron liveness.
+  // 6) Cron liveness (heartbeat).
   try {
-    alerts.push(...evaluateCron(readCronLogAgeHours(), thresholds.cronLogMaxAgeHours));
+    alerts.push(...evaluateCron(readHeartbeatAgeHours(), thresholds.cronLogMaxAgeHours));
   } catch (e) {
     ioFail(alerts, "cron-liveness", "WARN", e);
   }
