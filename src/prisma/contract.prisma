@@ -82,6 +82,66 @@ enum dispute_status {
   closed          = "closed"
 }
 
+// ─── Enums (Batch 2 — identity & security) ───
+
+enum admin_role {
+  @@type("pg/text@1")
+  super_admin      = "super_admin"
+  operations_admin = "operations_admin"
+  moderator        = "moderator"
+  support          = "support"
+  analyst          = "analyst"
+}
+
+enum seller_type {
+  @@type("pg/text@1")
+  individual = "individual"
+  business    = "business"
+}
+
+enum seller_verification_status {
+  @@type("pg/text@1")
+  not_started  = "not_started"
+  pending      = "pending"
+  verified     = "verified"
+  rejected     = "rejected"
+  needs_review = "needs_review"
+  revoked      = "revoked"
+}
+
+enum seller_verification_method {
+  @@type("pg/text@1")
+  operations_review = "operations_review"
+}
+
+enum otp_purpose {
+  @@type("pg/text@1")
+  email_verification = "email_verification"
+  phone_verification  = "phone_verification"
+  password_recovery    = "password_recovery"
+}
+
+enum otp_channel {
+  @@type("pg/text@1")
+  email = "email"
+  phone = "phone"
+}
+
+enum beta_cohort {
+  @@type("pg/text@1")
+  internal           = "internal"
+  founding_seller    = "founding_seller"
+  private_beta_buyer = "private_beta_buyer"
+}
+
+enum beta_membership_status {
+  @@type("pg/text@1")
+  invited   = "invited"
+  active    = "active"
+  suspended = "suspended"
+  exited    = "exited"
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -95,6 +155,12 @@ model User {
   city         String?
   bio          String?
   isVerifiedSeller Boolean @default(false) // đã xác minh để nhận giải ngân
+  // ─── Batch 2 — identity & security (additive, spec §8.2/§8.5) ───
+  emailVerifiedAt              TimestamptzString? // trạng thái xác minh email (spec §5.3)
+  phoneVerifiedAt              TimestamptzString? // trạng thái xác minh phone (spec §5.3)
+  adminRole                    admin_role? // nguồn duy nhất cho admin authorization (spec §8.5); role chỉ còn display
+  sellerType                   seller_type? // khai báo individual/business (spec §5.3.3)
+  sellerOperatingProvinceCode String? // mã hành chính VN nơi hoạt động (spec §5.9)
   createdAt    TimestamptzString @default(now())
   updatedAt    temporal.updatedAtString()
 
@@ -115,6 +181,15 @@ model User {
   processedWithdraws  WithdrawRequest[] @relation("withdraw_admin")
   offersMade          Offer[] @relation("offer_buyer")
   notifications       Notification[] @relation("notification_user")
+  // ─── Batch 2 — relations (additive) ───
+  sessions            UserSession[]          @relation("session_user")
+  otpCodes            OtpCode[]              @relation("otp_user")
+  sellerVerification  SellerVerification?    @relation("seller_verification_user")
+  betaMemberships     BetaCohortMembership[]  @relation("beta_membership_user")
+  policyAcceptances   PolicyAcceptance[]     @relation("policy_acceptance_user")
+  adminMfa            AdminMfa?              @relation("admin_mfa_user")
+  auditEventsActor    AuditEvent[]           @relation("audit_event_actor")
+  auditEventsSubject  AuditEvent[]           @relation("audit_event_subject")
 
   @@index([role])
 }
@@ -590,4 +665,151 @@ model Notification {
   createdAt TimestamptzString @default(now())
 
   @@index([userId, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 2 — Identity & Security (spec §5.3/§5.4/§2.1/§4.6)
+// Additive-only: không drop/rename/repurpose model/cột nào đang có.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Session (Batch 2 — DB-backed, spec §5.4.2) ───
+
+model UserSession {
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation("session_user", fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash     String            @unique // sha256 của token opaque — lookup, không phải secrecy
+  isAdmin       Boolean           @default(false) // TTL admin ngắn hơn (Task 2)
+  createdAt     TimestamptzString @default(now())
+  lastSeenAt    TimestamptzString?
+  expiresAt     TimestamptzString
+  revokedAt     TimestamptzString?
+  revokedReason String?
+  steppedUpAt   TimestamptzString? // step-up cho hành động nhạy cảm (Task 8)
+  userAgent     String?
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+}
+
+// ─── OTP (Batch 2 — spec §5.3: hashed, single-use, short-lived) ───
+
+model OtpCode {
+  id         String            @id @default(uuid())
+  userId     String
+  user       User              @relation("otp_user", fields: [userId], references: [id], onDelete: Cascade)
+  purpose    otp_purpose
+  channel    otp_channel
+  target     String            // email/phone đã chuẩn hóa — mã chỉ hợp lệ cho đúng target
+  codeHash   String            // HMAC-SHA256 keyed — không lưu mã thô
+  attempts   Int               @default(0)
+  expiresAt  TimestamptzString
+  consumedAt TimestamptzString? // single-use — set khi verify thành công
+  createdAt  TimestamptzString @default(now())
+
+  @@index([userId, purpose, createdAt])
+  @@index([target, purpose, createdAt])
+  @@index([expiresAt])
+}
+
+// ─── Seller verification (spec §5.3.2 — workflow, không phải boolean) ───
+
+model SellerVerification {
+  id            String                     @id @default(uuid())
+  userId        String                     @unique
+  user          User                       @relation("seller_verification_user", fields: [userId], references: [id])
+  status        seller_verification_status @default(pending)
+  method        seller_verification_method @default(operations_review)
+  submittedAt   TimestamptzString?
+  reviewedAt    TimestamptzString?
+  reviewerId    String?
+  reasonCode    String? // typed reason code (spec §5.3.3) — không free text tuỳ ý
+  note          String?
+  policyVersion String // "v1" — policy version khi ra quyết định
+  createdAt     TimestamptzString          @default(now())
+  updatedAt     temporal.updatedAtString()
+
+  @@index([status, updatedAt])
+}
+
+// ─── Beta cohort (spec §2.1 — membership là điều kiện publication) ───
+
+model BetaCohortMembership {
+  id         String                 @id @default(uuid())
+  userId     String
+  user       User                   @relation("beta_membership_user", fields: [userId], references: [id], onDelete: Cascade)
+  cohort     beta_cohort
+  status     beta_membership_status @default(invited)
+  invitedBy  String?
+  invitedAt  TimestamptzString?
+  acceptedAt TimestamptzString?
+  expiresAt  TimestamptzString?
+  notes      String?
+  createdAt  TimestamptzString      @default(now())
+  updatedAt  temporal.updatedAtString()
+
+  @@unique([userId, cohort])
+  @@index([cohort, status])
+}
+
+// ─── Policy acceptance (spec §3.1 legal — cơ chế ghi nhận, văn bản thuộc Batch 8) ───
+
+model PolicyAcceptance {
+  id            String            @id @default(uuid())
+  userId        String
+  user          User              @relation("policy_acceptance_user", fields: [userId], references: [id], onDelete: Cascade)
+  policyKey     String            // "seller_rules"
+  policyVersion String            // "v1"
+  acceptedAt    TimestamptzString  @default(now())
+
+  @@unique([userId, policyKey, policyVersion])
+  @@index([userId, policyKey])
+}
+
+// ─── Admin MFA (spec §5.3/§5.4.2 — TOTP + mã khôi phục dùng một lần) ───
+
+model AdminMfa {
+  id              String            @id @default(uuid())
+  userId          String            @unique
+  user            User              @relation("admin_mfa_user", fields: [userId], references: [id], onDelete: Cascade)
+  totpSecretEnc   String            // AES-256-GCM envelope "v1:<keyId>:<iv‖tag‖ct>"; key = ADMIN_MFA_ENCRYPTION_KEY (env riêng, không phải AUTH_SECRET)
+  totpConfirmedAt TimestamptzString?
+  createdAt       TimestamptzString  @default(now())
+  updatedAt       temporal.updatedAtString()
+
+  recoveryCodes   AdminRecoveryCode[]
+}
+
+model AdminRecoveryCode {
+  id        String            @id @default(uuid())
+  mfaId     String
+  mfa       AdminMfa          @relation(fields: [mfaId], references: [id], onDelete: Cascade)
+  codeHash  String            // HMAC keyed — không lưu mã thô
+  usedAt    TimestamptzString? // single-use
+  createdAt TimestamptzString @default(now())
+
+  @@index([mfaId, usedAt])
+}
+
+// ─── Audit foundation (spec §4.6 — actor/action/resource/reason/context/policy) ───
+
+model AuditEvent {
+  id            String            @id @default(uuid())
+  actorId       String?
+  actor         User?             @relation("audit_event_actor", fields: [actorId], references: [id], onDelete: SetNull)
+  subjectId     String?
+  subject       User?             @relation("audit_event_subject", fields: [subjectId], references: [id], onDelete: SetNull)
+  action        String            // typed, dot-namespaced: "seller_verification.reviewed" | "session.revoked" | ...
+  resourceType  String?
+  resourceId    String?
+  reason        String?           // typed reason code
+  policyVersion String?
+  sessionId     String?
+  ipHash        String?           // HMAC keyed — không lưu IP thô (spec §4.8)
+  detail        String?           // KHÔNG chứa PII thô/OTP/secret (spec §4.8)
+  createdAt     TimestamptzString @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([subjectId, createdAt])
+  @@index([action, createdAt])
 }
