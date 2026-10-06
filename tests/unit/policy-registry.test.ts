@@ -18,11 +18,15 @@
  *  7. Mọi content module khớp hợp đồng placeholder (§4.11 — Review Focus 2):
  *     heading DRAFT + banner cơ chế + marker [nội dung chờ founder]; KHÔNG
  *     prose tự soạn — riêng safety_guidance được thêm 6 điểm §6.4 + dòng §5.2
- *     (spec-sourced, bản dịch Batch 6).
+ *     (spec-sourced, bản dịch Batch 6) — ghim BẰNG EQUALITY chặt (không chỉ
+ *     presence — review fix).
  *  8. Trang policy: banner DRAFT có điều kiện, KHÔNG dangerouslySetInnerHTML,
  *     generateStaticParams phủ POLICY_KEYS, key lạ → notFound(), công khai
- *     (không auth, không db).
+ *     (không auth, không db); nhánh REVIEWED trung tính — flag registry
+ *     KHÔNG tự thành claim duyệt công khai (review fix).
  *  9. Footer link đủ sáu policy.
+ * 10. scripts/policy-hash.ts --check in đúng format <key> <version>
+ *     <sha256> <status> — spawn script thật (release gate Task 9 parse).
  *
  * Cơ chế mock: chỉ đủ để import seller-verification-policy của Batch 2
  * (server-only + db.client — recipe chuẩn; hằng số không chạm db) và page
@@ -32,6 +36,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -193,14 +198,45 @@ describe("policyContentHash — sha256 hex của nội dung shipped", () => {
     }
   });
 
-  it("hash phủ POLICY_TEXT — đổi nội dung đổi hash (S1: status sống ở registry)", () => {
-    const key: PolicyKey = "terms";
-    const before = policyContentHash(key);
-    const text = policyContent(key);
-    // mô phỏng nội dung khác (không đụng module thật — tính trực tiếp)
-    const other = createHash("sha256").update(`${text}\n`, "utf8").digest("hex");
-    expect(other).not.toBe(before);
+  it("hash là hàm của NỘI DUNG — nội dung khác → hash khác (qua chính policyContentHash)", () => {
+    // S1: hash phủ POLICY_TEXT. Sáu policy sáu nội dung khác nhau → sáu hash
+    // khác nhau qua CHÍNH policyContentHash (hàm sai — trả hằng số / hash theo
+    // key thay vì nội dung — fail ở đây hoặc ở test khớp sha256 độc lập trên).
+    const hashes = POLICY_KEYS.map((k) => policyContentHash(k));
+    expect(new Set(hashes).size).toBe(POLICY_KEYS.length);
   });
+});
+
+// ─── 6b. Script policy-hash — format output release gate (Task 9) parse ───────
+
+describe("scripts/policy-hash.ts --check — format <key> <version> <sha256> <status> (Task 9 parse)", () => {
+  it(
+    "mỗi dòng đúng 4 cột cách nhau dấu cách, khớp registry + hash, đủ sáu policy theo thứ tự POLICY_KEYS",
+    () => {
+      // Spawn script THẬT (không mock): release gate Task 9 parse đúng lệnh này
+      // — `npx tsx scripts/policy-hash.ts --check` — nên hợp đồng là output
+      // CLI thật, kể cả phân tích cờ --check.
+      const out = execFileSync(
+        process.execPath,
+        ["--import", "tsx", "scripts/policy-hash.ts", "--check"],
+        { cwd: root, encoding: "utf8" },
+      );
+      const lines = out.trim().split("\n");
+      expect(lines.length).toBe(POLICY_KEYS.length);
+      expect(lines.map((l) => l.split(" ")[0])).toEqual([...POLICY_KEYS]);
+      for (const line of lines) {
+        const parts = line.split(" ");
+        expect(parts.length, `đúng 4 cột: "${line}"`).toBe(4);
+        const [key, version, hash, status] = parts as [PolicyKey, string, string, PolicyStatus];
+        expect([...POLICY_KEYS]).toContain(key);
+        expect(version).toBe(POLICIES[key].version);
+        expect(hash).toBe(policyContentHash(key));
+        expect(hash).toMatch(/^[0-9a-f]{64}$/);
+        expect(status).toBe(POLICIES[key].status);
+      }
+    },
+    30_000,
+  );
 });
 
 // ─── 7. Content modules — hợp đồng placeholder (§4.11 — Review Focus 2) ──────
@@ -250,12 +286,24 @@ describe("content modules — hợp đồng placeholder DRAFT-NOT-REVIEWED (§4.
     }
   });
 
-  it("safety_guidance: đủ sáu điểm §6.4 + dòng §5.2 (spec-sourced, chờ founder duyệt)", () => {
-    const body = policyContent("safety_guidance");
-    for (const point of SAFETY_64_POINTS) {
-      expect(body).toContain(point);
-    }
-    expect(body).toContain(SAFETY_52_LINE);
+  it("safety_guidance: body ĐÚNG heading + banner + marker + 6 điểm §6.4 + dòng §5.2 — không prose thừa", () => {
+    // §4.11: ngoại lệ duy nhất cho placeholder là thành phần spec-sourced
+    // (6 điểm §6.4 + dòng §5.2). Equality chặt — mọi dòng implementer thêm
+    // vào là vi phạm; founder text thay thế TOÀN BỘ khi duyệt (hash đổi).
+    const expected =
+      [
+        `# ${POLICIES.safety_guidance.title} (DRAFT-NOT-REVIEWED)`,
+        "",
+        "> ⚠️ BẢN DỰ THẢO — CHƯA ĐƯỢC DUYỆT. Nội dung pháp lý do founder soạn và duyệt",
+        "> (FD-3, spec §4.11) — bản này chưa có hiệu lực cho phiên bản beta.",
+        "",
+        "[nội dung chờ founder — safety_guidance]",
+        "",
+        ...SAFETY_64_POINTS.map((p) => `- ${p}`),
+        "",
+        SAFETY_52_LINE,
+      ].join("\n") + "\n";
+    expect(policyContent("safety_guidance")).toBe(expected);
   });
 });
 
@@ -296,6 +344,19 @@ describe("app/policies/[key]/page.tsx — trang chính sách công khai", () => 
     expect(src()).not.toContain("dangerouslySetInnerHTML=");
     expect(src()).toContain("whitespace-pre-wrap");
     expect(src()).toContain("policyContent(");
+  });
+
+  it("REVIEWED branch trung tính — flag registry KHÔNG tự thành claim duyệt công khai", () => {
+    // Review fix: nhánh REVIEWED không được phát ngôn "đã được duyệt" cho công
+    // khai — flag registry flip mà không có row duyệt APPROVED phải không thể
+    // tạo claim duyệt. Chỉ version + ngày hiệu lực trung tính (render vô điều
+    // kiện); claim duyệt sống trong bản ghi review (Decision == APPROVED).
+    const page = src();
+    expect(page).not.toContain("đã được duyệt");
+    expect(page).not.toContain("được founder duyệt");
+    expect(page).not.toContain("Trạng thái:");
+    // version + ngày hiệu lực trung tính hiển thị vô điều kiện
+    expect(page).toContain("cập nhật {policy.updatedAt}");
   });
 
   it("công khai (§2.1 public visitor): không auth, không db — trang tĩnh", () => {

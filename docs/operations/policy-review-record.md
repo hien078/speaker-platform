@@ -25,7 +25,7 @@
 | marketplace_rules | v1 | d023f8cca085e1fdd0e9e708e94f85a5642fad158089bf4f6fa1f2d17b479efd | — (chờ founder) | — | PENDING | Placeholder DRAFT-NOT-REVIEWED (FD-3) |
 | seller_rules | v1 | 5c3e784d11caa9909a17c172a9c976c886a17894a5d422345a93064ea09c8691 | — (chờ founder) | — | PENDING | Placeholder DRAFT-NOT-REVIEWED (FD-3) — xem FD-R4 |
 | community_rules | v1 | 0570418e45d1aa5c4d26dca10307b9dc250da1dbd0adf5f65b5659910b927c24 | — (chờ founder) | — | PENDING | Placeholder DRAFT-NOT-REVIEWED (FD-3) |
-| safety_guidance | v1 | bf0b4e905853a6a09d53884b3d47de83638e5a9d2a5621ce3ceb113b2aa1b6b8 | — (chờ founder) | — | PENDING | Placeholder DRAFT-NOT-REVIEWED (FD-3) — 6 điểm §6.4 + dòng §5.2 (spec-sourced) |
+| safety_guidance | v1 | d75a837f83b702253e90c5ad7a1c881cc38281a4edc47177bf76adf83b5cf5e6 | — (chờ founder) | — | PENDING | Placeholder DRAFT-NOT-REVIEWED (FD-3) — 6 điểm §6.4 + dòng §5.2 (spec-sourced) |
 
 **Decision là đúng một trong** `APPROVED` / `REJECTED` / `PENDING` — release
 gate yêu cầu `APPROVED` (ô không trống là chưa đủ).

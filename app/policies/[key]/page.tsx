@@ -8,6 +8,13 @@
  * dạng văn bản thuần (React text node + whitespace-pre-wrap) — KHÔNG
  * dangerouslySetInnerHTML, KHÔNG markdown-as-HTML.
  *
+ * Nhánh REVIEWED trung tính (review fix): KHÔNG phát ngôn duyệt công khai từ
+ * flag registry — flag flip mà không có row duyệt APPROVED trong
+ * docs/operations/policy-review-record.md phải KHÔNG THỂ tạo claim duyệt
+ * công khai; chỉ version + ngày hiệu lực trung tính (render vô điều kiện).
+ * Claim duyệt sống trong bản ghi review (Decision == APPROVED), không render
+ * từ flag.
+ *
  * Key lạ → notFound() (typed route params — guard trước mọi render).
  * generateStaticParams phủ POLICY_KEYS — sáu trang tĩnh theo registry.
  */
@@ -45,11 +52,7 @@ export default async function PolicyPage({
         <p className="mt-6 border border-[var(--line-2)] bg-[var(--accent-soft)] px-4 py-3 text-[13px] font-bold text-[var(--ink-2)]">
           BẢN DỰ THẢO — CHƯA ĐƯỢC DUYỆT. Nội dung này chưa có hiệu lực cho phiên bản beta.
         </p>
-      ) : (
-        <p className="mt-6 text-[12px] text-[var(--muted)]">
-          Trạng thái: đã được founder duyệt.
-        </p>
-      )}
+      ) : null}
 
       {/* Văn bản thuần — KHÔNG dangerouslySetInnerHTML, KHÔNG markdown-as-HTML */}
       <div className="mt-6 whitespace-pre-wrap text-[14px] leading-relaxed text-[var(--ink-2)]">

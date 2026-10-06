@@ -6,8 +6,11 @@
  * FOUNDER soạn và duyệt; implementer KHÔNG soạn nội dung (spec §4.11 Policy
  * Non-Invention). Ngoại lệ DUY NHẤT cho placeholder: sáu điểm spec §6.4 +
  * dòng §5.2 (spec-sourced — bản dịch tiếng Việt của văn bản spec, không phải
- * văn bản do implementer bịa; Batch 8 duyệt bản chính thức). Bản duyệt của
- * founder thay thế toàn bộ nội dung này; hash sha256 của POLICY_TEXT ghi
+ * văn bản do implementer bịa; Batch 8 duyệt bản chính thức). Body ghim
+ * BẰNG EQUALITY trong tests/unit/policy-registry.test.ts — heading + banner
+ * + marker + sáu điểm + dòng §5.2, KHÔNG dòng nào khác (review fix: mọi
+ * prose implementer thêm vào là vi phạm §4.11). Bản duyệt của founder thay
+ * thế toàn bộ nội dung này; hash sha256 của POLICY_TEXT ghi
  * vào docs/operations/policy-review-record.md (Decision == APPROVED) — flip
  * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit.
  *
@@ -23,7 +26,6 @@ export const POLICY_TEXT = `# Hướng dẫn an toàn giao dịch (DRAFT-NOT-REV
 
 [nội dung chờ founder — safety_guidance]
 
-Sáu điểm spec §6.4 (bản dịch tiếng Việt — chờ founder duyệt bản chính thức):
 - Thanh toán và giao nhận hàng do bạn và người bán tự thỏa thuận, diễn ra độc lập ngoài LoaViet.
 - Kiểm tra kỹ tình trạng sản phẩm trước khi thanh toán.
 - Ưu tiên gặp gỡ, kiểm tra thử loa ở nơi công cộng phù hợp.
