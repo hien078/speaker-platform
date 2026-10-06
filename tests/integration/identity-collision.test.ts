@@ -1,26 +1,27 @@
 /**
  * Identity collision integration tests — plan Task 6 (identity-collision gate),
- * spec §5.3.1: verified email/phone unique among active accounts; collision →
- * typed error, KHÔNG BAO GIỜ merge; email change tôn trọng unique constraint ở
- * CẢ ranh giới action (pre-check) LẪN ranh giới DB (constraint).
+ * spec §5.3.1 + review fix (verification flow CHỈ xác minh kênh ĐANG LƯU; change
+ * confirm cần step-up mật khẩu; revocation chạy TRÊN tx).
  *
  * Chạy trên scratch DB (scripts/test-integration.sh: container riêng +
  * `prisma db migrate --to production` + dọn). KHÔNG chạy trong `npm test`.
  *
- * Unit test (tests/unit/verification-actions.test.ts) chứng minh logic với db
- * mock; ở đây chứng minh cùng hợp đồng against DB THẬT:
+ * Unit test (tests/unit/verification-actions.test.ts + profile-actions.test.ts)
+ * chứng minh logic với db mock; ở đây chứng minh cùng hợp đồng against DB THẬT:
  *
  *  1. User.email unique constraint reject insert trùng email (raw create
- *     throw — và isUniqueConstraintViolation phân loại đúng chuẩn SQLSTATE,
- *     cùng helper confirmEmailChangeAction dùng để map 23505 → EMAIL_TAKEN).
+ *     throw — và isUniqueConstraintViolation phân loại đúng SQLSTATE 23505,
+ *     cùng helper confirmEmailChangeAction dùng để map → EMAIL_TAKEN).
  *  2. Hai tài khoản không thể cùng giữ MỘT phone ĐÃ XÁC MINH qua đường action:
- *     A verify P thành công; confirmPhoneVerificationAction(P) của B →
- *     PHONE_ALREADY_VERIFIED, B.phoneVerifiedAt giữ null, B.phone giữ nguyên
- *     (không merge), A giữ nguyên tuyệt đối.
+ *     A (số đang lưu P, chưa verified) verify P thành công; B (cũng lưu P,
+ *     chưa verified) confirm → PHONE_ALREADY_VERIFIED, B giữ nguyên.
  *  3. Đổi email tới địa chỉ đã bị chiếm: fail ở ranh giới ACTION (pre-check
  *     EMAIL_TAKEN, không tốn OTP) VÀ ở ranh giới DB (race giữa request và
  *     confirm → constraint 23505 trong tx → typed EMAIL_TAKEN, tx rollback,
  *     email giữ nguyên).
+ *  4. (Review fix LOW #5) changePasswordAction: hash + revocation trong MỘT
+ *     transaction, revocation chạy TRÊN tx — session khác bị revoke reason
+ *     "password_change", session hiện tại sống, trên DB thật.
  *
  * next/headers mock (cookie store điều khiển được — createSession/requireUser
  * cần cookies() ngoài request scope); next/cache mock (revalidatePath).
@@ -52,7 +53,7 @@ vi.mock("next/headers", () => ({
     has: (name: string) => cookieState.store.has(name),
     getAll: () => [...cookieState.store.entries()].map(([name, value]) => ({ name, value })),
   })),
-  // headers() cho audit-event (ipHash) + requireUser (path redirect)
+  // headers() cho rate limit (clientIpFromHeaders) + audit ipHash
   headers: vi.fn(async () => new Headers()),
 }));
 
@@ -65,6 +66,7 @@ import {
   confirmPhoneVerificationAction,
   requestEmailChangeAction,
   confirmEmailChangeAction,
+  changePasswordAction,
 } from "../../src/lib/actions/verification";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
@@ -163,32 +165,35 @@ d("identity collision qua đường action (spec §5.3.1)", () => {
     createdUsers.push(a, b);
     const P = mkPhone();
 
-    // A verify P thành công
+    // A đặt số P (chưa verified — như profile set) rồi verify SỐ ĐANG LƯU
+    await db.orm.public.User.where({ id: a }).update({ phone: P });
     await login(a);
-    const req1 = await requestPhoneVerificationAction({}, fd({ phone: P }));
+    // formData nhồi số KHÁC — action phải BỎ QUA (target derive từ DB)
+    const req1 = await requestPhoneVerificationAction({}, fd({ phone: "0999999999" }));
     expect(req1.error).toBeUndefined();
     const code1 = peekDevOtpInbox(P, "phone_verification", "phone");
-    expect(code1).toBeTruthy();
-    const conf1 = await confirmPhoneVerificationAction({}, fd({ phone: P, code: code1! }));
+    expect(code1).toBeTruthy(); // mã đi tới P (số đang lưu), KHÔNG phải 0999999999
+    const conf1 = await confirmPhoneVerificationAction({}, fd({ code: code1! }));
     expect(conf1.error).toBeUndefined();
 
     const rowA = await db.orm.public.User.first({ id: a });
     expect(rowA!.phone).toBe(P);
     expect(rowA!.phoneVerifiedAt).not.toBeNull();
 
-    // B cố verify cùng số P — mã hợp lệ (B request chính đáng), nhưng collision
-    // re-check trong tx chặn: typed error, KHÔNG merge, KHÔNG update
+    // B cũng lưu P (chưa verified) — mã hợp lệ (B request chính đáng cho SỐ ĐANG
+    // LƯU của B), nhưng collision re-check trong tx chặn: typed error, KHÔNG merge
+    await db.orm.public.User.where({ id: b }).update({ phone: P });
     await login(b);
-    const req2 = await requestPhoneVerificationAction({}, fd({ phone: P }));
+    const req2 = await requestPhoneVerificationAction({}, new FormData());
     expect(req2.error).toBeUndefined();
     const code2 = peekDevOtpInbox(P, "phone_verification", "phone");
     expect(code2).toBeTruthy();
-    const conf2 = await confirmPhoneVerificationAction({}, fd({ phone: P, code: code2! }));
+    const conf2 = await confirmPhoneVerificationAction({}, fd({ code: code2! }));
     expect(conf2.code).toBe("PHONE_ALREADY_VERIFIED");
 
     const rowB = await db.orm.public.User.first({ id: b });
     expect(rowB!.phoneVerifiedAt).toBeNull();
-    expect(rowB!.phone).toBeNull(); // không update, không merge
+    expect(rowB!.phone).toBe(P); // số vẫn lưu (unverified) — KHÔNG bị strip, KHÔNG merge
     // A — chủ sở hữu hợp pháp — giữ nguyên tuyệt đối
     const rowA2 = await db.orm.public.User.first({ id: a });
     expect(rowA2!.phone).toBe(P);
@@ -238,12 +243,53 @@ d("đổi email — unique constraint ở cả hai ranh giới", () => {
     const squatter = await mkUser(freeEmail);
     createdUsers.push(squatter);
 
-    const conf = await confirmEmailChangeAction({}, fd({ newEmail: freeEmail, code: code! }));
+    const conf = await confirmEmailChangeAction(
+      {},
+      fd({ newEmail: freeEmail, code: code!, currentPassword: PASSWORD }),
+    );
     expect(conf.code).toBe("EMAIL_TAKEN");
 
     // tx rollback: email + emailVerifiedAt của c giữ nguyên
     const rowC = await db.orm.public.User.first({ id: c });
     expect(rowC!.email).toBe(originalEmail);
     expect(rowC!.emailVerifiedAt).toBeNull();
+  });
+});
+
+// ─── 4. changePasswordAction — hash + revocation trong MỘT tx (review fix) ────
+
+d("changePasswordAction — revocation trên tx (DB thật)", () => {
+  it("hash mới + session KHÁC revoked reason password_change, session hiện tại sống", async () => {
+    const c = await mkUser(`${uid()}@integration.test`);
+    createdUsers.push(c);
+
+    // 3 session "thiết bị khác" thật trong DB
+    await createSession(c);
+    await createSession(c);
+    await createSession(c);
+
+    // login(c) xoá cookie + tạo session MỚI — session hiện tại của action
+    await login(c);
+    const rowsBefore = await db.orm.public.UserSession.where({ userId: c }).all();
+    expect(rowsBefore).toHaveLength(4);
+
+    const state = await changePasswordAction(
+      {},
+      fd({ currentPassword: PASSWORD, newPassword: "integration-password-456" }),
+    );
+    expect(state.error).toBeUndefined();
+
+    const rowsAfter = await db.orm.public.UserSession.where({ userId: c }).all();
+    const revoked = rowsAfter.filter((r) => r.revokedAt !== null);
+    const alive = rowsAfter.filter((r) => r.revokedAt === null);
+    // MỌI session khác (3 session "thiết bị khác") bị revoke với đúng reason
+    expect(revoked).toHaveLength(3);
+    for (const r of revoked) expect(r.revokedReason).toBe("password_change");
+    // session hiện tại (của login cuối) sống
+    expect(alive).toHaveLength(1);
+
+    // hash mới thật (bcrypt verify)
+    const rowC = await db.orm.public.User.first({ id: c });
+    expect(await bcrypt.compare("integration-password-456", rowC!.passwordHash)).toBe(true);
   });
 });

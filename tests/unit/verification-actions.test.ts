@@ -1,45 +1,36 @@
 /**
- * Email/phone verification + identity changes — unit tests (plan Task 6,
- * spec §5.3/§5.3.1: verified identifier unique among active accounts, collision
- * → typed error KHÔNG BAO GIỜ merge; sensitive change có step-up, reset
- * verifiedAt, revoke session khác, notice bảo mật tới kênh CŨ; enumeration-safe).
+ * Email/phone verification + identity changes — unit tests (plan Task 6 +
+ * review fix: đóng step-up bypass, rate limit, revocation trên tx).
  *
  * Cơ chế mock: `server-only` + `next/cache` + `next/navigation` (redirect throw
- * NEXT_REDIRECT) + `next/headers` (headers/cookies điều khiển được) +
- * `@/src/lib/session` (getSessionFromCookie fixture + revokeAllUserSessions
- * spy — đúng seam actions tiêu thụ; hành vi thật của session do
- * tests/unit/session.test.ts đảm nhiệm) + `@/src/lib/verification-delivery`
- * (adapter spy) + `@/src/prisma/db.client` (in-memory User/OtpCode/AuditEvent/
- * Notification). OTP core (requestOtp/verifyOtp/normalizePhone) GIỮ BẢN THẬT —
- * test hành trình action đầy đủ qua OTP thật (hash, cooldown, consume);
- * rate limiter thật + resetRateLimits giữa các case.
+ * NEXT_REDIRECT) + `next/headers` (headers/cookies) + `@/src/lib/session`
+ * (getSessionFromCookie fixture; revokeAllUserSessions = tripwire — sau fix
+ * revocation phải chạy TRÊN tx, không còn qua global client) +
+ * `@/src/lib/verification-delivery` (adapter spy) + `@/src/prisma/db.client`
+ * (in-memory User/UserSession/OtpCode/AuditEvent/Notification). OTP core +
+ * rate limiter GIỮ BẢN THẬT (reset qua resetRateLimits).
  *
- * Hợp đồng (plan Task 6 Step 1):
- *  1. confirmEmailVerificationAction: emailVerifiedAt set + audit
- *     "user.email_verified" — detail KHÔNG chứa email thô (spec §4.8).
- *  2. confirmPhoneVerificationAction: phone đã được xác minh bởi tài khoản
- *     KHÁC → typed PHONE_ALREADY_VERIFIED, không merge, không update
- *     (spec §5.3.1 — identity collision).
- *  3. confirmPhoneVerificationAction: phone giống nhau nhưng CHƯA xác minh ở
- *     tài khoản khác → verify thành công (uniqueness chỉ áp danh tính ĐÃ
- *     xác minh).
- *  4. changePasswordAction: sai mật khẩu hiện tại → lỗi, không mutation;
- *     đúng → hash mới, revoke session khác reason "password_change", session
- *     hiện tại giữ nguyên (Review Focus 3), audit + notify.
- *  5. requestEmailChangeAction: email mới đã thuộc tài khoản khác → typed
- *     EMAIL_TAKEN (enumeration-safe message), không gửi OTP.
- *  6. confirmEmailChangeAction: email swapped, emailVerifiedAt set, session
- *     khác revoked reason "email_change", security notice tới email CŨ
- *     (adapter spy), audit "user.email_changed".
- *  7. requestPhoneChangeAction: cooldown/rate-limit OTP → lỗi form tiếng Việt
- *     (OTP_RATE_LIMITED), adapter gọi ĐÚNG 1 lần.
- *  8. MỌI action đòi session: không cookie → NEXT_REDIRECT, không chạm db.
- *  (+) Step-up đổi email/phone: sai mật khẩu hiện tại → lỗi, không gửi OTP.
- *  (+) confirmPhoneChangeAction: collision re-check TRONG tx (race giữa
- *      request và confirm) → PHONE_ALREADY_VERIFIED, user giữ nguyên.
- *  (+) confirmPhoneChangeAction: đổi số thành công — notice tới phone CŨ,
- *      revoke session khác reason "phone_change", audit "user.phone_changed".
- *  (+) confirmEmailChangeAction: sai mã → lỗi, email giữ nguyên.
+ * Hợp đồng sau review fix:
+ *  1. (HIGH) Verification flow CHỈ xác minh kênh ĐANG LƯU (target derive từ
+ *     DB, formData bị bỏ qua) + refuse khi đã verified. Đổi sang số/email khác
+ *     CHỈ qua change flow (mật khẩu ở request VÀ confirm — OTP row không ghi
+ *     flow đã tạo nó nên không thể chứng minh step-up từ row → yêu cầu mật khẩu
+ *     lại tại confirm). Stolen session không mật khẩu không thể làm SỐ MỚI
+ *     verified qua mọi tổ hợp action.
+ *  2. (MEDIUM) profile.ts: phone update atomic (CAS where phone = giá trị đã
+ *     đọc) — test riêng ở tests/unit/profile-actions.test.ts.
+ *  3. (MEDIUM) Mọi request action rate limit per-user (5/10phút, độc lập
+ *     target — chống SMS pumping) + per-IP (20/10phút); EMAIL_TAKEN pre-check
+ *     SAU rate limit.
+ *  4. (MEDIUM) Step-up (verify mật khẩu hiện tại) rate limit per-user + per-IP
+ *     cùng ngưỡng login (auth.ts 10/10phút) — không còn password-guessing
+ *     oracle cho stolen session.
+ *  5. (LOW) changePasswordAction: hash + revoke trong MỘT db.transaction;
+ *     revocation chạy TRÊN tx (revokeOtherSessionsTx — local copy predicate
+ *     session.ts, dễ reconcile khi Task 7 thêm tx-variant); email/phone change
+ *     confirm cũng revoke trên tx.
+ *  6. (LOW) Security notice chỉ tới kênh CŨ khi kênh cũ ĐÃ verified.
+ *  7. (LOW) profile.ts lưu phone NORMALIZED — test ở profile-actions.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import bcrypt from "bcryptjs";
@@ -54,7 +45,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-// headers() cho requireUser/audit-event (ipHash); cookies() cho auth.ts import
+// headers() cho rate limit (clientIpFromHeaders) + audit ipHash; cookies() cho auth.ts
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
   cookies: vi.fn(async () => ({
@@ -66,13 +57,12 @@ vi.mock("next/headers", () => ({
   })),
 }));
 
-// ─── Session seam — actions đọc requireUser → getSessionFromCookie, và gọi
-// revokeAllUserSessions sau thay đổi nhạy cảm (spec §5.3.1). Hành vi thật của
-// module session do tests/unit/session.test.ts đảm nhiệm; ở đây spy args. ────
+// ─── Session seam — requireUser đọc qua getSessionFromCookie. Sau fix,
+// revocation chạy TRÊN tx (revokeOtherSessionsTx trong verification.ts) —
+// revokeAllUserSessions (global client) là TRIpwire: KHÔNG được gọi nữa. ──────
 
 const sessionState = vi.hoisted(() => ({
   current: null as { session: Record<string, unknown>; user: Record<string, unknown> } | null,
-  revokedAll: [] as Array<{ userId: unknown; reason: unknown; opts?: { exceptSessionId?: string } }>,
 }));
 
 vi.mock("@/src/lib/session", () => ({
@@ -80,15 +70,10 @@ vi.mock("@/src/lib/session", () => ({
   getSessionFromCookie: vi.fn(async () => sessionState.current),
   revokeSession: vi.fn(),
   createSession: vi.fn(),
-  revokeAllUserSessions: vi.fn(
-    async (userId: string, reason: string, opts?: { exceptSessionId?: string }) => {
-      sessionState.revokedAll.push({ userId, reason, opts });
-      return 0;
-    },
-  ),
+  revokeAllUserSessions: vi.fn(async () => 0),
 }));
 
-// ─── Delivery adapter spy — OTP + security notice (spec §5.3.1 "when feasible") ──
+// ─── Delivery adapter spy — OTP + security notice ─────────────────────────────
 
 type OtpDeliveryCall = { to: string; code: string; purpose: string; channel: string };
 type SecurityNoticeCall = { to: string; channel: string; subjectKey: string };
@@ -106,11 +91,11 @@ vi.mock("@/src/lib/verification-delivery", () => ({
   }),
 }));
 
-// ─── db.client mock: in-memory User (first-match) + OtpCode (last = newest,
-// đúng ngữ nghĩa orderBy createdAt desc) + AuditEvent/Notification capture ───
+// ─── db.client mock: in-memory User/UserSession/OtpCode/AuditEvent/Notification ──
 
 const dbState = vi.hoisted(() => ({
   users: [] as Array<Record<string, unknown>>,
+  sessions: [] as Array<Record<string, unknown>>,
   otpRows: [] as Array<Record<string, unknown>>,
   auditRows: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
@@ -201,6 +186,16 @@ vi.mock("@/src/prisma/db.client", () => {
 
   const models = {
     User: makeModel(dbState.users, () => ({ id: `user-${dbState.users.length + 1}` })),
+    UserSession: makeModel(dbState.sessions, () => ({
+      id: `sess-${dbState.sessions.length + 1}`,
+      createdAt: new Date().toISOString(),
+      lastSeenAt: null,
+      revokedAt: null,
+      revokedReason: null,
+      steppedUpAt: null,
+      isAdmin: false,
+      userAgent: null,
+    })),
     // OtpCode: first() lấy row MỚI NHẤT khớp predicate — đúng orderBy desc
     OtpCode: makeModel(dbState.otpRows, otpDefaults, "last"),
     AuditEvent: makeModel(dbState.auditRows, () => ({ id: `audit-${dbState.auditRows.length + 1}` })),
@@ -212,9 +207,7 @@ vi.mock("@/src/prisma/db.client", () => {
   return {
     db: {
       orm,
-      // tx passthrough — cùng store: mutation trong tx thấy ngay; hành vi
-      // rollback thật do integration test đảm nhiệm (collision check chạy
-      // TRƯỚC mutation nên unit test không cần rollback vật lý).
+      // tx passthrough — cùng store; hành vi rollback thật do integration test
       transaction: async (fn: (tx: unknown) => Promise<unknown>) =>
         fn({ orm: { public: { ...models } } }),
     },
@@ -223,6 +216,7 @@ vi.mock("@/src/prisma/db.client", () => {
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { verifyPassword } from "@/src/lib/auth";
+import { revokeAllUserSessions } from "@/src/lib/session";
 import {
   requestEmailVerificationAction,
   confirmEmailVerificationAction,
@@ -235,6 +229,8 @@ import {
   confirmPhoneChangeAction,
   type VerificationFormState,
 } from "@/src/lib/actions/verification";
+
+const revokeAllGlobal = vi.mocked(revokeAllUserSessions);
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -262,14 +258,28 @@ const mkUser = (over: Partial<Row>): Row => ({
   ...over,
 });
 
-/** user-1 (đăng nhập) + user-2 (đã xác minh phone 0901234567). */
-const U1 = mkUser({ id: "user-1", email: "mua@loaviet.test", name: "Người Mua" });
+/** user-1 (đăng nhập, phone lưu 0900000001 CHƯA verified) + user-2 (phone 0901234567 ĐÃ verified). */
+const U1 = mkUser({ id: "user-1", email: "mua@loaviet.test", name: "Người Mua", phone: "0900000001" });
 const U2 = mkUser({
   id: "user-2",
   email: "khac@loaviet.test",
   name: "Người Khác",
   phone: "0901234567",
   phoneVerifiedAt: "2026-10-01T00:00:00.000Z",
+});
+
+const mkSession = (id: string, userId: string): Row => ({
+  id,
+  userId,
+  tokenHash: `hash-${id}`,
+  isAdmin: false,
+  createdAt: "2026-10-06T08:00:00.000Z",
+  lastSeenAt: null,
+  expiresAt: "2026-11-06T08:00:00.000Z",
+  revokedAt: null,
+  revokedReason: null,
+  steppedUpAt: null,
+  userAgent: null,
 });
 
 const SESSION = {
@@ -318,18 +328,24 @@ const requestAndExtractCode = async (
   return call![0].code;
 };
 
+/** Session khác của user-1 đã revoke chưa + reason gì. */
+const revokedSessions = (): Array<Row> =>
+  dbState.sessions.filter((s) => s["revokedAt"] !== null);
+
 beforeEach(() => {
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("AUTH_SECRET", "unit-test-auth-secret-0123456789abcdef");
   dbState.users.length = 0;
+  dbState.sessions.length = 0;
   dbState.otpRows.length = 0;
   dbState.auditRows.length = 0;
   dbState.notifications.length = 0;
   dbState.users.push({ ...U1 }, { ...U2 });
+  dbState.sessions.push(mkSession("sess-1", "user-1"), mkSession("sess-2", "user-1"), mkSession("sess-3", "user-1"));
   sessionState.current = null;
-  sessionState.revokedAll.length = 0;
   delivery.sendOtp.mockClear();
   delivery.sendSecurityNotice.mockClear();
+  revokeAllGlobal.mockClear();
   resetRateLimits();
 });
 
@@ -337,7 +353,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-// ─── 8. MỌI action đòi session (chống gọi trực tiếp không đăng nhập) ─────────
+// ─── Ranh giới session — mọi action ──────────────────────────────────────────
 
 describe("ranh giới session — mọi action", () => {
   const ALL_ACTIONS = [
@@ -363,24 +379,22 @@ describe("ranh giới session — mọi action", () => {
       newPassword: "mat-khau-moi-123",
     });
     await expect(action({}, form)).rejects.toThrow("NEXT_REDIRECT");
-    // fail closed: không OTP, không audit, không notify, không revoke
     expect(dbState.otpRows).toHaveLength(0);
     expect(dbState.auditRows).toHaveLength(0);
     expect(dbState.notifications).toHaveLength(0);
-    expect(sessionState.revokedAll).toHaveLength(0);
+    expect(revokedSessions()).toHaveLength(0);
     expect(delivery.sendOtp).not.toHaveBeenCalled();
     expect(delivery.sendSecurityNotice).not.toHaveBeenCalled();
   });
 });
 
-// ─── 1. Email verification ───────────────────────────────────────────────────
+// ─── Email verification — CHỈ email đang lưu ──────────────────────────────────
 
-describe("email verification", () => {
-  it("confirmEmailVerificationAction: set emailVerifiedAt + audit user.email_verified (detail không có email thô)", async () => {
+describe("email verification — chỉ xác minh email ĐANG LƯU", () => {
+  it("request gửi OTP tới ĐÚNG email lưu + confirm set emailVerifiedAt + audit (detail không email thô)", async () => {
     login(dbState.users[0]!);
 
     const code = await requestAndExtractCode(requestEmailVerificationAction, new FormData());
-    // mã gửi tới ĐÚNG email của user, purpose/channel đúng
     expect(delivery.sendOtp.mock.calls.at(-1)![0]).toMatchObject({
       to: "mua@loaviet.test",
       purpose: "email_verification",
@@ -399,79 +413,196 @@ describe("email verification", () => {
       resourceId: "user-1",
       sessionId: "sess-1",
     });
-    // spec §4.8: KHÔNG email thô trong audit detail
     expect(JSON.stringify(evt)).not.toContain("mua@loaviet.test");
   });
 
-  it("sai mã → lỗi, emailVerifiedAt giữ null", async () => {
+  it("confirm sai mã → lỗi, emailVerifiedAt giữ null", async () => {
     login(dbState.users[0]!);
     const real = await requestAndExtractCode(requestEmailVerificationAction, new FormData());
-    // mã SAI chắc chắn (không phụ thuộc random): khác mã thật
     const wrong = real === "000000" ? "111111" : "000000";
     const state = await confirmEmailVerificationAction({}, fd({ code: wrong }));
     expect(state.error).toBeTruthy();
     expect(dbState.users[0]!.emailVerifiedAt).toBeNull();
   });
+
+  it("đã verified → request refuse (ALREADY_VERIFIED), không gửi OTP; confirm refuse, không update", async () => {
+    dbState.users[0]!.emailVerifiedAt = "2026-10-01T00:00:00.000Z";
+    login(dbState.users[0]!);
+
+    const req = await requestEmailVerificationAction({}, new FormData());
+    expect(req.code).toBe("ALREADY_VERIFIED");
+    expect(delivery.sendOtp).not.toHaveBeenCalled();
+
+    const conf = await confirmEmailVerificationAction({}, fd({ code: "123456" }));
+    expect(conf.code).toBe("ALREADY_VERIFIED");
+    expect(dbState.users[0]!.emailVerifiedAt).toBe("2026-10-01T00:00:00.000Z"); // giữ nguyên
+  });
 });
 
-// ─── 2+3. Phone verification — identity collision (spec §5.3.1) ──────────────
+// ─── Phone verification — CHỈ số đang lưu (đóng step-up bypass) ───────────────
 
-describe("phone verification — collision rule (spec §5.3.1)", () => {
-  it("phone đã ĐƯỢC XÁC MINH bởi tài khoản khác → PHONE_ALREADY_VERIFIED, không merge, không update", async () => {
-    login(dbState.users[0]!); // user-1, phone null
-    // user-2 giữ phone 0901234567 ĐÃ xác minh (fixture)
+describe("phone verification — CHỈ xác minh số ĐANG LƯU (fix HIGH)", () => {
+  it("request: OTP tới ĐÚNG số đang lưu — formData phone KHÁC bị bỏ qua hoàn toàn", async () => {
+    login(dbState.users[0]!); // stored: 0900000001
 
+    // kẻ tấn công (session đánh cắp) nhồi số của hắn vào formData
     const code = await requestAndExtractCode(
       requestPhoneVerificationAction,
-      fd({ phone: "0901234567" }),
+      fd({ phone: "0999999999" }),
     );
-    const state = await confirmPhoneVerificationAction({}, fd({ phone: "0901234567", code }));
-
-    expect(state.code).toBe("PHONE_ALREADY_VERIFIED");
-    // KHÔNG merge, KHÔNG update user-1
-    expect(dbState.users[0]!.phone).toBeNull();
-    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
-    // chủ sở hữu cũ giữ nguyên tuyệt đối
-    expect(dbState.users[1]!.phone).toBe("0901234567");
-    expect(dbState.users[1]!.phoneVerifiedAt).toBe("2026-10-01T00:00:00.000Z");
-    // không audit "user.phone_verified" — không có gì xảy ra với danh tính
-    expect(dbState.auditRows.filter((r) => r.action === "user.phone_verified")).toHaveLength(0);
+    // OTP đi tới SỐ ĐANG LƯU của tài khoản — KHÔNG PHÌ số của kẻ tấn công
+    expect(delivery.sendOtp.mock.calls.at(-1)![0]).toMatchObject({
+      to: "0900000001",
+      purpose: "phone_verification",
+      channel: "phone",
+    });
+    expect(code).toBeTruthy();
   });
 
-  it("phone giống nhau nhưng CHƯA xác minh ở tài khoản khác → verify thành công", async () => {
-    // user-2 giữ phone nhưng phoneVerifiedAt null — uniqueness chỉ áp danh tính ĐÃ xác minh
-    dbState.users[1]!.phone = "0909876543";
-    dbState.users[1]!.phoneVerifiedAt = null;
+  it("request: không có số lưu → PHONE_NOT_ON_FILE, không gửi OTP", async () => {
+    dbState.users[0]!.phone = null;
     login(dbState.users[0]!);
-
-    const code = await requestAndExtractCode(
-      requestPhoneVerificationAction,
-      fd({ phone: "0909876543" }),
-    );
-    const state = await confirmPhoneVerificationAction({}, fd({ phone: "0909876543", code }));
-
-    expect(state.error).toBeUndefined();
-    expect(dbState.users[0]!.phone).toBe("0909876543");
-    expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
-    // user-2 giữ nguyên (unverified) — không bị strip phone
-    expect(dbState.users[1]!.phone).toBe("0909876543");
-    expect(dbState.users[1]!.phoneVerifiedAt).toBeNull();
-    expect(dbState.auditRows.some((r) => r.action === "user.phone_verified")).toBe(true);
-  });
-
-  it("số điện thoại sai format → lỗi form, không gửi OTP", async () => {
-    login(dbState.users[0]!);
-    const state = await requestPhoneVerificationAction({}, fd({ phone: "12345" }));
-    expect(state.error).toBeTruthy();
+    const state = await requestPhoneVerificationAction({}, fd({ phone: "0999999999" }));
+    expect(state.code).toBe("PHONE_NOT_ON_FILE");
     expect(delivery.sendOtp).not.toHaveBeenCalled();
     expect(dbState.otpRows).toHaveLength(0);
   });
+
+  it("request: số lưu sai format (legacy) → PHONE_NOT_ON_FILE, không gửi OTP", async () => {
+    dbState.users[0]!.phone = "12345"; // legacy rác — không chuẩn hóa được
+    login(dbState.users[0]!);
+    const state = await requestPhoneVerificationAction({}, new FormData());
+    expect(state.code).toBe("PHONE_NOT_ON_FILE");
+    expect(delivery.sendOtp).not.toHaveBeenCalled();
+  });
+
+  it("request + confirm: đã verified → ALREADY_VERIFIED, không OTP, không update", async () => {
+    dbState.users[0]!.phoneVerifiedAt = "2026-10-01T00:00:00.000Z";
+    login(dbState.users[0]!);
+
+    const req = await requestPhoneVerificationAction({}, new FormData());
+    expect(req.code).toBe("ALREADY_VERIFIED");
+    expect(delivery.sendOtp).not.toHaveBeenCalled();
+
+    const conf = await confirmPhoneVerificationAction({}, fd({ code: "123456" }));
+    expect(conf.code).toBe("ALREADY_VERIFIED");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBe("2026-10-01T00:00:00.000Z");
+  });
+
+  it("confirm: set phoneVerifiedAt (phone giữ nguyên = stored), audit user.phone_verified; formData phone bị bỏ qua", async () => {
+    login(dbState.users[0]!); // stored 0900000001
+    const code = await requestAndExtractCode(requestPhoneVerificationAction, new FormData());
+
+    // confirm nhồi số khác vào formData — action vẫn verify SỐ ĐANG LƯU
+    const state = await confirmPhoneVerificationAction(
+      {},
+      fd({ phone: "0999999999", code }),
+    );
+    expect(state.error).toBeUndefined();
+    expect(dbState.users[0]!.phone).toBe("0900000001"); // KHÔNG đổi sang số của formData
+    expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
+    expect(dbState.auditRows.some((r) => r.action === "user.phone_verified")).toBe(true);
+    const evt = dbState.auditRows.find((r) => r.action === "user.phone_verified")!;
+    expect(JSON.stringify(evt)).not.toContain("0900000001");
+  });
+
+  it("confirm: số đang lưu đã ĐƯỢC XÁC MINH bởi tài khoản KHÁC → PHONE_ALREADY_VERIFIED, không merge, không update", async () => {
+    // user-2 đã verified 0901234567 (fixture); user-1 cũng đang lưu số đó (unverified)
+    dbState.users[0]!.phone = "0901234567";
+    login(dbState.users[0]!);
+
+    const code = await requestAndExtractCode(
+      requestPhoneVerificationAction,
+      new FormData(),
+    );
+    const state = await confirmPhoneVerificationAction({}, fd({ code }));
+
+    expect(state.code).toBe("PHONE_ALREADY_VERIFIED");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
+    expect(dbState.users[1]!.phone).toBe("0901234567");
+    expect(dbState.users[1]!.phoneVerifiedAt).toBe("2026-10-01T00:00:00.000Z");
+    expect(dbState.auditRows.filter((r) => r.action === "user.phone_verified")).toHaveLength(0);
+  });
+
+  it("confirm: số đang lưu giống tài khoản khác nhưng CHƯA verified ở đó → thành công", async () => {
+    // user-2 giữ 0909876543 unverified
+    dbState.users[1]!.phone = "0909876543";
+    dbState.users[1]!.phoneVerifiedAt = null;
+    dbState.users[0]!.phone = "0909876543";
+    login(dbState.users[0]!);
+
+    const code = await requestAndExtractCode(requestPhoneVerificationAction, new FormData());
+    const state = await confirmPhoneVerificationAction({}, fd({ code }));
+
+    expect(state.error).toBeUndefined();
+    expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
+    // user-2 giữ nguyên (unverified) — uniqueness chỉ áp danh tính ĐÃ xác minh
+    expect(dbState.users[1]!.phone).toBe("0909876543");
+    expect(dbState.users[1]!.phoneVerifiedAt).toBeNull();
+  });
 });
 
-// ─── 4. changePasswordAction (Review Focus 3) ────────────────────────────────
+// ─── HIGH: stolen session — không mật khẩu không thể làm SỐ MỚI verified ──────
+
+describe("stolen session — không mật khẩu không thể làm số MỚI verified (HIGH)", () => {
+  const ATTACKER_PHONE = "0999999999";
+
+  it("mọi tổ hợp action không mật khẩu đều KHÔNG đưa số mới tới verified", async () => {
+    login(dbState.users[0]!); // stolen session — KHÔNG có mật khẩu
+
+    // (a) verification request nhồi số tấn công → OTP vẫn tới SỐ ĐANG LƯU (0900000001)
+    const reqState = await requestPhoneVerificationAction({}, fd({ phone: ATTACKER_PHONE }));
+    expect(reqState.error).toBeUndefined();
+    expect(delivery.sendOtp.mock.calls.at(-1)![0].to).toBe("0900000001");
+    expect(delivery.sendOtp.mock.calls.at(-1)![0].to).not.toBe(ATTACKER_PHONE);
+
+    // (b) verification confirm nhồi số tấn công → action derive target từ DB
+    //     (0900000001) — mã gửi cho 0900000001 không tồn tại cho tuple của số tấn công
+    const confState = await confirmPhoneVerificationAction(
+      {},
+      fd({ phone: ATTACKER_PHONE, code: "123456" }),
+    );
+    expect(confState.error).toBeTruthy();
+
+    // (c) change request không mật khẩu → step-up fail, không OTP cho số tấn công
+    const changeReq = await requestPhoneChangeAction(
+      {},
+      fd({ newPhone: ATTACKER_PHONE, currentPassword: "" }),
+    );
+    expect(changeReq.code).toBe("MISSING_CURRENT_PASSWORD");
+    expect(delivery.sendOtp).toHaveBeenCalledTimes(1); // chỉ OTP (a) tới số đang lưu
+
+    // (d) change confirm không mật khẩu → step-up fail, không mutation
+    const changeConf = await confirmPhoneChangeAction(
+      {},
+      fd({ newPhone: ATTACKER_PHONE, code: "123456", currentPassword: "" }),
+    );
+    expect(changeConf.code).toBe("MISSING_CURRENT_PASSWORD");
+
+    // kết cục: số tấn công KHÔNG verified, tài khoản giữ nguyên
+    expect(dbState.users[0]!.phone).toBe("0900000001");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
+    expect(revokedSessions()).toHaveLength(0);
+    expect(dbState.auditRows.filter((r) => r.action === "user.phone_changed")).toHaveLength(0);
+  });
+
+  it("change confirm với mật khẩu SAI → WRONG_PASSWORD, không mutation (step-up tại confirm)", async () => {
+    login(dbState.users[0]!);
+    const state = await confirmPhoneChangeAction(
+      {},
+      fd({ newPhone: "09011112222", code: "123456", currentPassword: "sai-het-roi" }),
+    );
+    expect(state.code).toBe("WRONG_PASSWORD");
+    expect(dbState.users[0]!.phone).toBe("0900000001");
+    expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
+    expect(revokedSessions()).toHaveLength(0);
+  });
+});
+
+// ─── changePasswordAction — tx + revocation trên tx (fix LOW #5) ──────────────
 
 describe("changePasswordAction", () => {
-  it("sai mật khẩu hiện tại → lỗi, không mutation, không revoke, không audit", async () => {
+  it("sai mật khẩu hiện tại → lỗi, không mutation, KHÔNG revoke, không audit", async () => {
     login(dbState.users[0]!);
     const hashBefore = dbState.users[0]!.passwordHash;
 
@@ -482,11 +613,11 @@ describe("changePasswordAction", () => {
 
     expect(state.code).toBe("WRONG_PASSWORD");
     expect(dbState.users[0]!.passwordHash).toBe(hashBefore);
-    expect(sessionState.revokedAll).toHaveLength(0);
+    expect(revokedSessions()).toHaveLength(0);
     expect(dbState.auditRows).toHaveLength(0);
   });
 
-  it("đúng → hash mới, revoke session KHÁC reason password_change (session hiện tại giữ), audit + notify", async () => {
+  it("đúng → hash mới + session KHÁC revoked trong TX (reason password_change), session hiện tại sống, audit + notify", async () => {
     login(dbState.users[0]!);
 
     const state = await changePasswordAction(
@@ -498,42 +629,117 @@ describe("changePasswordAction", () => {
     await expect(
       verifyPassword("mat-khau-moi-123", dbState.users[0]!.passwordHash as string),
     ).resolves.toBe(true);
-    // Review Focus 3: session khác bị revoke, session hiện tại (except) sống
-    expect(sessionState.revokedAll).toEqual([
-      { userId: "user-1", reason: "password_change", opts: { exceptSessionId: "sess-1" } },
-    ]);
+    // revocation chạy TRÊN tx — KHÔNG qua global client (tripwire)
+    expect(revokeAllGlobal).not.toHaveBeenCalled();
+    // session khác bị revoke với đúng reason; session hiện tại sống
+    const revoked = revokedSessions();
+    expect(revoked.map((s) => s["id"]).sort()).toEqual(["sess-2", "sess-3"]);
+    for (const s of revoked) expect(s["revokedReason"]).toBe("password_change");
+    const current = dbState.sessions.find((s) => s["id"] === "sess-1")!;
+    expect(current["revokedAt"]).toBeNull();
     expect(dbState.auditRows.some((r) => r.action === "user.password_changed")).toBe(true);
     expect(dbState.notifications.some((n) => n.userId === "user-1")).toBe(true);
   });
 });
 
-// ─── 5+6. Email change (step-up + OTP + notice tới email CŨ) ──────────────────
+// ─── Step-up rate limit (fix MEDIUM #4 — password-guessing oracle) ────────────
 
-describe("email change", () => {
-  it("request: email mới đã thuộc tài khoản khác → EMAIL_TAKEN, không gửi OTP", async () => {
+describe("step-up rate limit (spec §7.2 — không còn password oracle)", () => {
+  it("10 lần sai liên tiếp tiêu budget; lần 11 → RATE_LIMITED, hash giữ nguyên", async () => {
     login(dbState.users[0]!);
+    const hashBefore = dbState.users[0]!.passwordHash;
 
+    for (let i = 0; i < 10; i++) {
+      const state = await changePasswordAction(
+        {},
+        fd({ currentPassword: `sai-lan-${i}`, newPassword: "mat-khau-moi-123" }),
+      );
+      expect(state.code, `lần ${i + 1} vẫn là WRONG_PASSWORD`).toBe("WRONG_PASSWORD");
+    }
+
+    const blocked = await changePasswordAction(
+      {},
+      fd({ currentPassword: "doan-dung-roi", newPassword: "mat-khau-moi-123" }),
+    );
+    expect(blocked.code).toBe("RATE_LIMITED");
+    expect(dbState.users[0]!.passwordHash).toBe(hashBefore);
+    expect(revokedSessions()).toHaveLength(0);
+  });
+});
+
+// ─── OTP request rate limit (fix MEDIUM #3 — SMS pumping) ─────────────────────
+
+describe("OTP request rate limit — per-user + per-IP (spec §7.1)", () => {
+  it("per-USER: request thứ 6 trong 10 phút → RATE_LIMITED (độc lập target — chống pumping)", async () => {
+    login(dbState.users[0]!);
+    let last: VerificationFormState = {};
+    for (let i = 0; i < 6; i++) {
+      last = await requestEmailVerificationAction({}, new FormData());
+    }
+    // lần 1 gửi mã; lần 2-5 cooldown OTP_RATE_LIMITED (vẫn tiêu budget); lần 6 bị chặn
+    expect(last.code).toBe("RATE_LIMITED");
+    expect(last.error).toMatch(/giây/);
+    expect(delivery.sendOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it("EMAIL_TAKEN pre-check SAU rate limit — hết budget thì không enumeration qua pre-check", async () => {
+    login(dbState.users[0]!);
+    // tiêu hết budget per-user (5 request)
+    for (let i = 0; i < 5; i++) {
+      await requestEmailVerificationAction({}, new FormData());
+    }
+    // email đã thuộc tài khoản khác — nhưng pre-check không chạy nữa: RATE_LIMITED
     const state = await requestEmailChangeAction(
       {},
       fd({ newEmail: "khac@loaviet.test", currentPassword: PASSWORD }),
     );
+    expect(state.code).toBe("RATE_LIMITED");
+    expect(delivery.sendOtp).toHaveBeenCalledTimes(1); // chỉ lần đầu gửi mã
+  });
 
+  it("per-IP: bucket IP dùng chung mọi user — request thứ 21 trong window → RATE_LIMITED", async () => {
+    // 4 user × 5 request (budget per-user) = 20 hit IP; user thứ 5 bị chặn ở request đầu
+    for (let u = 0; u < 4; u++) {
+      const user = mkUser({ id: `user-ip-${u}`, email: `ip${u}@loaviet.test`, phone: `090000000${u}` });
+      dbState.users.push(user);
+      login(user);
+      for (let i = 0; i < 5; i++) {
+        await requestEmailVerificationAction({}, new FormData());
+      }
+    }
+    const fifth = mkUser({ id: "user-ip-5", email: "ip5@loaviet.test", phone: "0900000005" });
+    dbState.users.push(fifth);
+    login(fifth);
+    const state = await requestEmailVerificationAction({}, new FormData());
+    expect(state.code).toBe("RATE_LIMITED");
+  });
+});
+
+// ─── Email change — step-up ở request VÀ confirm + notice chỉ kênh cũ verified ──
+
+describe("email change", () => {
+  it("request: email mới đã thuộc tài khoản khác → EMAIL_TAKEN, không tốn OTP", async () => {
+    login(dbState.users[0]!);
+    const state = await requestEmailChangeAction(
+      {},
+      fd({ newEmail: "khac@loaviet.test", currentPassword: PASSWORD }),
+    );
     expect(state.code).toBe("EMAIL_TAKEN");
     expect(delivery.sendOtp).not.toHaveBeenCalled();
     expect(dbState.otpRows).toHaveLength(0);
   });
 
-  it("request: email mới trùng email hiện tại của chính mình → lỗi, không gửi OTP", async () => {
+  it("request: email mới trùng email hiện tại → EMAIL_SAME, không OTP", async () => {
     login(dbState.users[0]!);
     const state = await requestEmailChangeAction(
       {},
       fd({ newEmail: "mua@loaviet.test", currentPassword: PASSWORD }),
     );
-    expect(state.error).toBeTruthy();
+    expect(state.code).toBe("EMAIL_SAME");
     expect(delivery.sendOtp).not.toHaveBeenCalled();
   });
 
-  it("request: sai mật khẩu hiện tại (thiếu step-up) → lỗi, không gửi OTP", async () => {
+  it("request: sai mật khẩu hiện tại → WRONG_PASSWORD, không gửi OTP", async () => {
     login(dbState.users[0]!);
     const state = await requestEmailChangeAction(
       {},
@@ -543,40 +749,63 @@ describe("email change", () => {
     expect(delivery.sendOtp).not.toHaveBeenCalled();
   });
 
-  it("confirm: email swapped, emailVerifiedAt set, session khác revoked reason email_change, notice tới email CŨ, audit", async () => {
-    login(dbState.users[0]!); // email CŨ: mua@loaviet.test
+  it("confirm: THIẾU mật khẩu → MISSING_CURRENT_PASSWORD, không mutation (step-up tại confirm)", async () => {
+    login(dbState.users[0]!);
+    const state = await confirmEmailChangeAction(
+      {},
+      fd({ newEmail: "moi@loaviet.test", code: "123456", currentPassword: "" }),
+    );
+    expect(state.code).toBe("MISSING_CURRENT_PASSWORD");
+    expect(dbState.users[0]!.email).toBe("mua@loaviet.test");
+    expect(revokedSessions()).toHaveLength(0);
+  });
+
+  it("confirm: đổi email thành công — verifiedAt set, session khác revoked TRÊN TX reason email_change, current sống, audit; email cũ CHƯA verified → KHÔNG notice", async () => {
+    login(dbState.users[0]!); // email cũ mua@loaviet.test — emailVerifiedAt null
 
     const code = await requestAndExtractCode(
       requestEmailChangeAction,
       fd({ newEmail: "moi@loaviet.test", currentPassword: PASSWORD }),
     );
-    expect(delivery.sendOtp.mock.calls.at(-1)![0]).toMatchObject({
-      to: "moi@loaviet.test",
-      purpose: "email_verification",
-      channel: "email",
-    });
-
     const state = await confirmEmailChangeAction(
       {},
-      fd({ newEmail: "moi@loaviet.test", code }),
+      fd({ newEmail: "moi@loaviet.test", code, currentPassword: PASSWORD }),
     );
 
     expect(state.error).toBeUndefined();
     expect(dbState.users[0]!.email).toBe("moi@loaviet.test");
     expect(dbState.users[0]!.emailVerifiedAt).not.toBeNull();
-    expect(sessionState.revokedAll).toEqual([
-      { userId: "user-1", reason: "email_change", opts: { exceptSessionId: "sess-1" } },
-    ]);
-    // security notice tới kênh CŨ (spec §5.3.1 "when feasible")
-    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "mua@loaviet.test", channel: "email" }),
-    );
+    // revocation trên tx — global client không được chạm
+    expect(revokeAllGlobal).not.toHaveBeenCalled();
+    const revoked = revokedSessions();
+    expect(revoked.map((s) => s["id"]).sort()).toEqual(["sess-2", "sess-3"]);
+    for (const s of revoked) expect(s["revokedReason"]).toBe("email_change");
+    expect(dbState.sessions.find((s) => s["id"] === "sess-1")!["revokedAt"]).toBeNull();
+    // email cũ CHƯA verified → không notice (fix LOW #6)
+    expect(delivery.sendSecurityNotice).not.toHaveBeenCalled();
     const evt = dbState.auditRows.find((r) => r.action === "user.email_changed");
     expect(evt).toBeTruthy();
-    // spec §4.8: audit detail không chứa email thô (cũ lẫn mới)
     expect(JSON.stringify(evt)).not.toContain("moi@loaviet.test");
     expect(JSON.stringify(evt)).not.toContain("mua@loaviet.test");
     expect(dbState.notifications.some((n) => n.userId === "user-1")).toBe(true);
+  });
+
+  it("confirm: email cũ ĐÃ verified → security notice tới email CŨ", async () => {
+    dbState.users[0]!.emailVerifiedAt = "2026-10-01T00:00:00.000Z";
+    login(dbState.users[0]!);
+
+    const code = await requestAndExtractCode(
+      requestEmailChangeAction,
+      fd({ newEmail: "moi@loaviet.test", currentPassword: PASSWORD }),
+    );
+    await confirmEmailChangeAction(
+      {},
+      fd({ newEmail: "moi@loaviet.test", code, currentPassword: PASSWORD }),
+    );
+
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "mua@loaviet.test", channel: "email" }),
+    );
   });
 
   it("confirm: sai mã → lỗi, email giữ nguyên, không revoke", async () => {
@@ -588,15 +817,15 @@ describe("email change", () => {
     const wrong = real === "999999" ? "888888" : "999999";
     const state = await confirmEmailChangeAction(
       {},
-      fd({ newEmail: "moi@loaviet.test", code: wrong }),
+      fd({ newEmail: "moi@loaviet.test", code: wrong, currentPassword: PASSWORD }),
     );
     expect(state.error).toBeTruthy();
     expect(dbState.users[0]!.email).toBe("mua@loaviet.test");
-    expect(sessionState.revokedAll).toHaveLength(0);
+    expect(revokedSessions()).toHaveLength(0);
   });
 });
 
-// ─── 7. Phone change (cooldown + collision-in-tx + notice tới phone CŨ) ───────
+// ─── Phone change — step-up ở request VÀ confirm + notice chỉ kênh cũ verified ──
 
 describe("phone change", () => {
   it("request: cooldown OTP → lỗi form tiếng Việt (OTP_RATE_LIMITED), adapter gọi ĐÚNG 1 lần", async () => {
@@ -608,11 +837,11 @@ describe("phone change", () => {
 
     const second = await requestPhoneChangeAction({}, form);
     expect(second.code).toBe("OTP_RATE_LIMITED");
-    expect(second.error).toMatch(/giây/); // thông điệp tiếng Việt, có thời gian chờ
+    expect(second.error).toMatch(/giây/);
     expect(delivery.sendOtp).toHaveBeenCalledTimes(1);
   });
 
-  it("request: sai mật khẩu hiện tại (thiếu step-up) → lỗi, không gửi OTP", async () => {
+  it("request: sai mật khẩu hiện tại → WRONG_PASSWORD, không gửi OTP", async () => {
     login(dbState.users[0]!);
     const state = await requestPhoneChangeAction(
       {},
@@ -632,10 +861,19 @@ describe("phone change", () => {
     expect(delivery.sendOtp).not.toHaveBeenCalled();
   });
 
-  it("confirm: đổi số thành công — phoneVerifiedAt set, session khác revoked reason phone_change, notice tới phone CŨ, audit", async () => {
-    dbState.users[0]!.phone = "0900000001"; // phone CŨ (đã từng verify)
-    dbState.users[0]!.phoneVerifiedAt = "2026-10-01T00:00:00.000Z";
+  it("confirm: THIẾU mật khẩu → MISSING_CURRENT_PASSWORD, không mutation (step-up tại confirm)", async () => {
     login(dbState.users[0]!);
+    const state = await confirmPhoneChangeAction(
+      {},
+      fd({ newPhone: "09011112222", code: "123456", currentPassword: "" }),
+    );
+    expect(state.code).toBe("MISSING_CURRENT_PASSWORD");
+    expect(dbState.users[0]!.phone).toBe("0900000001");
+    expect(revokedSessions()).toHaveLength(0);
+  });
+
+  it("confirm: đổi số thành công — verifiedAt set, session khác revoked TRÊN TX reason phone_change, current sống, audit; phone cũ CHƯA verified → KHÔNG notice", async () => {
+    login(dbState.users[0]!); // phone cũ 0900000001 — phoneVerifiedAt null
 
     const code = await requestAndExtractCode(
       requestPhoneChangeAction,
@@ -643,29 +881,48 @@ describe("phone change", () => {
     );
     const state = await confirmPhoneChangeAction(
       {},
-      fd({ newPhone: "09011112222", code }),
+      fd({ newPhone: "09011112222", code, currentPassword: PASSWORD }),
     );
 
     expect(state.error).toBeUndefined();
     expect(dbState.users[0]!.phone).toBe("09011112222");
     expect(dbState.users[0]!.phoneVerifiedAt).not.toBeNull();
-    expect(sessionState.revokedAll).toEqual([
-      { userId: "user-1", reason: "phone_change", opts: { exceptSessionId: "sess-1" } },
-    ]);
-    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "0900000001", channel: "phone" }),
-    );
+    expect(revokeAllGlobal).not.toHaveBeenCalled();
+    const revoked = revokedSessions();
+    expect(revoked.map((s) => s["id"]).sort()).toEqual(["sess-2", "sess-3"]);
+    for (const s of revoked) expect(s["revokedReason"]).toBe("phone_change");
+    expect(dbState.sessions.find((s) => s["id"] === "sess-1")!["revokedAt"]).toBeNull();
+    // phone cũ CHƯA verified → không notice (fix LOW #6)
+    expect(delivery.sendSecurityNotice).not.toHaveBeenCalled();
     const evt = dbState.auditRows.find((r) => r.action === "user.phone_changed");
     expect(evt).toBeTruthy();
     expect(JSON.stringify(evt)).not.toContain("09011112222");
     expect(JSON.stringify(evt)).not.toContain("0900000001");
   });
 
-  it("confirm: collision xuất hiện GIỮA request và confirm (race) → re-check trong tx chặn, user giữ nguyên", async () => {
+  it("confirm: phone cũ ĐÃ verified → security notice tới phone CŨ", async () => {
+    dbState.users[0]!.phoneVerifiedAt = "2026-10-01T00:00:00.000Z";
+    login(dbState.users[0]!);
+
+    const code = await requestAndExtractCode(
+      requestPhoneChangeAction,
+      fd({ newPhone: "09011112222", currentPassword: PASSWORD }),
+    );
+    await confirmPhoneChangeAction(
+      {},
+      fd({ newPhone: "09011112222", code, currentPassword: PASSWORD }),
+    );
+
+    expect(delivery.sendSecurityNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "0900000001", channel: "phone" }),
+    );
+  });
+
+  it("confirm: collision xuất hiện GIỮA request và confirm (race) → re-check trong tx chặn, giữ nguyên", async () => {
     login(dbState.users[0]!);
     dbState.users[0]!.phone = "0900000001";
 
-    // request lúc 09055556666 còn tự do
+    // request lúc 09055556666 còn tự do (step-up + OTP hợp lệ)
     const code = await requestAndExtractCode(
       requestPhoneChangeAction,
       fd({ newPhone: "09055556666", currentPassword: PASSWORD }),
@@ -677,13 +934,13 @@ describe("phone change", () => {
 
     const state = await confirmPhoneChangeAction(
       {},
-      fd({ newPhone: "09055556666", code }),
+      fd({ newPhone: "09055556666", code, currentPassword: PASSWORD }),
     );
 
     expect(state.code).toBe("PHONE_ALREADY_VERIFIED");
-    expect(dbState.users[0]!.phone).toBe("0900000001"); // giữ nguyên
+    expect(dbState.users[0]!.phone).toBe("0900000001");
     expect(dbState.users[0]!.phoneVerifiedAt).toBeNull();
-    expect(sessionState.revokedAll).toHaveLength(0);
+    expect(revokedSessions()).toHaveLength(0);
     expect(dbState.auditRows.filter((r) => r.action === "user.phone_changed")).toHaveLength(0);
   });
 });

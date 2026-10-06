@@ -110,7 +110,7 @@ function EmailVerificationSection({ email, emailVerified }: { email: string; ema
   );
 }
 
-// ─── (1b) Xác minh số điện thoại (cho phép đặt/đổi số trước khi verify) ──────
+// ─── (1b) Xác minh số điện thoại — CHỈ số đang lưu (target derive từ DB) ──────
 
 function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | null; phoneVerified: boolean }) {
   const [requestState, requestAction, requestPending] = useActionState(
@@ -121,7 +121,6 @@ function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | nu
     confirmPhoneVerificationAction,
     {},
   );
-  const [phoneValue, setPhoneValue] = useState(phone ?? "");
 
   return (
     <div className="space-y-2.5">
@@ -132,26 +131,20 @@ function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | nu
         </p>
         <StatusBadge verified={phoneVerified} />
       </div>
-      {!phoneVerified && (
-        <div className="space-y-2">
-          <form action={requestAction} className="flex gap-2">
-            <input
-              name="phone"
-              className="input"
-              value={phoneValue}
-              onChange={(e) => setPhoneValue(e.target.value)}
-              placeholder="0901234567"
-              inputMode="tel"
-              autoComplete="tel"
-              aria-label="Số điện thoại cần xác minh"
-            />
-            <button type="submit" disabled={requestPending} className="btn-primary shrink-0">
+      {phone == null ? (
+        <p className="text-xs text-[var(--muted)]">
+          Chưa có số điện thoại trên tài khoản — thêm số ở &quot;Chỉnh sửa thông tin&quot;
+          hoặc &quot;Đổi số điện thoại&quot; rồi xác minh.
+        </p>
+      ) : !phoneVerified ? (
+        <div className="grid gap-2 sm:grid-cols-2">
+          <form action={requestAction}>
+            <button type="submit" disabled={requestPending} className="btn-primary w-full">
               {requestPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
               Gửi mã
             </button>
           </form>
           <form action={confirmAction} className="flex gap-2">
-            <input type="hidden" name="phone" value={phoneValue} />
             <input
               name="code"
               className="input"
@@ -166,7 +159,7 @@ function PhoneVerificationSection({ phone, phoneVerified }: { phone: string | nu
             </button>
           </form>
         </div>
-      )}
+      ) : null}
       <FormMessage state={requestState} />
       <FormMessage state={confirmState} />
     </div>
@@ -251,7 +244,7 @@ function EmailChangeSection() {
           Gửi mã
         </button>
       </form>
-      <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input type="hidden" name="newEmail" value={newEmail} />
         <input
           name="code"
@@ -260,6 +253,15 @@ function EmailChangeSection() {
           inputMode="numeric"
           autoComplete="one-time-code"
           aria-label="Mã xác minh email mới"
+        />
+        <input
+          type="password"
+          name="currentPassword"
+          className="input"
+          placeholder="Mật khẩu hiện tại"
+          autoComplete="current-password"
+          required
+          aria-label="Mật khẩu hiện tại"
         />
         <button type="submit" disabled={confirmPending} className="btn-primary shrink-0">
           {confirmPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
@@ -313,7 +315,7 @@ function PhoneChangeSection() {
           Gửi mã
         </button>
       </form>
-      <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_auto]">
+      <form action={confirmAction} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input type="hidden" name="newPhone" value={newPhone} />
         <input
           name="code"
@@ -322,6 +324,15 @@ function PhoneChangeSection() {
           inputMode="numeric"
           autoComplete="one-time-code"
           aria-label="Mã xác minh số điện thoại mới"
+        />
+        <input
+          type="password"
+          name="currentPassword"
+          className="input"
+          placeholder="Mật khẩu hiện tại"
+          autoComplete="current-password"
+          required
+          aria-label="Mật khẩu hiện tại"
         />
         <button type="submit" disabled={confirmPending} className="btn-primary shrink-0">
           {confirmPending ? <LoaderCircle className="size-4 animate-spin" /> : null}
@@ -358,8 +369,8 @@ export function VerificationPanel({ email, emailVerified, phone, phoneVerified }
         <div className="border-t border-[var(--line)] pt-5">
           <p className="mb-2.5 text-sm font-semibold">Đổi email / số điện thoại</p>
           <p className="mb-2.5 text-xs text-[var(--muted)]">
-            Cần mật khẩu hiện tại + mã xác minh gửi tới email/số mới. Sau khi đổi, các thiết bị
-            khác sẽ bị đăng xuất và kênh cũ nhận thông báo bảo mật.
+            Cần mật khẩu hiện tại + mã xác minh gửi tới email/số mới (nhập mật khẩu ở cả hai bước).
+            Sau khi đổi, các thiết bị khác sẽ bị đăng xuất và kênh cũ đã xác minh nhận thông báo bảo mật.
           </p>
           <EmailChangeSection />
           <div className="mt-5">
