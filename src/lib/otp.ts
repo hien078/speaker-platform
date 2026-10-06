@@ -1,8 +1,12 @@
 import "server-only";
-import { createHmac, hkdfSync, randomInt, timingSafeEqual } from "node:crypto";
+import { createHmac, randomInt, timingSafeEqual } from "node:crypto";
 import { db } from "@/src/prisma/db.client";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { getOtpDeliveryAdapter } from "@/src/lib/verification-delivery";
+// Task 11: hkdfKey tách sang plain module src/lib/hkdf.ts (offline bootstrap
+// script import được — module này có "server-only"); import để dùng nội bộ
+// (otpCodeHash) + re-export bên dưới giữ mọi import hiện tại không đổi.
+import { hkdfKey } from "@/src/lib/hkdf";
 
 /**
  * OTP core (Batch 2 Task 3 — spec §5.3): hashed at rest, single-use, short-lived,
@@ -58,29 +62,9 @@ export type OtpVerifyResult =
 
 // ─── HKDF + hash helpers ──────────────────────────────────────────────────────
 
-/** Salt HKDF cố định — domain-separate các info key của platform. */
-const HKDF_SALT = "speaker-platform-otp-v1";
-
-/**
- * Key 32-byte derive HKDF-SHA256 từ AUTH_SECRET — MỘT helper dùng chung cho OTP
- * hash ("otp-hash"), ip hash ("ip-hash" — Task 5), recovery-code hash
- * ("recovery-code-hash" — Task 8). KHÔNG dùng cho mã hóa AdminMfa — key đó là
- * ADMIN_MFA_ENCRYPTION_KEY riêng (Task 8), không bao giờ derive từ AUTH_SECRET.
- *
- * AUTH_SECRET do src/lib/env.ts validate fail-fast khi start (bắt buộc mọi môi
- * trường, ≥ 32 ký tự) — thiếu key là lỗi cấu hình, không phải path runtime.
- */
-export function hkdfKey(info: string): Buffer {
-  return Buffer.from(
-    hkdfSync(
-      "sha256",
-      Buffer.from(process.env.AUTH_SECRET!, "utf8"),
-      Buffer.from(HKDF_SALT, "utf8"),
-      Buffer.from(info, "utf8"),
-      32,
-    ),
-  );
-}
+// hkdfKey import ở đầu file (src/lib/hkdf.ts — plain module Task 11); re-export
+// giữ public interface cũ (`@/src/lib/otp`) cho mọi import hiện tại.
+export { hkdfKey };
 
 /** HMAC-SHA256 hex của mã — thứ duy nhất được lưu trong DB. */
 const otpCodeHash = (code: string): string =>

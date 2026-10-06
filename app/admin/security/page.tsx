@@ -1,3 +1,4 @@
+import { db } from "@/src/prisma/db.client";
 import { requireAdminUser, capabilitiesOf } from "@/src/lib/rbac";
 import {
   listUserSessions,
@@ -5,10 +6,20 @@ import {
   STEP_UP_MAX_AGE_MINUTES,
   ADMIN_SESSION_TTL_HOURS,
 } from "@/src/lib/session";
-import { revokeUserSessionAction, revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
+import {
+  revokeUserSessionAction,
+  revokeAllUserSessionsAction,
+  setAdminRoleAction,
+} from "@/src/lib/actions/admin-identity";
+import {
+  ADMIN_ROLES,
+  ADMIN_ROLE_LABELS,
+  ADMIN_ROLE_REASON_CODES,
+  ADMIN_ROLE_REASON_LABELS,
+} from "@/src/lib/admin-roles";
 import { StepUpForm, RegenerateRecoveryCodesForm } from "./forms";
-import { formatDate } from "@/src/lib/utils";
-import { ShieldCheck, MonitorSmartphone, KeyRound } from "lucide-react";
+import { formatDate, cn } from "@/src/lib/utils";
+import { ShieldCheck, MonitorSmartphone, KeyRound, UserCog } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Bảo mật & phiên" };
@@ -45,6 +56,21 @@ export default async function AdminSecurityPage() {
   // Convenience filter (spec §4.5) — action vẫn tự guard capability.
   const canRevoke = capabilitiesOf(user.adminRole).includes("session.revoke");
   const others = sessions.filter((s) => s.id !== session.id);
+
+  // Quản lý role (Task 11): CHỈ super_admin có admin.role_manage — lọc nút là
+  // CONVENIENCE; setAdminRoleAction TỰ requireCapabilityWithStepUp (spec §4.5).
+  const canManageRoles = capabilitiesOf(user.adminRole).includes("admin.role_manage");
+  const adminRows = canManageRoles
+    ? await db.orm.public.User.where((u) => u.adminRole.isNotNull()).all()
+    : [];
+  const admins = await Promise.all(
+    adminRows.map(async (a) => ({
+      ...a,
+      // MFA state: admin chưa enroll MFA không login được (fail closed —
+      // enrollment qua bootstrap script, runbook quản trị).
+      mfaEnrolled: (await db.orm.public.AdminMfa.first({ userId: a.id })) !== null,
+    })),
+  );
 
   return (
     <div>
@@ -155,6 +181,91 @@ export default async function AdminSecurityPage() {
         </p>
         <RegenerateRecoveryCodesForm />
       </div>
+
+      {/* Quản lý vai trò quản trị — Task 11 (spec §5.4/§5.4.1/§8.5) */}
+      {canManageRoles && (
+        <div className="card mt-6 p-6">
+          <p className="mb-1 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
+            <UserCog className="size-4" />
+            Vai trò quản trị
+          </p>
+          <p className="mb-4 text-xs text-[var(--muted)]">
+            Cấp/đổi vai trò (chỉ super_admin, cần step-up hoặc mã TOTP trong cùng request).
+            Mọi thay đổi thu hồi TOÀN BỘ phiên của người được đổi — họ phải đăng nhập lại qua
+            MFA. Không thể hạ vai trò của super_admin cuối cùng.
+          </p>
+
+          {/* Danh sách admin hiện tại — hiển thị trạng thái, không phải form */}
+          <div className="space-y-2.5">
+            {admins.map((a) => (
+              <div
+                key={a.id}
+                className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[var(--line)] px-3.5 py-2.5"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{a.name}</p>
+                  <p className="text-xs text-[var(--muted)]">{a.email}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="badge bg-[var(--red-soft)] text-[var(--red)]">
+                    {ADMIN_ROLE_LABELS[a.adminRole!]}
+                  </span>
+                  <span
+                    className={cn(
+                      "badge",
+                      a.mfaEnrolled
+                        ? "bg-[var(--green-soft)] text-[var(--green)]"
+                        : "bg-amber-500/15 text-amber-600",
+                    )}
+                  >
+                    {a.mfaEnrolled ? "MFA" : "chưa MFA"}
+                  </span>
+                </div>
+              </div>
+            ))}
+            {admins.length === 0 && (
+              <p className="text-sm text-[var(--muted)]">Chưa có quản trị viên nào.</p>
+            )}
+          </div>
+
+          {/* Cấp/đổi role — action tự guard requireCapabilityWithStepUp */}
+          <form action={setAdminRoleAction} className="mt-4 space-y-2.5 border-t border-[var(--line)] pt-4">
+            <p className="text-xs font-bold uppercase tracking-wider text-[var(--ink-2)]">
+              Cấp / đổi vai trò
+            </p>
+            <input
+              name="userId"
+              className="input text-sm"
+              placeholder="User ID cần cấp/đổi (tìm trong /admin/users)"
+              required
+              aria-label="User ID cần cấp hoặc đổi vai trò quản trị"
+            />
+            <div className="grid gap-2 sm:grid-cols-2">
+              <select name="role" className="input text-sm" required defaultValue="" aria-label="Vai trò quản trị">
+                <option value="" disabled>— Chọn vai trò —</option>
+                {ADMIN_ROLES.map((r) => (
+                  <option key={r} value={r}>{ADMIN_ROLE_LABELS[r]}</option>
+                ))}
+              </select>
+              <select name="reason" className="input text-sm" required defaultValue="" aria-label="Lý do (ghi audit)">
+                <option value="" disabled>— Lý do (ghi audit) —</option>
+                {ADMIN_ROLE_REASON_CODES.map((c) => (
+                  <option key={c} value={c}>{ADMIN_ROLE_REASON_LABELS[c]}</option>
+                ))}
+              </select>
+            </div>
+            <input
+              name="totpCode"
+              className="input text-sm"
+              inputMode="text"
+              autoComplete="one-time-code"
+              placeholder="Mã TOTP / mã khôi phục (bắt buộc khi step-up hết hạn)"
+              aria-label="Mã xác thực cho step-up"
+            />
+            <button type="submit" className="btn-primary text-sm">Đặt vai trò</button>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

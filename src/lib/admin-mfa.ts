@@ -18,10 +18,11 @@
  *
  * Plain module (KHÔNG "use server" — không thành endpoint công khai; precedent
  * src/lib/actions/helpers.ts): import được từ server action (loginAction,
- * rbac step-up) VÀ từ offline bootstrap script (Task 11). Lưu ý topology: module
- * này import hkdfKey từ src/lib/otp.ts (có "server-only") — bootstrap script
- * chạy tsx cần resolve được "server-only" (Task 11 lo cùng một cơ chế cho
- * session.ts/audit-event.ts mà nó cũng phải import).
+ * rbac step-up) VÀ từ offline bootstrap script (tsx, Task 11). Task 11 đã tách
+ * các dependency server-only sang plain module: hkdfKey → src/lib/hkdf.ts,
+ * captureError → src/lib/observability-core.ts — chuỗi import của module này
+ * resolve được ngoài React server bundle (script cũng import session-revoke.ts
+ * thay vì session.ts; audit ghi trực tiếp qua db.orm như scripts/backfill-*.ts).
  *
  * Race-safety: mã khôi phục được "claim" bằng updateAll WHERE usedAt IS NULL —
  * 2 request đồng thời dùng cùng một mã → đúng 1 request thắng (spec §5.3
@@ -29,10 +30,12 @@
  */
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from "node:crypto";
 import { db } from "@/src/prisma/db.client";
-import { hkdfKey } from "@/src/lib/otp";
+// Task 11: hkdfKey/captureError chuyển sang plain module (otp.ts/observability.ts
+// có "server-only" — offline bootstrap script tsx import admin-mfa.ts được).
+import { hkdfKey } from "@/src/lib/hkdf";
+import { captureError } from "@/src/lib/observability-core";
 import { generateTotpSecret, totpUri, verifyTotpStep } from "@/src/lib/totp";
 import { adminMfaKeyId, getAdminMfaEncryptionKey } from "@/src/lib/admin-mfa-key";
-import { captureError } from "@/src/lib/observability";
 
 export const RECOVERY_CODE_COUNT = 10;
 

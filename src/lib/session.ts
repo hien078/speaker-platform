@@ -222,40 +222,10 @@ export async function revokeAllUserSessions(
   return revoked.length;
 }
 
-/** Tx context của db.transaction — cùng shape src/lib/actions/helpers.ts. */
-type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
-
-/**
- * Thu hồi mọi session active của user BÊN TRONG transaction truyền vào —
- * Task 7 fix: đặt mật khẩu mới (recovery) + thu hồi session phải sống chết
- * cùng MỘT tx (Review Focus 3 — hai statement rời để lại mật khẩu mới +
- * session cũ còn tác quyền nếu thất bại giữa chừng).
- * Hành vi giống revokeAllUserSessions (idempotent với session đã revoke,
- * không đụng user khác).
- *
- * opts.exceptSessionId (Task 9): giữ session chỉ định sống — verification.ts
- * (đổi password/email/phone) từng có local copy predicate của helper này,
- * nay DÙNG CHUNG variant tx duy nhất với except = session hiện tại; Task 7
- * recovery KHÔNG truyền except — thu hồi TẤT CẢ, kể cả session hiện tại.
- */
-export async function revokeAllUserSessionsTx(
-  tx: TxContext,
-  userId: string,
-  reason: string,
-  opts?: { exceptSessionId?: string },
-): Promise<number> {
-  const data = { revokedAt: nowIso(), revokedReason: reason };
-  const except = opts?.exceptSessionId;
-  // MỘT updateAll — predicate loại trừ tùy chọn AND-compose với các mệnh đề trước
-  let query = tx.orm.public.UserSession
-    .where({ userId })
-    .where((s) => s.revokedAt.isNull());
-  if (except !== undefined) {
-    query = query.where((s) => s.id.neq(except));
-  }
-  const revoked = await query.updateAll(data);
-  return revoked.length;
-}
+// Task 11: thân hàm tx chuyển sang plain module src/lib/session-revoke.ts
+// (offline bootstrap script import được — module này có "server-only" +
+// next/headers); re-export giữ mọi import hiện tại nguyên vẹn.
+export { revokeAllUserSessionsTx } from "@/src/lib/session-revoke";
 
 /**
  * Inventory session active của user (chưa revoke, chưa hết hạn), mới nhất trước.

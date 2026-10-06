@@ -1,44 +1,15 @@
 import "server-only";
 
 /**
- * Seam báo lỗi/log vendor-neutral — MỘT chỗ để đổi backend sau này.
+ * Seam báo lỗi/log vendor-neutral — MẶT PUBLIC server-only của app.
  *
- * Hiện tại: ghi 1 dòng JSON có cấu trúc ra stderr (docker compose logs
- * đọc được, grep được theo scope). Không phụ thuộc tài khoản ngoài.
+ * Thân hàm sống ở src/lib/observability-core.ts (plain module — Task 11 tách
+ * ra để src/lib/admin-mfa.ts import được từ offline bootstrap script tsx mà
+ * không kéo "server-only" vào chuỗi import; admin-mfa.ts là code server nên
+ * posture không đổi). Mọi import app hiện tại (`@/src/lib/observability`)
+ * giữ nguyên qua re-export — hành vi GIỮ NGUYÊN.
  *
- * Cổng tích hợp ngoài (Sentry/GlitchTip/OTel): thay phần thân
- * captureError bằng client tương ứng — chữ ký không đổi, các call-site
- * (cron, upload, payment, rate-limit) không phải sửa. Quyết định gắn
- * nhà cung cấp nào là lựa chọn deploy-time, không hardcode ở đây.
+ * "server-only" ở đây giữ vai trò gốc: chặn module logging bị import nhầm vào
+ * client component (Next fail build thay vì im lặng).
  */
-export function captureError(
-  scope: string,
-  error: unknown,
-  meta?: Record<string, unknown>,
-): void {
-  const line: Record<string, unknown> = {
-    ts: new Date().toISOString(),
-    level: "error",
-    scope,
-    error: error instanceof Error ? error.message : String(error),
-  };
-  if (error instanceof Error && error.stack) line.stack = error.stack;
-  if (meta) Object.assign(line, meta);
-  console.error(JSON.stringify(line));
-}
-
-/** Log sự kiện có cấu trúc (không phải lỗi) — cùng seam, level info */
-export function captureEvent(
-  scope: string,
-  event: string,
-  meta?: Record<string, unknown>,
-): void {
-  const line: Record<string, unknown> = {
-    ts: new Date().toISOString(),
-    level: "info",
-    scope,
-    event,
-  };
-  if (meta) Object.assign(line, meta);
-  console.log(JSON.stringify(line));
-}
+export { captureError, captureEvent } from "@/src/lib/observability-core";
