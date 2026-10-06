@@ -6,9 +6,19 @@ import { requireCapability, requireAdminUser } from "@/src/lib/rbac";
 import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
 import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
+import { auditEvent } from "@/src/lib/audit-event";
+import { checkSellerPublicationRequirements } from "@/src/lib/seller-verification-policy";
 import { notify } from "@/src/lib/notify";
 
-
+/**
+ * Batch 2 Task 10: legacy seller-verification toggle đã XÓA — SellerVerification
+ * workflow (src/lib/actions/seller-verification.ts) là canonical (spec §8.2);
+ * legacy User.isVerifiedSeller chỉ còn hiển thị (badge "legacy" ở
+ * /admin/users). approveListingAction được nối vào publication gate
+ * (defense-in-depth — spec §7.3: admin duyệt cũng bị chặn khi seller mất
+ * verification/membership) + auditEvent("listing.approved"|"listing.rejected"|
+ * "listing.approve_blocked") theo registry Task 5 (song song legacy audit()).
+ */
 
 /** Duyệt tin đăng */
 export async function approveListingAction(formData: FormData): Promise<void> {
@@ -18,11 +28,45 @@ export async function approveListingAction(formData: FormData): Promise<void> {
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.status !== "pending") return;
 
-  await db.orm.public.Listing
-    .where({ id: listingId })
-    .update({ status: "approved", rejectionReason: null });
+  // ─── Publication gate (Task 10 — spec §4.4/§7.3 defense-in-depth) ───
+  // Admin duyệt KHÔNG phải escape hatch: seller mất verification (revoked)
+  // hoặc membership (suspended) → KHÔNG approve. Đọc FRESH từ DB.
+  const requirements = await checkSellerPublicationRequirements(listing.sellerId);
+  if (!requirements.ok) {
+    // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
+    // detail chỉ typed requirement keys, KHÔNG PII).
+    try {
+      await auditEvent({
+        actorId: admin.user.id,
+        subjectId: listing.sellerId,
+        action: "listing.approve_blocked",
+        resourceType: "Listing",
+        resourceId: listingId,
+        sessionId: admin.session.id,
+        reason: "publication_requirements_unmet",
+        detail: `missing=${requirements.missing.join(",")}`,
+      });
+    } catch {
+      /* fail-open: audit lỗi không mở đường approve */
+    }
+    return; // no approval
+  }
+
+  // CAS theo status đã đọc — hai admin duyệt song song không double-approve.
+  const claimed = await db.orm.public.Listing
+    .where({ id: listingId, status: "pending" })
+    .updateAll({ status: "approved", rejectionReason: null });
+  if (claimed.length === 0) return;
 
   await audit(admin.user.id, "approve_listing", "Listing", listingId, listing.title);
+  await auditEvent({
+    actorId: admin.user.id,
+    subjectId: listing.sellerId,
+    action: "listing.approved",
+    resourceType: "Listing",
+    resourceId: listingId,
+    sessionId: admin.session.id,
+  });
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin đã được duyệt: ${listing.title.slice(0, 50)}`, "Tin của bạn đang hiển thị trên chợ", `/listings/${listing.slug}`);
   revalidatePath("/admin/listings");
@@ -38,11 +82,21 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.status !== "pending") return;
 
-  await db.orm.public.Listing
-    .where({ id: listingId })
-    .update({ status: "rejected", rejectionReason: reason });
+  // CAS theo status đã đọc — duyệt/từ chối song song không ghi đè nhau.
+  const claimed = await db.orm.public.Listing
+    .where({ id: listingId, status: "pending" })
+    .updateAll({ status: "rejected", rejectionReason: reason });
+  if (claimed.length === 0) return;
 
   await audit(admin.user.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
+  await auditEvent({
+    actorId: admin.user.id,
+    subjectId: listing.sellerId,
+    action: "listing.rejected",
+    resourceType: "Listing",
+    resourceId: listingId,
+    sessionId: admin.session.id,
+  });
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin bị từ chối: ${listing.title.slice(0, 50)}`, `Lý do: ${reason} — sửa tin để duyệt lại`, "/sell/my");
   revalidatePath("/admin/listings");
@@ -164,19 +218,10 @@ export async function updateSettingAction(formData: FormData): Promise<void> {
   revalidatePath("/admin/settings");
 }
 
-/** Xác minh người bán (KYC) */
-export async function toggleSellerVerificationAction(formData: FormData): Promise<void> {
-  const admin = await requireCapability("seller.verify"); // transitional — Task 10 thay bằng workflow SellerVerification
-  const userId = String(formData.get("userId") ?? "");
-
-  const target = await db.orm.public.User.first({ id: userId });
-  if (!target || target.role === "admin") return;
-
-  const next = !target.isVerifiedSeller;
-  await db.orm.public.User
-    .where({ id: userId })
-    .update({ isVerifiedSeller: next });
-
-  await audit(admin.user.id, "toggle_seller_verification", "User", userId, `${target.name}: ${next ? "đã xác minh" : "bỏ xác minh"}`);
-  revalidatePath("/admin/users");
-}
+/*
+ * Legacy seller-verification TOGGLE — ĐÃ XÓA (Batch 2 Task 10, spec §8.2):
+ * SellerVerification workflow (src/lib/actions/seller-verification.ts) là
+ * canonical; legacy User.isVerifiedSeller KHÔNG còn đường mutate từ admin UI
+ * (chỉ hiển thị badge "legacy" ở /admin/users). Grant/suspend founding_seller
+ * membership: src/lib/actions/beta-cohort.ts (setBetaMembershipAction).
+ */

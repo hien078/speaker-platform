@@ -541,19 +541,22 @@ describe("server action finance giữ guard dù control UI đã bỏ (spec §4.1
 // ─── 5. Không xóa code, không mở rộng/thu hẹp quyền ───────────────────────────
 
 describe("không xóa code finance/admin, không đụng scope phi tài chính (plan Task 5)", () => {
-  it("action admin phi tài chính giữ nguyên (listing moderation, seller verification — Batch 2)", () => {
+  it("action admin phi tài chính giữ nguyên (listing moderation) — legacy toggle ĐÃ XÓA bởi Task 10 (spec §8.2)", () => {
     const src = read("src/lib/actions/admin.ts");
-    for (const name of [
-      "approveListingAction",
-      "rejectListingAction",
-      "toggleSellerVerificationAction",
-    ]) {
+    // listing moderation giữ nguyên (phi finance — không đụng)
+    for (const name of ["approveListingAction", "rejectListingAction"]) {
       expect(src).toContain(`export async function ${name}`);
     }
+    // Batch 2 Task 10: SellerVerification workflow là canonical — legacy
+    // boolean toggle KHÔNG còn (spec §8.2; plan Task 12 scan: 0 hits src/app).
+    expect(src).not.toContain("toggleSellerVerificationAction");
+    expect(src).not.toMatch(/isVerifiedSeller\s*[:=]/); // không còn đường mutate boolean legacy
   });
 
-  it("admin users page (phi finance) không bị đụng — toggle seller verification là Batch 2 (§8 A-3)", () => {
+  it("admin users page (phi finance) — toggle thay bằng cohort grant + link workflow (Task 10, spec §8.2)", () => {
     const src = read("app/admin/users/page.tsx");
-    expect(src).toContain("toggleSellerVerificationAction");
+    expect(src).toContain("setBetaMembershipAction"); // grant/suspend founding_seller
+    expect(src).toContain("/admin/seller-verification"); // link sang hàng đợi review
+    expect(src).not.toContain("toggleSellerVerificationAction"); // workflow canonical
   });
 });

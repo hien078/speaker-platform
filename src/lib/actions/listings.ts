@@ -5,14 +5,56 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { slugify } from "@/src/lib/utils";
+import {
+  assertSellerPublicationAllowed,
+  formatMissingRequirements,
+  type SellerPublicationRequirement,
+} from "@/src/lib/seller-verification-policy";
 
 export type ListingFormState = { error?: string };
+
+/**
+ * Publication gate (Batch 2 Task 10 — spec §4.4/§4.9): MỌI transition vào
+ * duyệt/công khai (pending/approved) của tin đăng đòi seller thỏa Seller
+ * Verification Policy v1 — đọc FRESH từ DB qua
+ * assertSellerPublicationAllowed (src/lib/seller-verification-policy.ts),
+ * kể cả khi seller vừa mới còn quyền (revoked/suspended chặn NGAY).
+ * Draft/sửa không chuyển trạng thái thì KHÔNG cần gate (spec §4.4 "Draft
+ * creation may be allowed before verification" — ở P0 mọi create vào
+ * pending nên create luôn được gate).
+ */
+
+/**
+ * Chạy publication gate cho MỘT transition — trả form error tiếng Việt khi
+ * seller chưa thỏa policy (liệt kê yêu cầu thiếu), null khi cho qua. Lỗi
+ * không phải policy (db…) được ném tiếp — fail closed, không masquerade.
+ */
+async function runPublicationGate(sellerId: string): Promise<{ error: string } | null> {
+  try {
+    await assertSellerPublicationAllowed(sellerId);
+    return null;
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("SELLER_PUBLICATION_BLOCKED:")) {
+      const missing = e.message
+        .slice("SELLER_PUBLICATION_BLOCKED:".length)
+        .split(",") as SellerPublicationRequirement[];
+      return {
+        error: `Chưa đủ điều kiện đăng tin theo chính sách người bán hiện hành — còn thiếu: ${formatMissingRequirements(missing)}. Hoàn tất tại trang Xác minh người bán.`,
+      };
+    }
+    throw e;
+  }
+}
 
 export async function createListingAction(
   _prev: ListingFormState,
   formData: FormData,
 ): Promise<ListingFormState> {
   const user = await requireUser();
+
+  // ─── Publication gate (spec §4.4) — TRƯỚC mọi read/mutation ───
+  const blocked = await runPublicationGate(user.id);
+  if (blocked) return blocked;
 
   const title = String(formData.get("title") ?? "").trim();
   const categoryId = String(formData.get("categoryId") ?? "");
@@ -103,9 +145,22 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
   if (!listing || listing.sellerId !== user.id) return;
 
   if (listing.status === "approved") {
-    await db.orm.public.Listing.where({ id: listingId }).update({ status: "hidden" });
+    // Ẩn tin = transition RA khỏi công khai — luôn được phép (gỡ tin khỏi chợ
+    // không cần gate; hiện lại mới là transition vào công khai).
+    // CAS theo status đã đọc — duyệt/ẩn song song không ghi đè nhau.
+    await db.orm.public.Listing
+      .where({ id: listingId, status: "approved" })
+      .updateAll({ status: "hidden" });
   } else if (listing.status === "hidden") {
-    await db.orm.public.Listing.where({ id: listingId }).update({ status: "approved" });
+    // Hiện lại = transition vào CÔNG KHAI — publication gate (spec §4.4, Task 10):
+    // seller bị revoke verification / suspend membership không tự đưa tin
+    // trở lại công khai. Silent return on block (form void không có error
+    // surface — seller thấy tin không hiện lại).
+    const blocked = await runPublicationGate(user.id);
+    if (blocked) return;
+    await db.orm.public.Listing
+      .where({ id: listingId, status: "hidden" })
+      .updateAll({ status: "approved" });
   }
 
   revalidatePath("/sell/my");
@@ -150,6 +205,22 @@ export async function updateListingAction(
   const category = await db.orm.public.Category.first({ id: categoryId });
   if (!category) return { error: "Chọn danh mục" };
 
+  // nội dung thay đổi → quay về chờ duyệt nếu đang ẩn/đã duyệt
+  const contentChanged =
+    listing.title !== title ||
+    listing.description !== description ||
+    listing.price !== price ||
+    listing.categoryId !== categoryId ||
+    listing.condition !== condition;
+
+  // ─── Publication gate (spec §4.4) — TRƯỚC transition vào pending ───
+  // Chỉ transition vào duyệt (content-change trên approved/rejected) cần
+  // gate; sửa tin đang pending/hidden không chuyển trạng thái mới.
+  if (contentChanged && ["approved", "rejected"].includes(listing.status)) {
+    const blocked = await runPublicationGate(user.id);
+    if (blocked) return blocked; // KHÔNG mutation ảnh/video nào xảy ra trước điểm này
+  }
+
   // cập nhật ảnh: xóa ảnh cũ không còn, thêm ảnh mới
   const oldImages = await db.orm.public.ListingImage
     .where({ listingId })
@@ -171,27 +242,26 @@ export async function updateListingAction(
     sort++;
   }
 
-  // nội dung thay đổi → quay về chờ duyệt nếu đang ẩn/đã duyệt
-  const contentChanged =
-    listing.title !== title ||
-    listing.description !== description ||
-    listing.price !== price ||
-    listing.categoryId !== categoryId ||
-    listing.condition !== condition;
-
-  await db.orm.public.Listing.where({ id: listingId }).update({
-    title,
-    categoryId: category.id,
-    brandId,
-    condition: condition as "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts",
-    price: Math.round(price),
-    city,
-    description,
-    negotiable,
-    acceptExchange,
-    productModelId,
-    status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
-  });
+  // CAS theo status đã đọc — admin duyệt/từ chối song song không bị ghi đè
+  // bởi lần sửa này (0 row = trạng thái đã đổi tay, seller tải lại).
+  const claimed = await db.orm.public.Listing
+    .where({ id: listingId, status: listing.status })
+    .updateAll({
+      title,
+      categoryId: category.id,
+      brandId,
+      condition: condition as "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts",
+      price: Math.round(price),
+      city,
+      description,
+      negotiable,
+      acceptExchange,
+      productModelId,
+      status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
+    });
+  if (claimed.length === 0) {
+    return { error: "Tin vừa thay đổi trạng thái (đã được duyệt/từ chối) — tải lại trang và thử lại." };
+  }
   const finalModelId = productModelId ?? listing.productModelId;
   if (finalModelId && listing.price !== Math.round(price)) {
     await db.orm.public.PriceHistory.create({

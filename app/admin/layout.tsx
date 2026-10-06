@@ -11,6 +11,8 @@ import {
   AudioLines,
   Banknote,
   ShieldCheck,
+  BadgeCheck,
+  ScrollText,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,9 @@ const NAV: NavItem[] = [
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle, dormant: true },
   { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote, dormant: true },
   { href: "/admin/users", label: "Người dùng", icon: Users, capability: "user.view_basic" },
+  // Task 10 — workflow SellerVerification (spec §5.3.2/§8.2) + audit view (§4.6).
+  { href: "/admin/seller-verification", label: "Xác minh người bán", icon: BadgeCheck, capability: "seller.verify" },
+  { href: "/admin/audit", label: "Nhật ký audit", icon: ScrollText, capability: "audit.read" },
   { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings, dormant: true },
   // Task 9 — mọi admin (tự phục vụ MFA/phiên của chính mình, spec §5.4.2).
   { href: "/admin/security", label: "Bảo mật & phiên", icon: ShieldCheck },
