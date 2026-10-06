@@ -3,12 +3,12 @@
  * "adapters" + §4.8 KHÔNG log mã thô ở BẤT KỲ môi trường nào).
  *
  * Giữ BẢN THẬT module verification-delivery (không mock) + route dev inbox —
- * chỉ spy console.log/console.error/captureEvent và stub NODE_ENV. Không đụng
- * db (module chỉ import TYPE từ otp.ts — type-only, không kéo db.client).
+ * chỉ spy console.log/error/warn/info/debug + captureEvent và stub NODE_ENV.
+ * Không đụng db (module chỉ import TYPE từ otp.ts — type-only, không kéo db.client).
  *
  * Hợp đồng (plan Task 3 Step 1):
  *  1. In-memory adapter (dev/test) lưu mã vào inbox, KHÔNG log ở đâu — spy
- *     console.log, console.error, captureEvent: không argument chứa mã;
+ *     console.log/error/warn/info/debug, captureEvent: không argument chứa mã;
  *     peekDevOtpInbox trả đúng mã (Review Focus 1 — không môi trường nào log OTP).
  *  2. peekDevOtpInbox: mã CUỐI theo (channel,target,purpose) ở dev; production
  *     throw typed DEV_OTP_INBOX_UNAVAILABLE (seam unreachable by construction).
@@ -73,6 +73,9 @@ describe("in-memory adapter (dev/test) — lưu inbox, KHÔNG log mã", () => {
   it("sendOtp lưu mã vào inbox và KHÔNG BAO GIỜ log — spy console + captureEvent không chứa mã; peek trả đúng mã", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const eventSpy = vi.spyOn(observability, "captureEvent");
 
     const adapter = getOtpDeliveryAdapter();
@@ -80,9 +83,10 @@ describe("in-memory adapter (dev/test) — lưu inbox, KHÔNG log mã", () => {
     const code = "654321";
     await adapter.sendOtp({ to: TARGET, code, purpose: PURPOSE, channel: CHANNEL });
 
-    // Review Focus 1: không môi trường nào log OTP — quét MỌI argument của mọi spy
+    // Review Focus 1: không môi trường nào log OTP — quét MỌI argument của mọi
+    // spy (kể cả warn/info/debug)
     const dumps: string[] = [];
-    for (const spy of [logSpy, errSpy, eventSpy]) {
+    for (const spy of [logSpy, errSpy, warnSpy, infoSpy, debugSpy, eventSpy]) {
       for (const call of spy.mock.calls) {
         for (const arg of call) dumps.push(argText(arg));
       }

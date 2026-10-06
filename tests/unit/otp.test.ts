@@ -23,9 +23,15 @@
  *  7. Hết hạn (10 phút) → OTP_EXPIRED.
  *  8. Mã của target/purpose/user/channel khác không verify (binding).
  *  9. requestOtp/verifyOtp KHÔNG bao giờ emit mã thô (Review Focus 1): spy
- *     console.log, console.error, captureEvent — không argument nào chứa mã.
- * 10. normalizePhone chuẩn hóa +84→0, bỏ khoảng cách/dấu chấm; sai format throw.
+ *     console.log/error/warn/info/debug, captureEvent — không argument nào chứa mã.
+ * 10. normalizePhone chuẩn hóa +84→0, bỏ khoảng cách/dấu chấm; sai format throw
+ *     với message CỐ ĐỊNH không chứa raw input (PII — spec §4.8).
  * 11. Delivery fail → row bị DELETE + OTP_DELIVERY_UNAVAILABLE (không mã mồ côi).
+ * 12. (fix) Race-safe attempt limit (spec §5.3 attempt-limited, §7.2 OTP brute
+ *     force): N guess sai đồng thời KHÔNG thể cost < OTP_MAX_ATTEMPTS; chạm
+ *     ngưỡng → mã ĐÚNG cũng bị chặn; N guess đúng đồng thời consume đúng 1 lần.
+ * 13. (fix) So khớp hash timing-safe (convention cron-auth.ts/momo.ts): hash
+ *     lệch độ dài → false, KHÔNG throw.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHmac } from "node:crypto";
@@ -387,6 +393,9 @@ describe("requestOtp/verifyOtp — KHÔNG BAO GIỜ emit mã thô (Review Focus 
   it("mọi path (gửi, sai, đúng, rate-limited, delivery fail) không log mã qua console/captureEvent", async () => {
     const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
     const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoSpy = vi.spyOn(console, "info").mockImplementation(() => {});
+    const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
     const eventSpy = vi.spyOn(observability, "captureEvent");
 
     try {
@@ -400,9 +409,9 @@ describe("requestOtp/verifyOtp — KHÔNG BAO GIỜ emit mã thô (Review Focus 
       });
       await requestOtp({ ...PARAMS, target: "that-bai@loaviet.test" }); // delivery fail
 
-      // MỌI argument của MỌI spy không chứa mã thô
+      // MỌI argument của MỌI spy (kể cả warn/info/debug) không chứa mã thô
       const dumps: string[] = [];
-      for (const spy of [logSpy, errSpy, eventSpy]) {
+      for (const spy of [logSpy, errSpy, warnSpy, infoSpy, debugSpy, eventSpy]) {
         for (const call of spy.mock.calls) {
           for (const arg of call) dumps.push(argText(arg));
         }
@@ -411,6 +420,9 @@ describe("requestOtp/verifyOtp — KHÔNG BAO GIỜ emit mã thô (Review Focus 
     } finally {
       logSpy.mockRestore();
       errSpy.mockRestore();
+      warnSpy.mockRestore();
+      infoSpy.mockRestore();
+      debugSpy.mockRestore();
       eventSpy.mockRestore();
     }
   });
@@ -434,6 +446,25 @@ describe("normalizeEmail / normalizePhone", () => {
     expect(() => normalizePhone("+84 123 456")).toThrow(); // quá ngắn sau khi bỏ +84
     expect(() => normalizePhone("0123456789012")).toThrow(); // quá dài
   });
+
+  it("normalizePhone sai format → message KHÔNG chứa raw input (PII — spec §4.8; captureError ghi error.message ra log)", () => {
+    const bad = "+84 123 456";
+    let err: unknown;
+    try {
+      normalizePhone(bad);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(Error);
+    const message = (err as Error).message;
+    expect(message).toContain("INVALID_PHONE_FORMAT");
+    // Raw phone KHÔNG được lọt vào message — caller bắt rồi captureError(scope, e)
+    // ghi error.message thẳng ra log/analytics (spec §4.8: không raw phone)
+    expect(message).not.toContain(bad);
+    expect(message).not.toContain("123");
+    expect(message).not.toContain("456");
+    expect(message).not.toContain("+84");
+  });
 });
 
 // ─── 11. Delivery failure ────────────────────────────────────────────────────
@@ -447,5 +478,91 @@ describe("requestOtp — delivery failure (fail closed, không mã mồ côi)", 
     expect(res).toEqual({ ok: false, code: "OTP_DELIVERY_UNAVAILABLE" });
     // row bị xóa — không để lại mã đã hash nhưng chưa ai nhận được
     expect(dbState.rows).toHaveLength(0);
+  });
+});
+
+// ─── 12. Concurrency — race-safe attempt limit (fix, spec §5.3 + §7.2) ────────
+
+describe("verifyOtp — concurrency: race-safe attempt limit (spec §5.3 attempt-limited, §7.2 OTP brute force)", () => {
+  it("20 guess SAI đồng thời → attempts chạm đúng OTP_MAX_ATTEMPTS (không vượt), mọi guess fail, mã ĐÚNG sau đó bị chặn", async () => {
+    await requestOtp(PARAMS);
+    const code = lastSentCode();
+    const wrong = wrongCodeFor(code);
+
+    // 20 guess sai đồng thời — event loop cho MỌI call đọc row TRƯỚC khi bất
+    // kỳ call nào ghi. Bypass cũ: read-then-write vô điều kiện → 20 call cùng
+    // đọc attempts=0 rồi cùng ghi 1 → 20 guess chỉ tốn 1 attempt → brute force
+    // cả không gian 6 chữ số (spec §7.2).
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => verifyOtp({ ...PARAMS, code: wrong })),
+    );
+    // KHÔNG guess nào được success khi race
+    for (const res of results) expect(res.ok).toBe(false);
+
+    // Mỗi guess sai phải được ĐẾM (compare-and-set): 20 guess ≥ 5 → đã khóa.
+    // Đúng ngưỡng, KHÔNG vượt (không đếm quá OTP_MAX_ATTEMPTS).
+    expect(dbState.rows[0]!.attempts).toBe(OTP_MAX_ATTEMPTS);
+    expect(dbState.rows[0]!.consumedAt).toBeNull();
+
+    // Đã khóa → mã ĐÚNG cũng bị chặn (spec §5.3 attempt-limited)
+    expect(await verifyOtp({ ...PARAMS, code })).toEqual({
+      ok: false,
+      code: "OTP_MAX_ATTEMPTS",
+    });
+  });
+
+  it("20 guess ĐÚNG đồng thời → consume ĐÚNG 1 lần, 19 request còn lại OTP_NOT_FOUND", async () => {
+    await requestOtp(PARAMS);
+    const code = lastSentCode();
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => verifyOtp({ ...PARAMS, code })),
+    );
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(dbState.rows[0]!.consumedAt).not.toBeNull();
+    // single-use: mã đã consume là chết hẳn — request chậm hơn fail closed
+    expect(await verifyOtp({ ...PARAMS, code })).toEqual({
+      ok: false,
+      code: "OTP_NOT_FOUND",
+    });
+  });
+
+  it("guess ĐÚNG đua guess sai: sai lấy attempts lên ngưỡng trước → ĐÚNG bị chặn (consume recheck attempts/expiry)", async () => {
+    await requestOtp(PARAMS);
+    const code = lastSentCode();
+    const wrong = wrongCodeFor(code);
+
+    // 4 lần sai → còn đúng 1 lần trước khóa
+    for (let i = 0; i < 4; i++) {
+      await verifyOtp({ ...PARAMS, code: wrong });
+    }
+    expect(dbState.rows[0]!.attempts).toBe(4);
+
+    // Lần sai thứ 5 (khóa) và mã ĐÚNG đua nhau — cả hai cùng đọc attempts=4.
+    // Consume cũ chỉ recheck consumedAt IS NULL → mã ĐÚNG consume được row đã
+    // khóa. Consume mới phải recheck ĐẦY ĐỦ trong UPDATE: consumedAt IS NULL
+    // AND attempts < OTP_MAX_ATTEMPTS AND expiresAt > now.
+    const [wrongRes, correctRes] = await Promise.all([
+      verifyOtp({ ...PARAMS, code: wrong }),
+      verifyOtp({ ...PARAMS, code }),
+    ]);
+    expect(wrongRes.ok).toBe(false);
+    expect(correctRes).toEqual({ ok: false, code: "OTP_NOT_FOUND" });
+    expect(dbState.rows[0]!.attempts).toBe(OTP_MAX_ATTEMPTS);
+    expect(dbState.rows[0]!.consumedAt).toBeNull(); // row đã khóa KHÔNG bị consume
+  });
+});
+
+// ─── 13. So khớp hash timing-safe (fix — convention cron-auth.ts/momo.ts) ─────
+
+describe("verifyOtp — so khớp hash timing-safe", () => {
+  it("hash lệch độ dài (row hỏng/tam sửa) → fail closed KHÔNG throw (timingSafeEqual đòi equal-length)", async () => {
+    await requestOtp(PARAMS);
+    const code = lastSentCode();
+    dbState.rows[0]!.codeHash = "deadbeef"; // 8 hex ≠ 64 hex HMAC-SHA256
+
+    // Mã đúng nhưng hash hỏng → sai mã; so sánh phải trả false, KHÔNG throw
+    const res = await verifyOtp({ ...PARAMS, code });
+    expect(res).toEqual({ ok: false, code: "OTP_NOT_FOUND" });
   });
 });
