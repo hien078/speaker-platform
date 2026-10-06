@@ -31,7 +31,10 @@ jobs:
         run: npm run lint
 
       - name: Typecheck
-        run: npx tsc --noEmit
+        # next typegen sinh PageProps/LayoutProps/RouteContext (.next/types) — tsc cần trước
+        run: |
+          npx next typegen
+          npx tsc --noEmit
 
       - name: Unit tests
         run: npm test
