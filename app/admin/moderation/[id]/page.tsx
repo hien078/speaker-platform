@@ -38,6 +38,7 @@ import {
   Ban,
   ShieldCheck,
   History,
+  Scale,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -84,6 +85,16 @@ const TARGET_TYPE_LABELS: Record<string, string> = {
 /** Các status listing mà takedown (R4) còn claim được — khớp action. */
 const TAKEDOWN_ELIGIBLE_STATUSES = ["approved", "hidden", "pending"];
 
+/**
+ * PROVISIONAL (A8/FD-3): nhãn trạng thái appeal — founder-authored content
+ * pending (Batch 8 Founder Decision Register); giá trị hiện tại là placeholder
+ * rõ ràng (mechanics, không policy — decision workflow = A4).
+ */
+const APPEAL_STATE_LABELS: Record<string, string> = {
+  submitted: "Đã gửi",
+  closed: "Đã đóng",
+};
+
 export default async function AdminModerationCasePage({
   params,
 }: PageProps<"/admin/moderation/[id]">) {
@@ -94,7 +105,7 @@ export default async function AdminModerationCasePage({
   const caseRow = await db.orm.public.ModerationCase.first({ id });
   if (caseRow === null) notFound();
 
-  const [reports, evidence, actions] = await Promise.all([
+  const [reports, evidence, actions, appeal] = await Promise.all([
     db.orm.public.AbuseReport
       .where({ caseId: id })
       .include("reporter", (r) => r.select("id", "name"))
@@ -109,6 +120,11 @@ export default async function AdminModerationCasePage({
       .include("actor", (a) => a.select("id", "name"))
       .orderBy((a) => a.createdAt.desc())
       .all(),
+    // Appeal của case (one-to-one — @unique caseId, Task 7 section Kháng cáo)
+    db.orm.public.Appeal
+      .where({ caseId: id })
+      .include("appellant", (a) => a.select("id", "name"))
+      .first(),
   ]);
 
   // Subject (người bị báo cáo) — ưu tiên ModerationEvidence.subjectUserId BẤT
@@ -372,6 +388,52 @@ export default async function AdminModerationCasePage({
             theo subject, kể cả case khác).
           </p>
         )}
+      </div>
+
+      {/* ─── Kháng cáo (Task 7 — spec §9 "appeal foundation") ─── */}
+      <div className="card mt-5 p-5">
+        <h2 className="flex items-center gap-1.5 text-sm font-bold uppercase tracking-wider text-[var(--muted)]">
+          <Scale className="size-3.5" />
+          Kháng cáo
+        </h2>
+        {appeal === null ? (
+          <p className="mt-3 text-sm text-[var(--muted)]">Case chưa có kháng cáo.</p>
+        ) : (
+          <div className="mt-3 rounded-lg border border-[var(--line)] bg-[var(--paper)]/40 p-3">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
+              <span
+                className={cn(
+                  "badge",
+                  appeal.state === "submitted"
+                    ? "bg-emerald-500/15 text-emerald-400"
+                    : "bg-zinc-700/60 text-zinc-300",
+                )}
+              >
+                {APPEAL_STATE_LABELS[appeal.state] ?? appeal.state}
+              </span>
+              <span className="font-semibold text-[var(--ink-2)]">
+                {appeal.appellant ? appeal.appellant.name : "(đã xóa)"}
+              </span>
+              <span className="font-mono">{appeal.appellantId ?? "—"}</span>
+              <span>· gửi {formatDate(appeal.createdAt)}</span>
+              {appeal.closedAt !== null && <span>· đóng {formatDate(appeal.closedAt)}</span>}
+            </div>
+            {appeal.statement !== null && (
+              // Statement của subject — UNTRUSTED, render React text (spec §10.1)
+              <p className="mt-1.5 whitespace-pre-wrap text-xs text-[var(--ink-2)]">
+                {appeal.statement}
+              </p>
+            )}
+          </div>
+        )}
+        {/* A4: decision workflow (ai xét, kết quả, thời hạn, restore listing
+            `removed`) là founder policy — KHÔNG xây ở đây. Đóng appeal đi qua
+            transitionModerationCaseAction (appealed → closed) — Task 6 đã wire
+            đóng Appeal row trong cùng tx. */}
+        <p className="mt-3 text-xs text-[var(--muted)]">
+          Quy trình xét kháng cáo đang chờ chính sách từ đội điều hành (A4) — đóng
+          appeal qua chuyển trạng thái case (appealed → đã đóng).
+        </p>
       </div>
 
       {/* ─── Forms — action tự guard, form chỉ là CONVENIENCE (spec §4.5) ─── */}

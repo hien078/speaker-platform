@@ -282,16 +282,17 @@ export async function suspendUserAction(formData: FormData): Promise<void> {
   //    review fix Task 5: try/catch + captureError THẬT như comment claims; lỗi
   //    notify KHÔNG biến sanction đã commit thành 500). Copy là PLACEHOLDER
   //    (FD-3) — sanction-notification wording là founder-authored content
-  //    (Batch 8 register). Link /appeal/<caseId> KHÔNG gửi ở task này — page
-  //    thuộc Task 7; Task 7 thêm link vào call-site này (không commit nào có
-  //    dead link). Meta KHÔNG PII (spec §4.8) — chỉ typed refs.
+  //    (Batch 8 register). Link /appeal/<caseId> (Task 7): chỉ khi sanction gắn
+  //    case — case đã được atomic move sang actioned (S6) nên link trỏ vào case
+  //    ĐANG actioned (subject appeal được); không case → không link (không có
+  //    case nào để kháng cáo). Meta KHÔNG PII (spec §4.8) — chỉ typed refs.
   try {
     await notify(
       userId,
       "moderation",
       "Tài khoản bị tạm đình chỉ", // PLACEHOLDER (FD-3) — Batch 8 register
       SUSPENSION_REASON_LABELS[reasonCode], // PROVISIONAL (A8)
-      undefined,
+      caseId !== null ? `/appeal/${caseId}` : undefined,
     );
   } catch (notifyError) {
     captureError("moderation", notifyError, {
@@ -727,15 +728,16 @@ export async function takeDownListingAction(formData: FormData): Promise<void> {
   //    try/catch + captureError THẬT như suspendUserAction; lỗi notify KHÔNG
   //    biến takedown đã commit thành 500). Copy là PLACEHOLDER (FD-3) —
   //    takedown-notification wording là founder-authored content (Batch 8
-  //    register). Link /appeal/<caseId> KHÔNG gửi ở task này — Task 7 thêm
-  //    (page thuộc Task 7 — không commit nào có dead link). Meta KHÔNG PII.
+  //    register). Link (Task 7): case gắn sanction → /appeal/<caseId> (case
+  //    đã atomic actioned — S6 — subject appeal được); không case → /sell/my
+  //    (seller xem tin của mình). Meta KHÔNG PII.
   try {
     await notify(
       sellerId,
       "listing",
       "Tin bị gỡ khỏi hiển thị", // PLACEHOLDER (FD-3) — Batch 8 register
       MODERATION_DECISION_REASON_LABELS[reasonParsed.data], // PROVISIONAL (A8)
-      "/sell/my",
+      caseId !== null ? `/appeal/${caseId}` : "/sell/my",
     );
   } catch (notifyError) {
     captureError("moderation", notifyError, {
