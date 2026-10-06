@@ -53,6 +53,13 @@ const APPEAL_STATE_LABELS: Record<string, string> = {
   closed: "Đã đóng",
 };
 
+/**
+ * State gating (Task 7 review L2) — case CHỈ xem được trên trang appeal khi
+ * đã actioned/appealed/closed; open/triaged/investigating/dismissed →
+ * notFound() (không báo trước điều tra đang diễn ra).
+ */
+const APPEAL_VIEWABLE_STATES: readonly string[] = ["actioned", "appealed", "closed"];
+
 export default async function AppealPage({
   params,
 }: PageProps<"/appeal/[caseId]">) {
@@ -73,6 +80,15 @@ export default async function AppealPage({
     evidence?.subjectUserId ??
     (await getCaseSubjectUserId(caseRow.targetType as ReportTargetType, caseRow.targetId));
   if (subjectUserId === null || subjectUserId !== user.id) notFound();
+
+  // State gating (Task 7 review L2): form/status CHỈ hiển thị cho case
+  // actioned/appealed/closed — open/triaged/investigating/dismissed →
+  // notFound() (CÙNG posture như non-subject): subject KHÔNG được "báo trước"
+  // rằng mình đang bị điều tra (link /appeal/<caseId> chỉ đến sau khi case
+  // được actioned — notify của suspend/takedown gắn case đã atomic actioned).
+  if (!APPEAL_VIEWABLE_STATES.includes(caseRow.state)) {
+    notFound();
+  }
 
   // Appeal hiện có (một / case — @unique caseId) + sanction context: hành động
   // user.suspended / listing.taken_down MỚI NHẤT trên case này (reason label).

@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { requireCapability, capabilitiesOf } from "@/src/lib/rbac";
 import { auditEvent } from "@/src/lib/audit-event";
-import { getCaseSubjectUserId, getActiveSuspension } from "@/src/lib/moderation";
+import { getCaseSubjectUserId, getActiveSuspension, isCaseViewerConflicted } from "@/src/lib/moderation";
 import {
   MODERATION_ASSIGNMENT_REASON_CODES,
   MODERATION_DECISION_REASON_CODES,
@@ -58,6 +58,10 @@ export const metadata = { title: "Quản trị — Case kiểm duyệt" };
  *
  * Form suspend/lift chỉ render khi viewer có user.suspend (super/ops) — UI
  * CONVENIENCE; action tự requireCapability/requireCapabilityWithStepUp.
+ *
+ * Recusal on views (review fix Task 6 item 3): viewer là subject/reporter của
+ * case → notFound() TRƯỚC mọi read phục vụ render — retaliation risk (subject
+ * cầm report.resolve không thấy danh tính người báo cáo mình).
  */
 
 const STATE_BADGE: Record<ModerationCaseState, string> = {
@@ -104,6 +108,20 @@ export default async function AdminModerationCasePage({
 
   const caseRow = await db.orm.public.ModerationCase.first({ id });
   if (caseRow === null) notFound();
+
+  // Recusal on views (review fix Task 6 item 3 — retaliation risk): viewer
+  // là SUBJECT hoặc REPORTER của case → notFound() TRƯỚC mọi read phục vụ
+  // render (reports/evidence/actions/appeal bên dưới) — moderator bị báo cáo
+  // không thấy ai đã báo cáo mình, reporter không xem case mình đã báo cáo.
+  // Cùng posture notFound() như appeal page (không existence oracle). Check
+  // đọc TỐI THIỂU (subjectUserId + reporter existence — KHÔNG note/snapshot);
+  // conflicted viewer cũng KHÔNG trigger audit evidence_viewed (không xem
+  // thì không ghi vết xem — spec §5.5.1).
+  if (
+    await isCaseViewerConflicted(id, caseRow.targetType, caseRow.targetId, ctx.user.id)
+  ) {
+    notFound();
+  }
 
   const [reports, evidence, actions, appeal] = await Promise.all([
     db.orm.public.AbuseReport

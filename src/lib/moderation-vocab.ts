@@ -68,15 +68,22 @@ export type ModerationPriority = (typeof MODERATION_PRIORITIES)[number];
 export const ACTIVE_MODERATION_CASE_STATES = ["open", "triaged", "investigating"] as const;
 
 /**
- * Bảng chuyển trạng thái hợp pháp (spec §5.5 states; transitions là MECHANICS —
- * sanction/appeal POLICY là thứ không định nghĩa ở đây, xem Ambiguities A2/A4).
- * `closed` terminal — không có chuyển đi nào.
+ * Bảng chuyển trạng thái hợp pháp MANUAL (spec §5.5 states; transitions là
+ * MECHANICS — sanction/appeal POLICY là thứ không định nghĩa ở đây, xem
+ * Ambiguities A2/A4). `closed` terminal — không có chuyển đi nào.
+ *
+ * Review fix Task 6 (item 5): `actioned → appealed` KHÔNG còn ở bảng manual —
+ * `appealed` CHỈ được ghi qua appeal flow (recordAppealAction, Task 7 — CAS
+ * .where({ id, state: "actioned" }) → appealed, actor là subject). Moderator
+ * không tự ghi `appealed` qua transitionModerationCaseAction (bảng này là
+ * nguồn quyền duy nhất của action đó); case-page dropdown đọc từ đây nên
+ * "appealed" tự rời khỏi option.
  */
 export const MODERATION_TRANSITIONS: Record<ModerationCaseState, readonly ModerationCaseState[]> = {
   open: ["triaged", "investigating", "dismissed", "actioned"],
   triaged: ["investigating", "actioned", "dismissed"],
   investigating: ["actioned", "dismissed"],
-  actioned: ["appealed", "closed"],
+  actioned: ["closed"],
   appealed: ["closed"],
   dismissed: ["closed"],
   closed: [],

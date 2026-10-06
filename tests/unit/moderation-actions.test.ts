@@ -28,6 +28,14 @@
  *     LẪN AuditEvent.detail (write-time redaction).
  * 10. (Review fix pattern Task 5) notify sau commit là BEST-EFFORT: lỗi
  *     Notification.create KHÔNG biến takedown đã commit thành 500.
+ * 11. (Review fix Task 6) takedown KHÔNG caseId: conflict check chống CHÍNH
+ *     listing (seller / reporter trên case active) → MODERATOR_CONFLICT;
+ *     case active nhắm listing + không caseId → CASE_REQUIRED_FOR_TAKEDOWN
+ *     (fail-closed — quyết định được record ở report + comment action).
+ * 12. (Review fix Task 6) actioned → appealed KHÔNG reachable qua manual
+ *     transition (chỉ qua appeal flow Task 7) → INVALID_TRANSITION.
+ * 13. (Review fix Task 6) assign: assignee là subject/reporter của case →
+ *     ASSIGNEE_CONFLICT ("ai gán cho ai" — A7/A1 register).
  *
  * Cơ chế mock như tests/unit/suspension-actions.test.ts: session/rbac/audit
  * GIỮ BẢN THẬT (login qua COOKIE THẬT); db.client in-memory với transaction
@@ -752,6 +760,10 @@ describe("transitionModerationCaseAction — transitions (spec §5.5 states)", (
     ["closed", "triaged"],
     ["dismissed", "actioned"],
     ["investigating", "triaged"],
+    // Item 5 (review fix Task 6): actioned → appealed KHÔNG reachable thủ công —
+    // `appealed` chỉ được ghi qua appeal flow (recordAppealAction, Task 7);
+    // manual transition phải từ chối (INVALID_TRANSITION).
+    ["actioned", "appealed"],
   ])("illegal %s → %s → INVALID_TRANSITION, zero writes", async (from, to) => {
     const c = seedCase({ state: from });
     seedEvidence(c.id, SELLER.id);
@@ -1193,6 +1205,131 @@ describe("MODERATOR_CONFLICT — actor là subject/reporter của case (S9 fail 
 
     expect(listingRow(l.id)).toMatchObject({ status: "approved" });
     expect(dbState.actions).toHaveLength(0);
+  });
+});
+
+// ─── 6b. Takedown KHÔNG caseId — recusal chống listing + fail-closed case link ──
+
+describe("takeDownListingAction KHÔNG caseId — conflict check chống CHÍNH listing (review fix Task 6 item 4)", () => {
+  it("actor là SELLER của listing (moderator-seller) → MODERATOR_CONFLICT, zero writes — không tự takedown listing của mình qua đường moderation", async () => {
+    const l = seedListing({ sellerId: MOD_SELLER.id, status: "approved" });
+    login(MOD_SELLER); // moderator VỪA là seller của listing bị nhắm
+
+    await expect(
+      takeDownListingAction(fd({ listingId: l.id, reasonCode: "policy_violation_confirmed" })),
+    ).rejects.toThrowError(/MODERATOR_CONFLICT/);
+
+    expect(listingRow(l.id)).toMatchObject({ status: "approved" });
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+    expect(dbState.notifications).toHaveLength(0);
+  });
+
+  it("actor là REPORTER trên case ACTIVE nhắm listing → MODERATOR_CONFLICT, zero writes — không tự rút quyết định case mình đã báo cáo", async () => {
+    const l = seedListing({ status: "approved" });
+    const c = seedCase({ targetType: "listing", targetId: l.id, state: "open" });
+    seedEvidence(c.id, SELLER.id);
+    dbState.reports.push({
+      id: `rep-${dbState.reports.length + 1}`,
+      reporterId: ADMIN_MOD.id, // chính moderator là người đã báo cáo
+      targetType: "listing",
+      targetId: l.id,
+      reasonCode: "suspected_scam",
+      caseId: c.id,
+      createdAt: new Date().toISOString(),
+    });
+    login(ADMIN_MOD);
+
+    await expect(
+      takeDownListingAction(fd({ listingId: l.id, reasonCode: "policy_violation_confirmed" })),
+    ).rejects.toThrowError(/MODERATOR_CONFLICT/);
+
+    expect(listingRow(l.id)).toMatchObject({ status: "approved" });
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
+
+  it("case ACTIVE đang nhắm listing + KHÔNG caseId → CASE_REQUIRED_FOR_TAKEDOWN (fail-closed — moderator phải đi qua case để chạy đủ case checks + atomic actioned), listing GIỮ NGUYÊN", async () => {
+    const l = seedListing({ status: "approved" });
+    const c = seedCase({ targetType: "listing", targetId: l.id, state: "triaged" });
+    seedEvidence(c.id, SELLER.id);
+    login(ADMIN_OPS); // không phải seller/reporter — conflict check pass
+
+    await expect(
+      takeDownListingAction(fd({ listingId: l.id, reasonCode: "policy_violation_confirmed" })),
+    ).rejects.toThrowError(/CASE_REQUIRED_FOR_TAKEDOWN/);
+
+    expect(listingRow(l.id)).toMatchObject({ status: "approved" });
+    expect(caseRow(c.id)).toMatchObject({ state: "triaged" }); // case không bị đụng
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
+
+  it("case về listing KHÔNG còn active (actioned) + KHÔNG caseId → takedown VẪN được (không có gì để link — bookkeeping đã xong)", async () => {
+    const l = seedListing({ status: "approved" });
+    const c = seedCase({ targetType: "listing", targetId: l.id, state: "actioned" });
+    seedEvidence(c.id, SELLER.id);
+    login(ADMIN_MOD);
+
+    await takeDownListingAction(fd({ listingId: l.id, reasonCode: "policy_violation_confirmed" }));
+
+    expect(listingRow(l.id)).toMatchObject({ status: "removed" });
+    expect(caseRow(c.id)).toMatchObject({ state: "actioned" }); // không transition lần hai
+    expect(actionsOf({ actionType: "listing.taken_down" })).toHaveLength(1);
+  });
+});
+
+// ─── 6c. Assign — assignee conflict (review fix Task 6 item 6) ───────────────
+
+describe("assignModerationCaseAction — ASSIGNEE_CONFLICT (item 6: ai được gán cho ai)", () => {
+  beforeEach(() => {
+    login(ADMIN_MOD);
+  });
+
+  it("assignee là SUBJECT của case (moderator bị báo cáo) → ASSIGNEE_CONFLICT, zero writes — không ai tự xử lý case về chính mình", async () => {
+    const c = seedCase({ targetType: "user", targetId: MOD_SELLER.id });
+    seedEvidence(c.id, MOD_SELLER.id);
+
+    await expect(
+      assignModerationCaseAction(fd({ caseId: c.id, moderatorId: MOD_SELLER.id, reasonCode: "triage_assignment" })),
+    ).rejects.toThrowError(/ASSIGNEE_CONFLICT/);
+
+    expect(caseRow(c.id)).toMatchObject({ assignedModeratorId: null });
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
+
+  it("assignee là REPORTER của case → ASSIGNEE_CONFLICT, zero writes — reporter không xử lý chính case mình báo cáo", async () => {
+    const c = seedCase({ targetType: "listing", targetId: "listing-1" });
+    seedEvidence(c.id, SELLER.id);
+    dbState.reports.push({
+      id: `rep-${dbState.reports.length + 1}`,
+      reporterId: ADMIN_OPS.id, // assignee dự kiến chính là người báo cáo
+      targetType: "listing",
+      targetId: "listing-1",
+      reasonCode: "suspected_scam",
+      caseId: c.id,
+      createdAt: new Date().toISOString(),
+    });
+
+    await expect(
+      assignModerationCaseAction(fd({ caseId: c.id, moderatorId: ADMIN_OPS.id, reasonCode: "triage_assignment" })),
+    ).rejects.toThrowError(/ASSIGNEE_CONFLICT/);
+
+    expect(caseRow(c.id)).toMatchObject({ assignedModeratorId: null });
+    expect(dbState.actions).toHaveLength(0);
+    expect(dbState.audits).toHaveLength(0);
+  });
+
+  it("assignee moderator KHÔNG conflicted → gán được như thường (lock KHÔNG over-block)", async () => {
+    const c = seedCase({});
+    seedEvidence(c.id, SELLER.id);
+
+    await assignModerationCaseAction(
+      fd({ caseId: c.id, moderatorId: ADMIN_OPS.id, reasonCode: "triage_assignment" }),
+    );
+
+    expect(caseRow(c.id)).toMatchObject({ assignedModeratorId: ADMIN_OPS.id });
   });
 });
 

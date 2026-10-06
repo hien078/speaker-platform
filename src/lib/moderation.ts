@@ -132,3 +132,40 @@ export async function getCaseSubjectUserId(
   const message = await db.orm.public.Message.first({ id: targetId });
   return message === null ? null : message.senderId;
 }
+
+/**
+ * Viewer (bất kỳ ai) có xung đột lợi ích với case không? (S9 — fail closed;
+ * recusal POLICY = Ambiguity A7). TRUE khi viewer là:
+ *  - SUBJECT của case — ưu tiên ModerationEvidence.subjectUserId BẤT BIẾN
+ *    (chụp tại report time, sống qua edit/delete của source — S7), fallback
+ *    live lookup getCaseSubjectUserId khi case không có evidence (cùng
+ *    thứ tự resolve như appeal page + case page + recordAppealAction).
+ *  - REPORTER trên case (AbuseReport caseId + reporterId = viewer).
+ *
+ * Dùng bởi: actions/moderation.ts (assertActorNotConflicted — MODERATOR_CONFLICT
+ * khi RA quyết định) VÀ case detail page (recusal on views — item 3 review fix
+ * Task 6: subject/reporter cầm report.resolve KHÔNG được XEM reports/evidence
+ * của case — retaliation risk; page gọi TRƯỚC mọi read phục vụ render).
+ * Thứ tự evidence: capturedAt asc — ĐỒNG BỘ với appeal page + case page
+ * (evidence[0] cùng row giữa các caller).
+ */
+export async function isCaseViewerConflicted(
+  caseId: string,
+  targetType: ReportTargetType,
+  targetId: string,
+  viewerId: string,
+): Promise<boolean> {
+  const evidence = await db.orm.public.ModerationEvidence
+    .where({ caseId })
+    .orderBy((e) => e.capturedAt.asc())
+    .select("subjectUserId")
+    .first();
+  const subjectUserId =
+    evidence?.subjectUserId ??
+    (await getCaseSubjectUserId(targetType, targetId));
+  if (subjectUserId !== null && subjectUserId === viewerId) return true;
+  const reported = await db.orm.public.AbuseReport
+    .where({ caseId, reporterId: viewerId })
+    .first();
+  return reported !== null;
+}

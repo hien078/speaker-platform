@@ -412,7 +412,9 @@ describe("canTransition — bảng chuyển trạng thái hợp pháp", () => {
     ["triaged", "dismissed"],
     ["investigating", "actioned"],
     ["investigating", "dismissed"],
-    ["actioned", "appealed"],
+    // actioned → appealed KHÔNG còn ở bảng MANUAL (review fix Task 6 item 5):
+    // `appealed` chỉ được ghi qua appeal flow (recordAppealAction — Task 7),
+    // không qua transitionModerationCaseAction.
     ["actioned", "closed"],
     ["appealed", "closed"],
     ["dismissed", "closed"],
@@ -422,6 +424,12 @@ describe("canTransition — bảng chuyển trạng thái hợp pháp", () => {
     for (const [from, to] of legal) {
       expect(canTransition(from as never, to as never)).toBe(true);
     }
+  });
+
+  it("actioned → appealed CHỈ qua appeal flow (recordAppealAction) — manual table TỪ CHỐI (item 5)", () => {
+    // Bảng manual đóng: moderator không tự ghi `appealed` — chỉ subject appeal
+    // (recordAppealAction CAS .where({ id, state: "actioned" }) → appealed).
+    expect(canTransition("actioned", "appealed")).toBe(false);
   });
 
   it("mọi cặp KHÔNG liệt kê → false (kể cả tự chuyển + đi ngược)", () => {

@@ -29,6 +29,7 @@ const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
 const QUEUE = "app/admin/moderation/page.tsx";
 const DETAIL = "app/admin/moderation/[id]/page.tsx";
 const LAYOUT = "app/admin/layout.tsx";
+const APPEAL_PAGE = "app/appeal/[caseId]/page.tsx";
 
 // ─── 1. Guard server-side trước mọi db read (spec §4.5/§4.9) ─────────────────
 
@@ -66,8 +67,63 @@ describe("detail page — evidence view được audit (moderation.evidence_view
 // ─── 3. Stored XSS — KHÔNG dangerouslySetInnerHTML (spec §10.1) ──────────────
 
 describe("moderation pages — KHÔNG dangerouslySetInnerHTML (stored XSS qua report)", () => {
-  it.each([[QUEUE], [DETAIL]])("%s render untrusted content chỉ qua React text", (page) => {
+  it.each([[QUEUE], [DETAIL], [APPEAL_PAGE]])("%s render untrusted content chỉ qua React text", (page) => {
     expect(read(page)).not.toContain("dangerouslySetInnerHTML");
+  });
+});
+
+// ─── 3b. Appeal page (Task 7 review L1) — subject-only surface ───────────────
+
+describe("appeal page — subject-only surface (Task 7 review L1)", () => {
+  it("requireUser TRƯỚC mọi db read (IDOR — không đọc case khi chưa đăng nhập)", () => {
+    const src = read(APPEAL_PAGE);
+    const guardIdx = src.indexOf("requireUser()");
+    const dbIdx = src.indexOf("db.orm.public");
+    expect(guardIdx).toBeGreaterThanOrEqual(0);
+    expect(dbIdx).toBeGreaterThan(guardIdx);
+  });
+
+  it("KHÔNG query AbuseReport — reporter identities không bao giờ đến được trang subject", () => {
+    const src = read(APPEAL_PAGE);
+    expect(src).not.toContain("AbuseReport");
+  });
+
+  it("KHÔNG render evidence snapshot — ModerationEvidence chỉ dùng resolve subjectUserId", () => {
+    const src = read(APPEAL_PAGE);
+    // chỉ MỘT query evidence (resolve subject, .first) — không select snapshot
+    expect(src).toContain("ModerationEvidence");
+    expect(src).not.toContain("relevantSnapshot");
+    expect(src).not.toContain("sourceResourceId");
+  });
+
+  it("state gating (L2): actioned/appealed/closed mới render — còn lại notFound", () => {
+    const src = read(APPEAL_PAGE);
+    expect(src).toContain("notFound()");
+    expect(src).toMatch(/actioned/);
+    expect(src).toMatch(/appealed/);
+    expect(src).toMatch(/closed/);
+  });
+});
+
+// ─── 3c. Detail page — recusal on views (review fix Task 6 item 3) ────────────
+
+describe("detail page — recusal on views (item 3): subject/reporter KHÔNG xem được case", () => {
+  it("conflict check (isCaseViewerConflicted) chạy TRƯỚC mọi read phục vụ render", () => {
+    const src = read(DETAIL);
+    // check tồn tại…
+    expect(src).toContain("isCaseViewerConflicted");
+    // …vÀ đứng TRƯỚC read reports/evidence/actions/appeal (Promise.all render)
+    const checkIdx = src.indexOf("isCaseViewerConflicted");
+    const renderReadsIdx = src.indexOf("AbuseReport");
+    expect(checkIdx).toBeGreaterThanOrEqual(0);
+    expect(renderReadsIdx).toBeGreaterThan(checkIdx);
+  });
+
+  it("conflicted viewer → notFound() (không phải trang denial riêng — không existence oracle)", () => {
+    const src = read(DETAIL);
+    const checkIdx = src.indexOf("isCaseViewerConflicted");
+    const notFoundIdx = src.indexOf("notFound()", checkIdx);
+    expect(notFoundIdx).toBeGreaterThan(checkIdx);
   });
 });
 

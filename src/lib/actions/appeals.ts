@@ -68,8 +68,11 @@ export async function recordAppealAction(
   // 3. CHỦ TƯỢNG (S7): evidence BẤT BIẾN trước, live fallback sau — null khi
   //    cả hai đường đều mất (fail closed). Non-subject → CÙNG NOT_FOUND như
   //    case không tồn tại (IDOR — Review Focus 3, không probe oracle).
+  //    orderBy capturedAt asc — ĐỒNG BỘ với appeal page (Task 7 review:
+  //    cùng row đầu giữa các caller).
   const evidence = await db.orm.public.ModerationEvidence
     .where({ caseId })
+    .orderBy((e) => e.capturedAt.asc())
     .select("subjectUserId")
     .first();
   const subjectUserId =

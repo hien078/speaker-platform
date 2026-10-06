@@ -25,9 +25,21 @@
  *
  * Cơ chế mock như tests/unit/publication-gate.test.ts (session/rbac/policy GIỮ
  * BẢN THẬT — login qua COOKIE THẬT, gate đọc FRESH từ store mock) + seam
- * `beforeListingWrite` chạy NGAY TRƯỚC mỗi Listing write (update/updateAll/
- * delete) — mô phỏng takedown đổi row underneath giữa read và write.
- * Listing.delete trả row|null (0 rows → null) — đúng shape ORM thật.
+ * `beforeListingWrite` mô phỏng takedown đổi row underneath giữa read và
+ * write của action.
+ *
+ * MOCK FIDELITY — Prisma 8 two-step semantics (verified
+ * node_modules/@prisma/orm-family-sql/dist/orm-client.mjs ~4794/~4892
+ * `#findFirstMatchingRowIdentityWhere`): terminal đơn-row `.update()`/
+ * `.delete()` SELECT row khớp filter ĐẦU rồi write `WHERE id = <id đó>` —
+ * filter KHÔNG nằm trong statement write. `updateAll()`/`deleteAll()` compile
+ * TOÀN BỘ filter vào MỘT statement. Mock mô phỏng CHÍNH XÁC hai ngữ nghĩa đó:
+ *  - `update`/`delete` (Listing): select-first → SEAM → write-by-id (row đổi
+ *    status sau select VẪN bị write — đúng bug gốc);
+ *  - `updateAll`/`deleteAll` (Listing): SEAM → statement (filter thấy giá trị
+ *    MỚI — Postgres re-check WHERE sau khi row lock thả) → 0 rows khi race.
+ * Fidelity này được pin bởi describe "mock fidelity" bên dưới — nó là LÝ DO
+ * deleteListingAction phải dùng deleteAll (compare-and-set) chứ KHÔNG .delete().
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
@@ -120,7 +132,12 @@ vi.mock("@/src/prisma/db.client", () => {
       ? Boolean(pred(fieldOps(row)))
       : Object.entries(pred).every(([k, v]) => row[k] === v);
 
-  const makeModel = (rows: Row[], defaults?: () => Row, attach?: (row: Row) => void) => {
+  const makeModel = (
+    rows: Row[],
+    defaults?: () => Row,
+    attach?: (row: Row) => void,
+    seam?: () => void,
+  ) => {
     const query = (preds: Pred[], includeRel?: string) => ({
       where: (pred: Pred) => query([...preds, pred], includeRel),
       include: (rel: string) => query(preds, rel),
@@ -142,26 +159,45 @@ vi.mock("@/src/prisma/db.client", () => {
             if (includeRel === "user" && attach) attach(copy);
             return copy;
           }),
+      // Prisma 8 FIDELITY — .update(): SELECT row khớp filter ĐẦU, RỒI write
+      // THEO ID (filter KHÔNG nằm trong statement write). Seam chạy GIỮA
+      // select và write-by-id — row đổi tay trong khoảng đó VẪN bị write.
       update: async (data: Row) => {
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         if (hit.length === 0) return null;
-        Object.assign(hit[0]!, data);
-        return { ...hit[0]! };
+        const target = hit[0]!;
+        seam?.();
+        Object.assign(target, data); // UPDATE ... WHERE id (bất chấp filter)
+        return { ...target };
       },
+      // Prisma 8 FIDELITY — .delete(): select-first → SEAM → DELETE WHERE id.
+      // Trả ROW bị xóa | null khi select 0 rows (đúng shape ORM thật).
+      delete: async () => {
+        const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
+        if (hit.length === 0) return null;
+        const target = hit[0]!;
+        seam?.();
+        const i = rows.indexOf(target);
+        if (i >= 0) rows.splice(i, 1); // DELETE ... WHERE id
+        return { ...target };
+      },
+      // updateAll/deleteAll: MỘT statement với TOÀN BỘ filter — seam chạy
+      // TRƯỚC statement (Postgres re-check WHERE sau khi row lock thả) →
+      // row đổi tay làm filter trượt → 0 rows (compare-and-set THẮNG race).
       updateAll: async (data: Row) => {
+        seam?.();
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         for (const r of hit) Object.assign(r, data);
         return hit.map((r) => ({ ...r }));
       },
-      // Shape ORM THẬT: delete trả ROW bị xóa | null khi 0 rows (đã verify
-      // scratch DB) — deleteListingAction claim check dựa trên null.
-      delete: async () => {
+      deleteAll: async () => {
+        seam?.();
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
-        if (hit.length === 0) return null;
-        const first = hit[0]!;
-        const i = rows.indexOf(first);
-        if (i >= 0) rows.splice(i, 1);
-        return { ...first };
+        for (const r of hit) {
+          const i = rows.indexOf(r);
+          if (i >= 0) rows.splice(i, 1);
+        }
+        return hit.map((r) => ({ ...r }));
       },
       create: async (data: Row) => {
         const row = { ...(defaults?.() ?? { id: `row-${rows.length + 1}` }), ...data };
@@ -202,7 +238,12 @@ vi.mock("@/src/prisma/db.client", () => {
       rejectionReason: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    })),
+    }), undefined, () => {
+      // Seam SHOULD-FIX 3 — chạy ĐÚNG VỊ TRÍ theo ngữ nghĩa Prisma 8 của từng
+      // terminal (xem makeModel): giữa select và write-by-id với .update()/
+      // .delete(), TRƯỚC statement với .updateAll()/.deleteAll().
+      dbState.beforeListingWrite?.();
+    }),
     ListingImage: makeModel(dbState.images, () => ({
       id: `img-${dbState.images.length + 1}`,
       sortOrder: 0,
@@ -282,38 +323,13 @@ vi.mock("@/src/prisma/db.client", () => {
     })),
   };
 
-  // Seam SHOULD-FIX 3: wrap Listing model — MỌI write (update/updateAll/delete,
-  // kể cả trong chuỗi .where(...)) chạy dbState.beforeListingWrite TRƯỚC khi
-  // thực thi — mô phỏng takedown đổi row giữa read của action và write.
-  const wrapListing = (model: (typeof models)["Listing"]) => {
-    const wrapQ = (q: {
-      where: (pred: Pred) => unknown;
-      updateAll: (data: Row) => Promise<Row[]>;
-      update: (data: Row) => Promise<Row | null>;
-      delete: () => Promise<Row | null>;
-    }) => ({
-      ...q,
-      where: (pred: Pred) => wrapQ(q.where(pred) as never),
-      updateAll: async (data: Row) => {
-        dbState.beforeListingWrite?.();
-        return q.updateAll(data);
-      },
-      update: async (data: Row) => {
-        dbState.beforeListingWrite?.();
-        return q.update(data);
-      },
-      delete: async () => {
-        dbState.beforeListingWrite?.();
-        return q.delete();
-      },
-    });
-    return {
-      ...model,
-      where: (pred: Pred) => wrapQ(model.where(pred) as never),
-    };
-  };
+  // Seam SHOULD-FIX 3 đã NẰM TRONG Listing model (tham số thứ 4 của makeModel)
+  // — chạy đúng vị trí theo ngữ nghĩa từng terminal (xem makeModel), không
+  // còn wrapper ngoài (wrapper cũ chạy seam TRƯỚC select của .delete() —
+  // sai fidelity: select phải thấy giá trị CŨ rồi write-by-id mới mô phỏng
+  // đúng race thật).
 
-  const orm = { public: { ...models, Listing: wrapListing(models.Listing) } };
+  const orm = { public: models };
   return {
     db: {
       orm,
@@ -327,6 +343,7 @@ vi.mock("@/src/prisma/db.client", () => {
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { SESSION_COOKIE } from "@/src/lib/session";
+import { db } from "@/src/prisma/db.client";
 import {
   updateListingAction,
   toggleListingVisibilityAction,
@@ -573,9 +590,12 @@ describe("R5 — seller-side lock: listing removed KHÔNG được edit/toggle/d
 // ─── 2. SHOULD-FIX 3 — conditional-write race (takedown đổi row underneath) ──
 
 describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed", () => {
-  it("updateListingAction đọc approved, takedown đổi row sang removed TRƯỚC write → 0 rows → typed error, status GIỮ NGUYÊN removed", async () => {
+  it("updateListingAction đọc approved, takedown đổi row sang removed TRƯỚC write → 0 rows → LISTING_MODERATION_LOCKED, status GIỮ NGUYÊN removed, ảnh KHÔNG bị đụng", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
+    // ảnh ĐÃ CÓ của listing — nếu action mutate ảnh trước CAS (bug cũ), một
+    // listing bị takedown sẽ bị ĐỔI ẢNH dù throw sau đó (item 7 review fix).
+    dbState.images.push({ id: "img-race", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 3 });
     // Takedown (request khác) đổi row sang removed NGAY TRƯỚC khi write của
     // action này chạy — conditional write .where({ id, status: "approved" })
     // hit 0 rows → typed error (check-then-write sẽ CLOBBER removed).
@@ -589,6 +609,35 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
 
     // row GIỮ NGUYÊN removed — KHÔNG bị clobber về pending/approved
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
+    // ẢNH GIỮ NGUYÊN (item 7): CAS là write ĐẦU TIÊN trong tx — throw trước
+    // mọi image mutation; sortOrder 3 nguyên vẹn (form sẽ ghi 0 nếu lọt qua).
+    expect(dbState.images).toHaveLength(1);
+    expect(dbState.images[0]).toMatchObject({ url: "/uploads/a.jpg", sortOrder: 3 });
+  });
+
+  it("updateListingAction đọc approved, admin TỪ CHỐI thường thắng race → 0 rows → LISTING_CONCURRENT_CHANGE (typed error RIÊNG — KHÔNG masquerade LISTING_MODERATION_LOCKED), ảnh KHÔNG bị đụng", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "approved");
+    dbState.images.push({ id: "img-race", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 3 });
+    // Admin rejectListingAction (không phải moderation) thắng race — seller
+    // thấy lỗi "trạng thái đã đổi tay" chứ KHÔNG thấy lỗi moderation gây hiểu
+    // lầm listing của mình bị takedown (item 7 — distinct typed error).
+    dbState.beforeListingWrite = () => {
+      listing.status = "rejected";
+    };
+
+    let err: unknown;
+    try {
+      await updateListingAction({}, listingForm({ listingId: listing.id, title: "SỬA TRONG RACE" }));
+    } catch (e) {
+      err = e;
+    }
+    expect((err as Error).message).toBe("LISTING_CONCURRENT_CHANGE");
+
+    // row GIỮ NGUYÊN rejected — KHÔNG bị clobber
+    expect(listingRow(listing.id)).toMatchObject({ status: "rejected", title: "Loa JBL Charge 5 chính hãng" });
+    // ảnh KHÔNG bị đụng
+    expect(dbState.images[0]).toMatchObject({ url: "/uploads/a.jpg", sortOrder: 3 });
   });
 
   it("toggleListingVisibilityAction đọc approved, takedown đổi row → 0 rows → typed error, status GIỮ NGUYÊN removed", async () => {
@@ -637,6 +686,63 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
     expect(auditsOf("listing.approved")).toHaveLength(0); // không resurrection audit
     expect(dbState.notifications).toHaveLength(0); // không notify duyệt
+  });
+});
+
+// ─── 2b. Mock fidelity — neo ngữ nghĩa Prisma 8 hai bước của ORM thật ─────────
+//
+// Root cause (orm-client.mjs ~4794/~4892): .delete()/.update() đơn-row là
+// select-first rồi write THEO ID — KHÔNG phải compare-and-set. Ba test này
+// pin mock mô phỏng ĐÚNG ngữ nghĩa đó (nếu ORM đổi semantics, ba test đây
+// là chuông cảnh báo) và dokument LÝ DO deleteListingAction dùng deleteAll.
+
+describe("mock fidelity — Prisma 8 .delete()/.update() là select-first → write-by-id (KHÔNG compare-and-set)", () => {
+  it(".delete() đơn-row THUA race: select thấy approved, row bị takedown đổi sang removed, DELETE WHERE id VẪN xoá row — nguồn moderation record bị phá (vì vậy action dùng deleteAll)", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "approved");
+    dbState.beforeListingWrite = () => {
+      listing.status = "removed"; // takedown commit giữa select và write
+    };
+
+    const deleted = await db.orm.public.Listing
+      .where({ id: listing.id, status: "approved" })
+      .delete();
+
+    // select thấy approved → identity là id → DELETE WHERE id xoá row
+    // vừa bị đổi sang removed — filter status KHÔNG nằm trong DELETE.
+    expect(deleted).toMatchObject({ id: listing.id, status: "removed" });
+    expect(listingRow(listing.id)).toBeUndefined(); // ROW MẤT — đúng bug gốc
+  });
+
+  it(".update() đơn-row cũng write-by-id bất chấp filter: row bị đổi sang removed VẪN bị ghi đè (KHÔNG compare-and-set)", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "approved");
+    dbState.beforeListingWrite = () => {
+      listing.status = "removed";
+    };
+
+    const updated = await db.orm.public.Listing
+      .where({ id: listing.id, status: "approved" })
+      .update({ title: "BỊ GHI ĐÈ" });
+
+    expect(updated).toMatchObject({ id: listing.id, title: "BỊ GHI ĐÈ" });
+    // row bị ghi đè title dù status đã là removed — filter không re-check
+    expect(listingRow(listing.id)).toMatchObject({ status: "removed", title: "BỊ GHI ĐÈ" });
+  });
+
+  it(".deleteAll() compile filter VÀO statement: row bị đổi sang removed → 0 rows, row SỐNG SÓT (compare-and-set)", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "approved");
+    dbState.beforeListingWrite = () => {
+      listing.status = "removed";
+    };
+
+    const deleted = await db.orm.public.Listing
+      .where({ id: listing.id, status: "approved" })
+      .deleteAll();
+
+    expect(deleted).toHaveLength(0); // 0 rows — filter thấy removed
+    expect(listingRow(listing.id)).toMatchObject({ status: "removed" }); // SỐNG SÓT
   });
 });
 
@@ -742,9 +848,12 @@ describe("R5 source contract — isModerationLocked consumed bởi cả ba guard
     expect(listingsSrc).toMatch(/import \{[^}]*isModerationLocked[^}]*\} from "@\/src\/lib\/moderation"/);
   });
 
-  it("CẢ BA guard (update/toggle/delete) gọi isModerationLocked — đúng 3 call sites", () => {
+  it("CẢ BA guard (update/toggle/delete) + classification re-read gọi isModerationLocked — đúng 4 call sites", () => {
     const calls = listingsSrc.match(/isModerationLocked\(/g) ?? [];
-    expect(calls).toHaveLength(3);
+    // 3 guard (update/toggle/delete) + 1 call site phân loại typed error trong
+    // tx của updateListingAction (item 7 — re-read sau CAS 0 rows: takedown →
+    // LISTING_MODERATION_LOCKED, admin duyệt/từ chối → LISTING_CONCURRENT_CHANGE).
+    expect(calls).toHaveLength(4);
   });
 
   it("KHÔNG hardcode chuỗi removed và KHÔNG raw .includes trên tuple trong listings.ts", () => {

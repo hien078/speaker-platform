@@ -16,8 +16,10 @@ import {
   MODERATION_CASE_STATES,
   MODERATION_DECISION_REASON_CODES,
   MODERATION_PRIORITIES,
+  ACTIVE_MODERATION_CASE_STATES,
   canTransition,
   getCaseSubjectUserId,
+  isCaseViewerConflicted,
   type ModerationCaseState,
   type ReportTargetType,
   type SuspensionReasonCode,
@@ -392,28 +394,26 @@ export async function liftSuspensionAction(formData: FormData): Promise<void> {
 /**
  * Conflict-of-interest (S9 — fail closed; recusal POLICY = Ambiguity A7):
  * admin là SUBJECT hoặc REPORTER của case thì không được ra quyết định trên
- * case đó. Subject ưu tiên từ ModerationEvidence.subjectUserId (bất biến —
- * chụp tại report time, sống qua edit/delete của source), fallback live
- * lookup getCaseSubjectUserId khi case không có evidence.
+ * case đó. Delegation về isCaseViewerConflicted (domain module — CÙNG nguồn
+ * truth với recusal-on-views của case page, item 3 review fix Task 6):
+ * subject ưu tiên ModerationEvidence.subjectUserId (bất biến — chụp tại
+ * report time, sống qua edit/delete của source), fallback live lookup
+ * getCaseSubjectUserId; reporter qua AbuseReport existence.
  */
 async function assertActorNotConflicted(
   caseRow: { id: string; targetType: string; targetId: string },
   actorId: string,
 ): Promise<void> {
-  const evidence = await db.orm.public.ModerationEvidence
-    .where({ caseId: caseRow.id })
-    .select("subjectUserId")
-    .first();
-  const subjectUserId =
-    evidence?.subjectUserId ??
-    (await getCaseSubjectUserId(caseRow.targetType as ReportTargetType, caseRow.targetId));
-  if (subjectUserId !== null && subjectUserId === actorId) {
+  if (
+    await isCaseViewerConflicted(
+      caseRow.id,
+      caseRow.targetType as ReportTargetType,
+      caseRow.targetId,
+      actorId,
+    )
+  ) {
     throw new Error("MODERATOR_CONFLICT");
   }
-  const reported = await db.orm.public.AbuseReport
-    .where({ caseId: caseRow.id, reporterId: actorId })
-    .first();
-  if (reported !== null) throw new Error("MODERATOR_CONFLICT");
 }
 
 /**
@@ -454,6 +454,22 @@ export async function assignModerationCaseAction(formData: FormData): Promise<vo
   if (caseRow === null) throw new Error("CASE_NOT_FOUND");
   if (caseRow.state === "closed") throw new Error("CASE_CLOSED");
   await assertActorNotConflicted(caseRow, ctx.user.id);
+
+  // 4b. ASSIGNEE_CONFLICT (review fix Task 6 item 6 — "ai gán cho ai" ghi
+  // vào A7/A1 register): assignee là SUBJECT hoặc REPORTER của case thì
+  // KHÔNG được gán — không ai tự xử lý case về chính mình, reporter không
+  // xử lý chính case mình báo cáo (đối xứng MODERATOR_CONFLICT của actor;
+  // eligibility check ở bước 3 chỉ chặn role, KHÔNG chặn xung đột).
+  if (
+    await isCaseViewerConflicted(
+      caseId,
+      caseRow.targetType as ReportTargetType,
+      caseRow.targetId,
+      moderatorId,
+    )
+  ) {
+    throw new Error("ASSIGNEE_CONFLICT");
+  }
 
   // 5. tx — CAS trên assignee cũ + state; RE-READ case BÊN TRONG tx
   //    (Global Constraints #5 — không tin read trước tx cho một claim).
@@ -616,6 +632,11 @@ export async function transitionModerationCaseAction(formData: FormData): Promis
  * ∈ actionable; case pre-action → atomically `actioned` (resolved_by_sanction)
  * trong cùng tx — appeal link người dùng nhận được trỏ vào case ĐANG actioned.
  * previousStatus ghi vào AuditEvent.detail (SHOULD-FIX 5 — cho A4 restore).
+ *
+ * KHÔNG caseId (review fix Task 6 item 4): conflict check chống CHÍNH listing
+ * (seller / reporter trên case active nhắm listing → MODERATOR_CONFLICT);
+ * case ACTIVE đang nhắm listing → CASE_REQUIRED_FOR_TAKEDOWN (fail-closed —
+ * moderator đi qua case để chạy đủ case checks + atomic actioned).
  */
 export async function takeDownListingAction(formData: FormData): Promise<void> {
   const listingId = String(formData.get("listingId") ?? "").trim();
@@ -648,6 +669,33 @@ export async function takeDownListingAction(formData: FormData): Promise<void> {
       throw new Error("CASE_NOT_ACTIONABLE");
     }
     await assertActorNotConflicted(caseRow, ctx.user.id);
+  } else {
+    // Review fix Task 6 (item 4 — recusal gap khi KHÔNG caseId): conflict
+    // check chống CHÍNH listing — actor là SELLER (tự takedown listing của
+    // mình qua đường moderation = self-target sanction) hoặc REPORTER trên
+    // case ACTIVE nhắm listing (tự rút quyết định case mình đã báo cáo) →
+    // MODERATOR_CONFLICT (S9 fail closed — recusal policy A7).
+    const listing = await db.orm.public.Listing.first({ id: listingId });
+    if (listing !== null && listing.sellerId === ctx.user.id) {
+      throw new Error("MODERATOR_CONFLICT");
+    }
+    const activeCase = await db.orm.public.ModerationCase
+      .where({ targetType: "listing", targetId: listingId })
+      .where((c) => c.state.in([...ACTIVE_MODERATION_CASE_STATES]))
+      .first();
+    if (activeCase !== null) {
+      const reported = await db.orm.public.AbuseReport
+        .where({ caseId: activeCase.id, reporterId: ctx.user.id })
+        .first();
+      if (reported !== null) throw new Error("MODERATOR_CONFLICT");
+      // Fail-closed (DECISION — record ở report fix Task 6): case ACTIVE đang
+      // nhắm listing + KHÔNG caseId → takedown PHẢI đi qua case (chạy đủ case
+      // checks + atomic actioned + bookkeeping S6) — KHÔNG auto-link case
+      // moderator chưa review, KHÔNG takedown "mù" bên cạnh case đang điều
+      // tra. Case không còn active (actioned/dismissed/appealed/closed) →
+      // bookkeeping đã xong/đã đóng → takedown không kèm case được phép.
+      throw new Error("CASE_REQUIRED_FOR_TAKEDOWN");
+    }
   }
 
   // 4. tx — đọc listing TRONG tx (SHOULD-FIX 5), atomic claim, case→actioned,

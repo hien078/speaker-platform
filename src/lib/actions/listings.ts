@@ -189,7 +189,17 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
   revalidatePath("/sell/my");
 }
 
-/** Sửa tin đăng (chỉ khi chưa bán / chưa có đơn) */
+/**
+ * Sửa tin đăng (chỉ khi chưa bán / không có đơn).
+ *
+ * Review fix Task 6 (item 7): conditional status write (CAS theo status đã
+ * đọc) là write ĐẦU TIÊN trong MỘT tx cùng image diff + PriceHistory —
+ * listing bị takedown giữa chừng → 0 rows → typed error → rollback → ảnh
+ * của listing đã removed KHÔNG bị đổi. 0 rows được PHÂN LOẠI qua re-read:
+ * moderation lock (takedown) → LISTING_MODERATION_LOCKED; admin duyệt/từ
+ * chối thường → LISTING_CONCURRENT_CHANGE (distinct typed error — không
+ * masquerade).
+ */
 export async function updateListingAction(
   _prev: ListingFormState,
   formData: FormData,
@@ -250,58 +260,75 @@ export async function updateListingAction(
     if (blocked) return blocked; // KHÔNG mutation ảnh/video nào xảy ra trước điểm này
   }
 
-  // cập nhật ảnh: xóa ảnh cũ không còn, thêm ảnh mới
-  const oldImages = await db.orm.public.ListingImage
-    .where({ listingId })
-    .orderBy((i) => i.sortOrder.asc())
-    .all();
-  const oldUrls = oldImages.map((i) => i.url);
-  const removed = oldUrls.filter((u) => !images.includes(u));
-  for (const url of removed) {
-    await db.orm.public.ListingImage.where({ listingId, url }).delete();
-  }
-  let sort = 0;
-  for (const url of images) {
-    const exists = oldImages.find((i) => i.url === url);
-    if (exists) {
-      await db.orm.public.ListingImage.where({ id: exists.id }).update({ sortOrder: sort });
-    } else {
-      await db.orm.public.ListingImage.create({ listingId, url, sortOrder: sort });
+  // ─── MỘT tx: CAS TRƯỚC, image diff SAU (review fix Task 6 item 7) ───────────
+  // CAS theo status đã đọc là write ĐẦU TIÊN trong tx — listing bị takedown
+  // (hoặc admin duyệt/từ chối) đổi row giữa read và write → 0 rows → typed
+  // error → tx rollback → ảnh KHÔNG bao giờ bị đổi tay trên listing đã đổi
+  // trạng thái (code cũ mutate ảnh TRƯỚC CAS: listing bị takedown vẫn bị ĐỔI
+  // ẢNH dù action throw ngay sau đó).
+  await db.transaction(async (tx) => {
+    const claimed = await tx.orm.public.Listing
+      .where({ id: listingId, status: listing.status })
+      .updateAll({
+        title,
+        categoryId: category.id,
+        brandId,
+        condition: condition as "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts",
+        price: Math.round(price),
+        city,
+        description,
+        negotiable,
+        acceptExchange,
+        productModelId,
+        status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
+      });
+    if (claimed.length === 0) {
+      // Phân loại typed error (item 7): moderation lock (takedown) KHÔNG phải
+      // lỗi "trạng thái đổi tay" của admin duyệt/từ chối thường — hai lỗi
+      // RIÊNG, KHÔNG masquerade (seller bị reject thấy đúng lỗi, không hiểu
+      // lầm listing bị moderation takedown). Re-read fresh trong tx —
+      // statement sau lock wait thấy commit của bên thắng race (READ
+      // COMMITTED); row biến mất → concurrent change.
+      const fresh = await tx.orm.public.Listing.first({ id: listingId });
+      if (fresh !== null && isModerationLocked(fresh.status)) {
+        throw new Error("LISTING_MODERATION_LOCKED");
+      }
+      throw new Error("LISTING_CONCURRENT_CHANGE");
     }
-    sort++;
-  }
 
-  // CAS theo status đã đọc — admin duyệt/từ chối song song không bị ghi đè
-  // bởi lần sửa này. SHOULD-FIX 3 (Batch 3 Task 6): 0 rows = trạng thái đã
-  // đổi tay giữa read và write (duyệt/từ chối, hoặc moderation takedown) —
-  // conditional write THUA thay vì clobber, typed error cho seller tải lại.
-  const claimed = await db.orm.public.Listing
-    .where({ id: listingId, status: listing.status })
-    .updateAll({
-      title,
-      categoryId: category.id,
-      brandId,
-      condition: condition as "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts",
-      price: Math.round(price),
-      city,
-      description,
-      negotiable,
-      acceptExchange,
-      productModelId,
-      status: contentChanged && ["approved", "rejected"].includes(listing.status) ? "pending" : listing.status,
-    });
-  if (claimed.length === 0) {
-    throw new Error("LISTING_MODERATION_LOCKED");
-  }
-  const finalModelId = productModelId ?? listing.productModelId;
-  if (finalModelId && listing.price !== Math.round(price)) {
-    await db.orm.public.PriceHistory.create({
-      modelId: finalModelId,
-      listingId: listing.id,
-      price: Math.round(price),
-      kind: "reprice",
-    });
-  }
+    // cập nhật ảnh: xóa ảnh cũ không còn, thêm ảnh mới — SAU claim, cùng tx
+    const oldImages = await tx.orm.public.ListingImage
+      .where({ listingId })
+      .orderBy((i) => i.sortOrder.asc())
+      .all();
+    const oldUrls = oldImages.map((i) => i.url);
+    const removed = oldUrls.filter((u) => !images.includes(u));
+    for (const url of removed) {
+      // deleteAll (KHÔNG .delete()): (listingId, url) KHÔNG có unique constraint —
+      // nhiều row có thể cùng url; terminal đơn-row chỉ xoá row ĐẦU.
+      await tx.orm.public.ListingImage.where({ listingId, url }).deleteAll();
+    }
+    let sort = 0;
+    for (const url of images) {
+      const exists = oldImages.find((i) => i.url === url);
+      if (exists) {
+        await tx.orm.public.ListingImage.where({ id: exists.id }).update({ sortOrder: sort });
+      } else {
+        await tx.orm.public.ListingImage.create({ listingId, url, sortOrder: sort });
+      }
+      sort++;
+    }
+
+    const finalModelId = productModelId ?? listing.productModelId;
+    if (finalModelId && listing.price !== Math.round(price)) {
+      await tx.orm.public.PriceHistory.create({
+        modelId: finalModelId,
+        listingId: listing.id,
+        price: Math.round(price),
+        kind: "reprice",
+      });
+    }
+  });
 
   revalidatePath("/sell/my");
   revalidatePath(`/listings/${listing.slug}`);
@@ -331,15 +358,18 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
       .updateAll({ status: "hidden" });
     if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
   } else {
-    // Xóa CÓ ĐIỀU KIỆN theo status đã đọc (SHOULD-FIX 3): 0 rows = row đổi tay
-    // (moderation takedown) → typed error, row SỐNG SÓT — ảnh/cart chỉ dọn
-    // SAU khi claim thành công (không phá dữ liệu khi claim thua).
+    // Xóa CÓ ĐIỀU KIỆN theo status đã đọc (SHOULD-FIX 3) — deleteAll compile
+    // điều kiện status VÀO câu DELETE (Prisma 8 .delete() đơn-row select rồi
+    // xoá theo id → KHÔNG atomic, takedown song song bị xoá mất). 0 rows = row
+    // đổi tay (moderation takedown) → typed error, row SỐNG SÓT.
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: listing.status })
-      .delete();
-    if (claimed === null) throw new Error("LISTING_MODERATION_LOCKED");
-    await db.orm.public.ListingImage.where({ listingId }).delete();
-    await db.orm.public.CartItem.where({ listingId }).delete();
+      .deleteAll();
+    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+    // FK cascade đã xoá ảnh/cart theo Listing; deleteAll giữ đúng nghĩa nếu
+    // cascade đổi sau này.
+    await db.orm.public.ListingImage.where({ listingId }).deleteAll();
+    await db.orm.public.CartItem.where({ listingId }).deleteAll();
   }
 
   revalidatePath("/sell/my");
