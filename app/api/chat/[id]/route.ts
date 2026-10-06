@@ -85,8 +85,12 @@ export async function POST(
   try {
     await assertCanSendMessage(user.id, recipientId);
   } catch (e) {
-    // e.message === "CHAT_BLOCKED" | "ACCOUNT_SUSPENDED" — typed, client hiển thị banner
-    return Response.json({ error: (e as Error).message }, { status: 403 });
+    // CHỈ hai typed guard error → 403 với code cho client hiển thị banner.
+    // Lỗi DB/infra khác PHẢI rethrow (Next trả 500, observability bắt) —
+    // đúm bọc thành 403 vừa sai semantics vừa leak message nội bộ ra JSON.
+    const message = e instanceof Error ? e.message : String(e);
+    if (message !== "CHAT_BLOCKED" && message !== "ACCOUNT_SUSPENDED") throw e;
+    return Response.json({ error: message }, { status: 403 });
   }
 
   const body = (await request.json()) as { body?: string; imageUrl?: string };

@@ -93,6 +93,12 @@ const dbState = vi.hoisted(() => ({
   blocks: [] as Row[],
   suspensions: [] as Row[],
   notifications: [] as Row[],
+  /**
+   * Khi ≠ null: MỌI read trên UserBlock/UserSuspension (model của moderation
+   * guard) ném Error(message) — mô phỏng lỗi DB/infra nổ ra TRONG guard, dùng
+   * cho hợp đồng "route KHÔNG đúm bọc lỗi infra thành 403 / KHÔNG leak message".
+   */
+  guardDbError: null as string | null,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -147,7 +153,7 @@ vi.mock("@/src/prisma/db.client", () => {
     }
   };
 
-  const makeModel = (rows: Row[], attach?: (row: Row) => void) => {
+  const makeModel = (rows: Row[], attach?: (row: Row) => void, fail?: () => string | null) => {
     const query = (
       preds: Pred[],
       sortSpec: SortSpec | null,
@@ -158,6 +164,8 @@ vi.mock("@/src/prisma/db.client", () => {
       orderBy: (cb: (ops: unknown) => unknown) => query(preds, orderBySpec(cb), limitN),
       limit: (n: number) => query(preds, sortSpec, n),
       first: async (filter?: Pred) => {
+        const errMsg = fail?.() ?? null;
+        if (errMsg !== null) throw new Error(errMsg);
         const all = [...preds, ...(filter ? [filter] : [])];
         const hit = rows.find((r) => all.every((p) => matches(r, p)));
         if (hit === undefined) return null;
@@ -166,6 +174,8 @@ vi.mock("@/src/prisma/db.client", () => {
         return copy;
       },
       all: async () => {
+        const errMsg = fail?.() ?? null;
+        if (errMsg !== null) throw new Error(errMsg);
         let hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         if (sortSpec !== null) hit = sortRows(hit, sortSpec);
         if (limitN !== null) hit = hit.slice(0, limitN);
@@ -216,18 +226,14 @@ vi.mock("@/src/prisma/db.client", () => {
           Listing: makeModel(dbState.listings),
           Conversation: makeModel(dbState.conversations),
           Message: makeModel(dbState.messages, attachSender),
-          UserBlock: makeModel(dbState.blocks),
-          UserSuspension: makeStatefulSuspensionModel(),
+          // Model của moderation guard — fail() móc lỗi DB/infra mô phỏng
+          UserBlock: makeModel(dbState.blocks, undefined, () => dbState.guardDbError),
+          UserSuspension: makeModel(dbState.suspensions, undefined, () => dbState.guardDbError),
           Notification: makeModel(dbState.notifications),
         },
       },
     },
   };
-
-  /** UserSuspension — where/first như makeModel (guard đọc status active). */
-  function makeStatefulSuspensionModel() {
-    return makeModel(dbState.suspensions);
-  }
 });
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
@@ -344,6 +350,7 @@ const seedBase = (): void => {
   dbState.blocks.length = 0;
   dbState.suspensions.length = 0;
   dbState.notifications.length = 0;
+  dbState.guardDbError = null;
   dbState.users.push({ ...BUYER }, { ...SELLER });
   dbState.listings.push({ ...LISTING }, { ...LISTING2 });
   dbState.conversations.push({ ...CONVO });
@@ -474,6 +481,17 @@ describe("POST /api/chat/[id] — block hai hướng + đình chỉ sender-side"
     expect(denied.status).toBe(429);
     expect(denied.headers.get("Retry-After")).toBeTruthy();
     expect(dbState.messages.length).toBe(30); // không Message nào được tạo thêm
+  });
+
+  it("lỗi DB/infra TRONG guard → rethrow, KHÔNG đúm bọc 403, KHÔNG leak message (review fix)", async () => {
+    // Guard read (UserSuspension/UserBlock) ném lỗi infra — route PHẢI rethrow
+    // để Next trả 500 + observability bắt, KHÔNG trả 403 kèm message nội bộ.
+    dbState.guardDbError = "ECONNRESET: connection terminated";
+    login(BUYER);
+    await expect(postMessage(CONVO.id as string, "chào")).rejects.toThrow(
+      "ECONNRESET: connection terminated",
+    );
+    expect(dbState.messages.length).toBe(0); // không Message nào được tạo
   });
 
   it("happy path vẫn tạo Message + cập nhật lastMessageAt", async () => {
