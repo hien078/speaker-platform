@@ -229,7 +229,9 @@ export async function updateListingAction(
   const oldUrls = oldImages.map((i) => i.url);
   const removed = oldUrls.filter((u) => !images.includes(u));
   for (const url of removed) {
-    await db.orm.public.ListingImage.where({ listingId, url }).delete();
+    // deleteAll (KHÔNG .delete()): (listingId, url) KHÔNG có unique constraint —
+    // nhiều row có thể cùng url; terminal đơn-row chỉ xoá row ĐẦU.
+    await db.orm.public.ListingImage.where({ listingId, url }).deleteAll();
   }
   let sort = 0;
   for (const url of images) {
@@ -290,8 +292,11 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
     // đã nằm trong đơn — chỉ cho ẩn
     await db.orm.public.Listing.where({ id: listingId }).update({ status: "hidden" });
   } else {
-    await db.orm.public.ListingImage.where({ listingId }).delete();
-    await db.orm.public.CartItem.where({ listingId }).delete();
+    // deleteAll (KHÔNG .delete()): xoá MỌI ảnh / cart item của tin — terminal
+    // đơn-row chỉ xoá row ĐẦU (hiện FK cascade của Listing.delete() đang che
+    // mask; deleteAll đúng nghĩa luôn).
+    await db.orm.public.ListingImage.where({ listingId }).deleteAll();
+    await db.orm.public.CartItem.where({ listingId }).deleteAll();
     await db.orm.public.Listing.where({ id: listingId }).delete();
   }
 

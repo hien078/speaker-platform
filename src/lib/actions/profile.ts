@@ -60,6 +60,10 @@ export async function updateProfileAction(
   // đọc — request song song đổi phone giữa read và write → 0 row → typed error,
   // KHÔNG clobber. phoneVerifiedAt reset trong CÙNG statement khi số đổi (số
   // mới chưa từng được xác minh cho tài khoản này).
+  // updateAll (KHÔNG .update()): terminal đơn-row select row khớp rồi write
+  // WHERE id — phone condition KHÔNG nằm trong statement write (khoảng
+  // select→write không atomic, race clobber số đã xác minh). updateAll compile
+  // TOÀN BỘ filter (id + phone) vào MỘT statement — 0 row = phone đã đổi.
   const phoneChanged = phoneNormalized !== (stored.phone ?? null);
   let query = db.orm.public.User.where({ id: user.id });
   if (stored.phone === null) {
@@ -67,14 +71,14 @@ export async function updateProfileAction(
   } else {
     query = query.where({ phone: stored.phone });
   }
-  const updated = await query.update({
+  const updated = await query.updateAll({
     name,
     phone: phoneNormalized,
     city,
     bio,
     ...(phoneChanged ? { phoneVerifiedAt: null } : {}),
   });
-  if (!updated) {
+  if (updated.length === 0) {
     return {
       error: "Số điện thoại vừa thay đổi từ thiết bị khác — tải lại trang rồi thử lại.",
       code: "PHONE_CONCURRENT_CHANGE",

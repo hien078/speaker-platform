@@ -33,12 +33,14 @@ export async function mergeModelAction(formData: FormData): Promise<void> {
 
   await db.transaction(async (tx) => {
     // chuyển listings + price history sang model gốc
+    // updateAll (KHÔNG .update()): terminal đơn-row chỉ chuyển row ĐẦU khớp
+    // productModelId/modelId — merge phải chuyển TẤT CẢ rows của model.
     await tx.orm.public.Listing
       .where({ productModelId: modelId })
-      .update({ productModelId: targetId });
+      .updateAll({ productModelId: targetId });
     await tx.orm.public.PriceHistory
       .where({ modelId })
-      .update({ modelId: targetId });
+      .updateAll({ modelId: targetId });
     await tx.orm.public.ProductModel
       .where({ id: modelId })
       .update({ status: "merged", mergedIntoId: targetId });

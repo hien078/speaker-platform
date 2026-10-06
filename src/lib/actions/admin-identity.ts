@@ -345,7 +345,9 @@ export async function regenerateRecoveryCodesAction(
   // ra để rollback toàn bộ.
   const newCodes = generateRecoveryCodes();
   await db.transaction(async (tx) => {
-    await tx.orm.public.AdminRecoveryCode.where({ mfaId: mfa.id }).delete();
+    // deleteAll (KHÔNG .delete()): xoá MỌI mã của MFA — terminal đơn-row chỉ
+    // xoá row ĐẦU khớp mfaId, 9 mã cũ sống sót + 10 mã mới = 2 bộ cùng tồn tại.
+    await tx.orm.public.AdminRecoveryCode.where({ mfaId: mfa.id }).deleteAll();
     for (const one of newCodes) {
       await tx.orm.public.AdminRecoveryCode.create({
         mfaId: mfa.id,

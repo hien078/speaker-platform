@@ -141,7 +141,19 @@ vi.mock("@/src/prisma/db.client", () => {
         for (const r of hit) Object.assign(r, data);
         return hit.map((r) => ({ ...r }));
       },
+      // Trung thực với ORM thật (node_modules/@prisma/orm-family-sql/dist/
+      // orm-client.mjs #findFirstMatchingRowIdentityWhere): .delete() SELECT row
+      // khớp filter ĐẦU TIÊN rồi DELETE WHERE id — chỉ MỘT row, filter không nằm
+      // trong statement delete. Muốn xoá mọi row khớp filter → deleteAll().
       delete: async () => {
+        const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
+        if (hit.length === 0) return null;
+        const first = hit[0]!;
+        const i = rows.indexOf(first);
+        if (i >= 0) rows.splice(i, 1);
+        return { ...first };
+      },
+      deleteAll: async () => {
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         for (const r of hit) {
           const i = rows.indexOf(r);
@@ -777,6 +789,23 @@ describe("regenerateRecoveryCodesAction — sinh lại mã khôi phục (tự ph
     const evt = dbState.audits.find((r) => r.action === "admin.mfa_recovery_codes_regenerated");
     expect(evt).toMatchObject({ actorId: "admin-ops", subjectId: "admin-ops" });
     expect(JSON.stringify(evt)).not.toContain(newCodes[0]!); // spec §4.8 — không mã thô
+  });
+
+  it("mã cũ chết SẠCH toàn bộ 10 (deleteAll semantics): đúng 10 row, MỌI mã cũ dùng lại → null (old .delete() chỉ xoá 1 row đầu)", async () => {
+    login(ADMIN_OPS, { isAdmin: true });
+    const oldCodes = enrolled!.recoveryCodes;
+    const before = dbState.codes.length; // 10 row cũ
+
+    const state = await regenerateRecoveryCodesAction({}, fd({ mfaCode: currentTotp() }));
+
+    expect(state.error).toBeUndefined();
+    // đúng 10 row MỚI — không phải "9 cũ sống sót + 10 mới" khi action dùng
+    // .delete() (select-first-matching-row) thay vì .deleteAll()
+    expect(dbState.codes).toHaveLength(before);
+    // MỌI mã cũ đã chết — dùng lại mã BẤT KỲ → null (không chỉ mã đầu)
+    for (const c of oldCodes) {
+      expect(await verifyAdminMfaCode(ADMIN_OPS.id, c)).toBeNull();
+    }
   });
 
   it("mã sai → error, KHÔNG mutation (mã cũ vẫn dùng được), không audit regenerate", async () => {

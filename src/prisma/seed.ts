@@ -182,26 +182,29 @@ async function main() {
   console.log("🌱 Bắt đầu seed…");
 
   // ─── Xóa dữ liệu cũ (theo thứ tự FK) ───
-  await db.orm.public.AdminAuditLog.where({}).delete();
-  await db.orm.public.OrderStatusHistory.where({}).delete();
-  await db.orm.public.Dispute.where({}).delete();
-  await db.orm.public.Review.where({}).delete();
-  await db.orm.public.Message.where({}).delete();
-  await db.orm.public.Conversation.where({}).delete();
-  await db.orm.public.Payment.where({}).delete();
-  await db.orm.public.Payout.where({}).delete();
-  await db.orm.public.OrderItem.where({}).delete();
-  await db.orm.public.Order.where({}).delete();
-  await db.orm.public.ExchangeOffer.where({}).delete();
-  await db.orm.public.CartItem.where({}).delete();
-  await db.orm.public.Cart.where({}).delete();
-  await db.orm.public.WishlistItem.where({}).delete();
-  await db.orm.public.ListingImage.where({}).delete();
-  await db.orm.public.Listing.where({}).delete();
-  await db.orm.public.Category.where({}).delete();
-  await db.orm.public.Brand.where({}).delete();
-  await db.orm.public.User.where({}).delete();
-  await db.orm.public.PlatformSetting.where({}).delete();
+  // deleteAll (KHÔNG .delete()): terminal đơn-row chỉ xoá row ĐẦU khớp filter
+  // — seed re-run phải SẠCH từng bảng, nếu không create đụng unique constraint
+  // (User.email/Cart.userId…) ngay dòng đầu.
+  await db.orm.public.AdminAuditLog.where({}).deleteAll();
+  await db.orm.public.OrderStatusHistory.where({}).deleteAll();
+  await db.orm.public.Dispute.where({}).deleteAll();
+  await db.orm.public.Review.where({}).deleteAll();
+  await db.orm.public.Message.where({}).deleteAll();
+  await db.orm.public.Conversation.where({}).deleteAll();
+  await db.orm.public.Payment.where({}).deleteAll();
+  await db.orm.public.Payout.where({}).deleteAll();
+  await db.orm.public.OrderItem.where({}).deleteAll();
+  await db.orm.public.Order.where({}).deleteAll();
+  await db.orm.public.ExchangeOffer.where({}).deleteAll();
+  await db.orm.public.CartItem.where({}).deleteAll();
+  await db.orm.public.Cart.where({}).deleteAll();
+  await db.orm.public.WishlistItem.where({}).deleteAll();
+  await db.orm.public.ListingImage.where({}).deleteAll();
+  await db.orm.public.Listing.where({}).deleteAll();
+  await db.orm.public.Category.where({}).deleteAll();
+  await db.orm.public.Brand.where({}).deleteAll();
+  await db.orm.public.User.where({}).deleteAll();
+  await db.orm.public.PlatformSetting.where({}).deleteAll();
 
   // ─── Categories ───
   const categories = new Map<string, string>();
