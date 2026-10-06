@@ -79,7 +79,6 @@ vi.mock("@/src/prisma/db.client", () => {
 
 vi.mock("@/src/lib/auth", () => ({
   requireUser: vi.fn(),
-  requireAdmin: vi.fn(),
   getCurrentUser: vi.fn(),
 }));
 vi.mock("@/src/lib/rate-limit", () => ({

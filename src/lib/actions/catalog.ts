@@ -2,27 +2,27 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db.client";
-import { requireAdmin } from "@/src/lib/auth";
+import { requireCapability } from "@/src/lib/rbac";
 import { audit } from "@/src/lib/actions/helpers";
 import { slugify } from "@/src/lib/utils";
 
 /** Duyệt model vào catalog công khai */
 export async function approveModelAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate"); // catalog = listing-quality ops — cùng mapping admin/catalog page (plan Task 4)
   const modelId = String(formData.get("modelId") ?? "");
   const model = await db.orm.public.ProductModel.first({ id: modelId });
   if (!model) return;
   await db.orm.public.ProductModel
     .where({ id: modelId })
     .update({ status: "approved" });
-  await audit(admin.id, "approve_model", "ProductModel", modelId, `${model.brandId}/${model.name}`);
+  await audit(admin.user.id, "approve_model", "ProductModel", modelId, `${model.brandId}/${model.name}`);
   revalidatePath("/admin/catalog");
   revalidatePath("/models");
 }
 
 /** Gộp model trùng vào model gốc (§68) */
 export async function mergeModelAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const modelId = String(formData.get("modelId") ?? "");
   const targetId = String(formData.get("targetId") ?? "");
   if (modelId === targetId) return;
@@ -43,13 +43,13 @@ export async function mergeModelAction(formData: FormData): Promise<void> {
       .where({ id: modelId })
       .update({ status: "merged", mergedIntoId: targetId });
   });
-  await audit(admin.id, "merge_model", "ProductModel", modelId, `${model.name} → ${target.name}`);
+  await audit(admin.user.id, "merge_model", "ProductModel", modelId, `${model.name} → ${target.name}`);
   revalidatePath("/admin/catalog");
 }
 
 /** Tạo model mới từ admin */
 export async function createModelAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const name = String(formData.get("name") ?? "").trim();
   const brandId = String(formData.get("brandId") ?? "");
   const categoryId = String(formData.get("categoryId") ?? "");
@@ -73,6 +73,6 @@ export async function createModelAction(formData: FormData): Promise<void> {
     description,
     status: "approved",
   });
-  await audit(admin.id, "create_model", "ProductModel", slug, name);
+  await audit(admin.user.id, "create_model", "ProductModel", slug, name);
   revalidatePath("/admin/catalog");
 }

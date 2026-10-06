@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db.client";
-import { requireAdmin } from "@/src/lib/auth";
+import { requireCapability, requireAdminUser } from "@/src/lib/rbac";
 import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
 import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
@@ -12,7 +12,7 @@ import { notify } from "@/src/lib/notify";
 
 /** Duyệt tin đăng */
 export async function approveListingAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const listingId = String(formData.get("listingId") ?? "");
 
   const listing = await db.orm.public.Listing.first({ id: listingId });
@@ -22,7 +22,7 @@ export async function approveListingAction(formData: FormData): Promise<void> {
     .where({ id: listingId })
     .update({ status: "approved", rejectionReason: null });
 
-  await audit(admin.id, "approve_listing", "Listing", listingId, listing.title);
+  await audit(admin.user.id, "approve_listing", "Listing", listingId, listing.title);
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin đã được duyệt: ${listing.title.slice(0, 50)}`, "Tin của bạn đang hiển thị trên chợ", `/listings/${listing.slug}`);
   revalidatePath("/admin/listings");
@@ -31,7 +31,7 @@ export async function approveListingAction(formData: FormData): Promise<void> {
 
 /** Từ chối tin đăng */
 export async function rejectListingAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const listingId = String(formData.get("listingId") ?? "");
   const reason = String(formData.get("reason") ?? "").trim() || "Nội dung không rõ ràng, thiếu thông tin";
 
@@ -42,7 +42,7 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
     .where({ id: listingId })
     .update({ status: "rejected", rejectionReason: reason });
 
-  await audit(admin.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
+  await audit(admin.user.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin bị từ chối: ${listing.title.slice(0, 50)}`, `Lý do: ${reason} — sửa tin để duyệt lại`, "/sell/my");
   revalidatePath("/admin/listings");
@@ -51,7 +51,7 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
 /** Xử lý khiếu nại: nghiêng về buyer (hoàn tiền) hoặc seller (giải ngân) */
 export async function resolveDisputeAction(formData: FormData): Promise<void> {
   assertFinancialFeaturesEnabled(); // khiếu nại tài chính = finance mutation — admin không phải escape hatch (spec §4.10)
-  const admin = await requireAdmin();
+  const admin = await requireAdminUser();
   const disputeId = String(formData.get("disputeId") ?? "");
   const resolution = String(formData.get("resolution") ?? "").trim();
   const outcome = String(formData.get("outcome") ?? ""); // resolved_buyer | resolved_seller | closed
@@ -79,7 +79,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "refunded" });
-      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — nghiêng buyer: ${resolution}`, admin.id);
+      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — nghiêng buyer: ${resolution}`, admin.user.id);
       if (isEscrowOrder) {
         // CHỈ escrow mới có tiền trong nền tảng để hoàn
         await recordLedgerTx(tx, "refund", order.id, escrowRefund(order.buyerId, order.totalAmount, `Admin hoàn escrow đơn ${order.code}`));
@@ -106,21 +106,21 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
             status: "released",
           });
         }
-        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân escrow cho seller: ${resolution}`, admin.id);
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân escrow cho seller: ${resolution}`, admin.user.id);
         await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Admin giải ngân đơn ${order.code}`));
       } else {
-        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — nghiêng seller (giao dịch trực tiếp): ${resolution}`, admin.id);
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — nghiêng seller (giao dịch trực tiếp): ${resolution}`, admin.user.id);
       }
     } else {
       // đóng băng tiếp tục → trả đơn về shipped để chờ tự giải ngân
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "shipped" });
-      await recordStatusChange(tx, order.id, "shipped", `Admin đóng khiếu nại — đơn tiếp tục chờ xác nhận: ${resolution}`, admin.id);
+      await recordStatusChange(tx, order.id, "shipped", `Admin đóng khiếu nại — đơn tiếp tục chờ xác nhận: ${resolution}`, admin.user.id);
     }
   });
 
-  await audit(admin.id, "resolve_dispute", "Dispute", disputeId, `Đơn ${order.code}: ${resolution}`);
+  await audit(admin.user.id, "resolve_dispute", "Dispute", disputeId, `Đơn ${order.code}: ${resolution}`);
   await notify(order.buyerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
   await notify(order.sellerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
   revalidatePath("/admin/disputes");
@@ -130,7 +130,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
 /** Cập nhật % hoa hồng danh mục */
 export async function updateCommissionAction(formData: FormData): Promise<void> {
   assertFinancialFeaturesEnabled(); // commission mutation — spec §4.1
-  const admin = await requireAdmin();
+  const admin = await requireAdminUser();
   const categoryId = String(formData.get("categoryId") ?? "");
   const commissionRate = Math.min(30, Math.max(0, Number(formData.get("commissionRate") ?? 5)));
 
@@ -141,14 +141,14 @@ export async function updateCommissionAction(formData: FormData): Promise<void> 
     .where({ id: categoryId })
     .update({ commissionRate });
 
-  await audit(admin.id, "update_commission", "Category", categoryId, `${category.name}: ${commissionRate}%`);
+  await audit(admin.user.id, "update_commission", "Category", categoryId, `${category.name}: ${commissionRate}%`);
   revalidatePath("/admin/settings");
 }
 
 /** Cấu hình nền tảng (key-value) */
 export async function updateSettingAction(formData: FormData): Promise<void> {
   assertFinancialFeaturesEnabled(); // UI settings hôm nay chỉ còn finance keys (escrow/commission) — spec §4.1
-  const admin = await requireAdmin();
+  const admin = await requireAdminUser();
   const key = String(formData.get("key") ?? "");
   const value = String(formData.get("value") ?? "").trim();
   if (!key) return;
@@ -160,13 +160,13 @@ export async function updateSettingAction(formData: FormData): Promise<void> {
     await db.orm.public.PlatformSetting.create({ key, value });
   }
 
-  await audit(admin.id, "update_setting", "PlatformSetting", key, value);
+  await audit(admin.user.id, "update_setting", "PlatformSetting", key, value);
   revalidatePath("/admin/settings");
 }
 
 /** Xác minh người bán (KYC) */
 export async function toggleSellerVerificationAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("seller.verify"); // transitional — Task 10 thay bằng workflow SellerVerification
   const userId = String(formData.get("userId") ?? "");
 
   const target = await db.orm.public.User.first({ id: userId });
@@ -177,6 +177,6 @@ export async function toggleSellerVerificationAction(formData: FormData): Promis
     .where({ id: userId })
     .update({ isVerifiedSeller: next });
 
-  await audit(admin.id, "toggle_seller_verification", "User", userId, `${target.name}: ${next ? "đã xác minh" : "bỏ xác minh"}`);
+  await audit(admin.user.id, "toggle_seller_verification", "User", userId, `${target.name}: ${next ? "đã xác minh" : "bỏ xác minh"}`);
   revalidatePath("/admin/users");
 }

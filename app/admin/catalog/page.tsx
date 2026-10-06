@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireCapability } from "@/src/lib/rbac";
 import { formatDateShort, cn } from "@/src/lib/utils";
 import {
   approveModelAction,
@@ -17,6 +18,9 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function AdminCatalogPage() {
+  // Guard server-side (spec §4.5) — listing.moderate: catalog model approval là
+  // listing-quality operations (recorded mapping decision, plan Task 4).
+  await requireCapability("listing.moderate");
   const [models, brands, categories] = await Promise.all([
     db.orm.public.ProductModel
       .include("brand", (b) => b.select("name"))

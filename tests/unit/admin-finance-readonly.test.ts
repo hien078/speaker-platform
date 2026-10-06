@@ -4,7 +4,8 @@
  * Khi FINANCIAL_FEATURES_ENABLED=false (mặc định private beta):
  *
  *  1. Ranh giới admin GIỮ NGUYÊN (spec §4.5 — Batch này không mở rộng quyền):
- *     chưa đăng nhập → redirect /login; role != admin → redirect /.
+ *     chưa đăng nhập → redirect /login; không có adminRole → redirect /
+ *     (Batch 2 Task 4: cổng đọc User.adminRole qua rbac — spec §8.5).
  *  2. Bản ghi tài chính lịch sử VẪN ĐỌC ĐƯỢC sau ranh giới đó (spec §4.3):
  *     dashboard / orders / disputes / withdraws / settings render với dữ liệu
  *     lịch sử (fixture) — không xóa code, không xóa dữ liệu.
@@ -37,14 +38,21 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-/** Chế độ db mock: strict (mặc định) = mọi truy cập ném lỗi; fixture = trả bản ghi lịch sử. */
-const dbState = vi.hoisted(() => ({ strict: true }));
+// Session seam (Batch 2 Task 4): layout/pages/actions admin đọc quyền qua
+// rbac.requireAdminUser/requireCapability → getSessionFromCookie — điều
+// khiển được từ test, guard thật chạy qua rbac thật.
+vi.mock("@/src/lib/session", () => ({
+  getSessionFromCookie: vi.fn(),
+}));
 
 vi.mock("@/src/lib/auth", () => ({
   getCurrentUser: vi.fn(),
   requireUser: vi.fn(),
-  requireAdmin: vi.fn(),
 }));
+
+/** Chế độ db mock: strict (mặc định) = mọi truy cập ném lỗi; fixture = trả bản ghi lịch sử. */
+const dbState = vi.hoisted(() => ({ strict: true }));
+
 vi.mock("@/src/lib/notify", () => ({ notify: vi.fn() }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -199,7 +207,7 @@ vi.mock("@/src/prisma/db.client", () => {
   return { db };
 });
 
-import { getCurrentUser, requireAdmin } from "@/src/lib/auth";
+import { getSessionFromCookie } from "@/src/lib/session";
 import { DormantFinanceNotice } from "../../app/admin/dormant-notice";
 import * as adminLayout from "../../app/admin/layout";
 import * as adminDashboard from "../../app/admin/page";
@@ -214,8 +222,7 @@ import {
 } from "@/src/lib/actions/admin";
 import { processWithdrawAction } from "@/src/lib/actions/withdraw";
 
-const getCurrentUserMock = vi.mocked(getCurrentUser);
-const requireAdminMock = vi.mocked(requireAdmin);
+const getSessionMock = vi.mocked(getSessionFromCookie);
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
@@ -239,6 +246,25 @@ const ADMIN_USER = {
   adminRole: null,
   sessionId: "sess-fixture",
 } as const;
+
+/** Session fixture — shape SessionInfo (Task 2). */
+const ADMIN_SESSION = {
+  id: "sess-fixture",
+  userId: "admin-1",
+  isAdmin: true,
+  createdAt: "2026-10-06T08:00:00.000Z",
+  lastSeenAt: null,
+  expiresAt: "2026-10-06T20:00:00.000Z",
+  steppedUpAt: null,
+  userAgent: null,
+} as const;
+
+/** Admin thật qua rbac: adminRole super_admin → mọi capability trừ pii.export. */
+const loginSuperAdmin = () =>
+  getSessionMock.mockResolvedValue({
+    session: { ...ADMIN_SESSION },
+    user: { ...ADMIN_USER, adminRole: "super_admin" as const },
+  });
 
 // ─── React element tree helpers (async server component return value) ────────
 
@@ -315,8 +341,7 @@ beforeEach(() => {
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("FINANCIAL_FEATURES_ENABLED", undefined);
   dbState.strict = true;
-  getCurrentUserMock.mockReset();
-  requireAdminMock.mockReset();
+  getSessionMock.mockReset();
 });
 
 afterEach(() => {
@@ -328,17 +353,20 @@ afterEach(() => {
 
 describe("ranh giới admin giữ nguyên — KHÔNG mở rộng quyền (spec §4.5)", () => {
   it("chưa đăng nhập → redirect /login (như cũ)", async () => {
-    getCurrentUserMock.mockResolvedValue(null);
+    getSessionMock.mockResolvedValue(null);
     await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/login");
   });
 
-  it("role != admin → redirect / (như cũ)", async () => {
-    getCurrentUserMock.mockResolvedValue({ ...ADMIN_USER, role: "seller" });
+  it("không có adminRole → redirect / (kể cả legacy role=\"admin\" — spec §8.5)", async () => {
+    getSessionMock.mockResolvedValue({
+      session: { ...ADMIN_SESSION },
+      user: { ...ADMIN_USER, role: "seller" as const },
+    });
     await expect(AdminLayout({ children: null })).rejects.toThrow("NEXT_REDIRECT:/");
   });
 
-  it("admin → render nav; view finance lịch sử vẫn reachable + label chỉ đọc; nav phi tài chính giữ nguyên", async () => {
-    getCurrentUserMock.mockResolvedValue({ ...ADMIN_USER });
+  it("adminRole → render nav; view finance lịch sử vẫn reachable + label chỉ đọc; nav phi tài chính giữ nguyên", async () => {
+    loginSuperAdmin();
     const tree = await AdminLayout({ children: null });
     const text = textOf(tree);
     // nav phi tài chính KHÔNG bị thu hẹp (listing/catalog/users là Batch khác)
@@ -359,7 +387,7 @@ describe("ranh giới admin giữ nguyên — KHÔNG mở rộng quyền (spec �
 describe("bản ghi tài chính lịch sử vẫn đọc được, view read-only (spec §4.3 + plan Task 5)", () => {
   beforeEach(() => {
     dbState.strict = false; // fixture mode: db trả bản ghi lịch sử
-    getCurrentUserMock.mockResolvedValue({ ...ADMIN_USER });
+    loginSuperAdmin(); // guard page (Task 4) qua rbac thật — super_admin
   });
 
   it("dashboard: số liệu + đơn gần đây render read-only, có label dormancy", async () => {
@@ -462,46 +490,42 @@ describe("hợp đồng nguồn — bỏ control mutation finance khỏi UI admi
 // ─── 4. Guard server action giữ nguyên dù control UI đã bỏ (spec §4.10) ────────
 
 describe("server action finance giữ guard dù control UI đã bỏ (spec §4.10 — defense-in-depth)", () => {
-  it("resolveDisputeAction: deny FINANCIAL_FEATURES_DISABLED trước auth/db", async () => {
-    requireAdminMock.mockImplementation(() => {
+  beforeEach(() => {
+    // Tripwire: rbac guard đọc session qua seam này — nếu action chạm auth khi
+    // tài chính tắt thì spy ném lỗi (không phải mã tài chính) → test đỏ ngay.
+    getSessionMock.mockImplementation(() => {
       throw new Error("AUTH_REACHED_WITHOUT_FINANCE_GUARD");
     });
+  });
+
+  it("resolveDisputeAction: deny FINANCIAL_FEATURES_DISABLED trước auth/db", async () => {
     await expect(
       resolveDisputeAction(
         fd({ disputeId: "dispute-1", resolution: "Đối soát xong", outcome: "resolved_buyer" }),
       ),
     ).rejects.toThrowError(/^FINANCIAL_FEATURES_DISABLED/);
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 
   it("updateCommissionAction: deny trước Category mutation", async () => {
-    requireAdminMock.mockImplementation(() => {
-      throw new Error("AUTH_REACHED_WITHOUT_FINANCE_GUARD");
-    });
     await expect(
       updateCommissionAction(fd({ categoryId: "cat-1", commissionRate: 10 })),
     ).rejects.toThrowError(/^FINANCIAL_FEATURES_DISABLED/);
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 
   it("updateSettingAction: deny trước PlatformSetting upsert", async () => {
-    requireAdminMock.mockImplementation(() => {
-      throw new Error("AUTH_REACHED_WITHOUT_FINANCE_GUARD");
-    });
     await expect(
       updateSettingAction(fd({ key: "escrow_auto_release_days", value: "7" })),
     ).rejects.toThrowError(/^FINANCIAL_FEATURES_DISABLED/);
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 
   it("processWithdrawAction: deny trước WithdrawRequest claim/ledger", async () => {
-    requireAdminMock.mockImplementation(() => {
-      throw new Error("AUTH_REACHED_WITHOUT_FINANCE_GUARD");
-    });
     await expect(
       processWithdrawAction(fd({ withdrawId: "wr-1", action: "paid" })),
     ).rejects.toThrowError(/^FINANCIAL_FEATURES_DISABLED/);
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
   });
 
   it("guard assert còn nguyên trong source action (retention qua Task 5)", () => {

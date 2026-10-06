@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE, PAYMENT_METHOD_LABELS, PAYMENT_STATUS_LABELS } from "@/src/lib/constants";
 import { DormantFinanceNotice } from "../dormant-notice";
@@ -10,6 +11,9 @@ export const metadata = { title: "Quản trị — Đơn hàng" };
 export default async function AdminOrdersPage({
   searchParams,
 }: PageProps<"/admin/orders">) {
+  // Guard server-side (spec §4.5) — view finance lịch sử: bất kỳ adminRole
+  // (read-only historical, Batch 1 posture — plan Task 4).
+  await requireAdminUser();
   const sp = (await searchParams) as { status?: string };
   type OrderStatus = "awaiting_payment" | "paid_escrow" | "processing" | "shipped" | "completed" | "cancelled" | "refunded" | "disputed";
   const status = sp.status && ORDER_STATUS_LABELS[sp.status] ? (sp.status as OrderStatus) : undefined;

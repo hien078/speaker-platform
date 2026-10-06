@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { DormantFinanceNotice } from "../dormant-notice";
 import { Settings, Percent, SlidersHorizontal } from "lucide-react";
 
@@ -6,6 +7,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Hoa hồng & cấu hình" };
 
 export default async function AdminSettingsPage() {
+  // Guard server-side (spec §4.5) — view finance lịch sử: bất kỳ adminRole
+  // (read-only historical, Batch 1 posture — plan Task 4).
+  await requireAdminUser();
   const [categories, settings, auditLogs] = await Promise.all([
     db.orm.public.Category.orderBy((c) => c.sortOrder.asc()).all(),
     db.orm.public.PlatformSetting.all(),

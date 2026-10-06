@@ -18,7 +18,11 @@ import { safeNextPath } from "@/src/lib/redirect";
  * - getCurrentUser() — (await getSessionFromCookie())?.user ?? null — MỘT lookup
  *   session + user, không đọc lại DB lần hai.
  * - destroySession() — revoke session hiện tại (reason "logout") + xóa cookie.
- * - hashPassword / verifyPassword / requireUser / requireAdmin — giữ nguyên.
+ * - hashPassword / verifyPassword / requireUser — giữ nguyên.
+ *
+ * Check role rộng của Batch 1 đã XÓA (Batch 2 Task 4): authorization admin đọc
+ * User.adminRole qua capability matrix src/lib/rbac.ts — requireCapability /
+ * requireAdminUser — không còn check role rộng nào (spec §5.4, §8.5).
  *
  * SessionUser ĐỊNH NGHĨA Ở session.ts (tránh import vòng auth↔session) và
  * re-export ở đây cho các import hiện tại (spec §8.5: adminRole là nguồn
@@ -72,13 +76,3 @@ export async function requireUser(): Promise<SessionUser> {
   return user!;
 }
 
-/**
- * Legacy ranh giới admin (Batch 1) — Task 4 thay bằng rbac.requireCapability*
- * và xóa hàm này cùng mọi call site trong cùng commit đó. Cho tới lúc đó,
- * check role vẫn hoạt động trên SessionUser mới (đọc user.role — không đổi).
- */
-export async function requireAdmin(): Promise<SessionUser> {
-  const user = await requireUser();
-  if (user.role !== "admin") throw new Error("FORBIDDEN");
-  return user;
-}

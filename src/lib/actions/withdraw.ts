@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db.client";
-import { requireUser, requireAdmin } from "@/src/lib/auth";
+import { requireUser } from "@/src/lib/auth";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { audit } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, withdrawPaid } from "@/src/lib/ledger";
@@ -68,7 +69,7 @@ export async function createWithdrawRequestAction(
 /** Admin xử lý: chuyển sang processing / paid / rejected */
 export async function processWithdrawAction(formData: FormData): Promise<void> {
   assertFinancialFeaturesEnabled(); // admin KHÔNG phải escape hatch (spec §4.10) — deny trước claim/ledger
-  const admin = await requireAdmin();
+  const admin = await requireAdminUser();
   const withdrawId = String(formData.get("withdrawId") ?? "");
   const action = String(formData.get("action") ?? "");
   const adminNote = String(formData.get("adminNote") ?? "").trim() || null;
@@ -92,7 +93,7 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
     .updateAll({
       status: next,
       adminNote,
-      processedById: admin.id,
+      processedById: admin.user.id,
       processedAt: new Date().toISOString(),
     });
   if (claimed.length === 0) return; // request khác đã xử lý
@@ -117,7 +118,7 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
     );
   }
   await audit(
-    admin.id,
+    admin.user.id,
     `withdraw_${action}`,
     "WithdrawRequest",
     withdrawId,

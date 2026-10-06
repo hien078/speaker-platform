@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { DISPUTE_STATUS_LABELS } from "@/src/lib/constants";
 import { DormantFinanceNotice } from "../dormant-notice";
@@ -8,6 +9,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Khiếu nại" };
 
 export default async function AdminDisputesPage() {
+  // Guard server-side (spec §4.5) — view finance lịch sử: bất kỳ adminRole
+  // (read-only historical, Batch 1 posture — plan Task 4).
+  await requireAdminUser();
   const allDisputes = await db.orm.public.Dispute
     .include("order", (o) =>
       o.select("id", "code", "totalAmount", "sellerPayout", "commissionAmount", "status", "paymentMethod")

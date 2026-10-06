@@ -1,7 +1,6 @@
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/src/lib/auth";
 import Link from "next/link";
 import type { ComponentType } from "react";
+import { requireAdminUser } from "@/src/lib/rbac";
 import {
   LayoutDashboard,
   FileSearch,
@@ -35,9 +34,10 @@ const NAV: NavItem[] = [
 ];
 
 export default async function AdminLayout({ children }: LayoutProps<"/admin">) {
-  const user = await getCurrentUser();
-  if (!user) redirect("/login");
-  if (user.role !== "admin") redirect("/");
+  // Cổng vào /admin — requireAdminUser đọc User.adminRole (nguồn quyền duy nhất,
+  // spec §8.5): chưa đăng nhập → /login; không adminRole → / (redirect, không
+  // còn check user.role rộng — Batch 2 Task 4).
+  await requireAdminUser();
 
   return (
     <div className="mx-auto flex max-w-7xl gap-6 px-4 py-8 lg:px-8">

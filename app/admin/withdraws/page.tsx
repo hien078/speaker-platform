@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { DormantFinanceNotice } from "../dormant-notice";
 import { Banknote } from "lucide-react";
@@ -21,6 +22,9 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function AdminWithdrawsPage() {
+  // Guard server-side (spec §4.5) — view finance lịch sử: bất kỳ adminRole
+  // (read-only historical, Batch 1 posture — plan Task 4).
+  await requireAdminUser();
   const requests = await db.orm.public.WithdrawRequest
     .include("seller", (s) => s.select("name", "email", "phone", "isVerifiedSeller"))
     .orderBy((w) => w.createdAt.desc())

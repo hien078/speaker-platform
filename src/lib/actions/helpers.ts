@@ -8,7 +8,7 @@ import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-/** Ghi log quản trị (§74) — chỉ gọi từ action đã qua requireAdmin */
+/** Ghi log quản trị (§74) — chỉ gọi từ action đã qua rbac.requireCapability/requireAdminUser */
 export async function audit(
   adminId: string,
   action: string,

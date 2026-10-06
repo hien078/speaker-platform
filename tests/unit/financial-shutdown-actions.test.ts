@@ -21,6 +21,12 @@ vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
 
+// Session seam (Batch 2 Task 4): admin actions đọc quyền qua rbac →
+// getSessionFromCookie — tripwire chứng minh finance assert chạy TRƯỚC auth.
+vi.mock("@/src/lib/session", () => ({
+  getSessionFromCookie: vi.fn(),
+}));
+
 /** Chế độ db mock: strict (mặc định) = mọi method ném lỗi khi bị chạm. */
 const dbState = vi.hoisted(() => ({ strict: true }));
 
@@ -75,14 +81,14 @@ vi.mock("@/src/prisma/db.client", () => {
 
 vi.mock("@/src/lib/auth", () => ({
   requireUser: vi.fn(),
-  requireAdmin: vi.fn(),
   getCurrentUser: vi.fn(),
 }));
 vi.mock("@/src/lib/notify", () => ({ notify: vi.fn() }));
 vi.mock("@/src/lib/mock-payment", () => ({ assertMockPaymentsAllowed: vi.fn() }));
 
 import { db } from "@/src/prisma/db.client";
-import { requireUser, requireAdmin } from "@/src/lib/auth";
+import { requireUser } from "@/src/lib/auth";
+import { getSessionFromCookie } from "@/src/lib/session";
 import { notify } from "@/src/lib/notify";
 import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
 import { redirect } from "next/navigation";
@@ -130,7 +136,7 @@ import { getWalletSummary } from "@/src/lib/wallet";
 import { processAutoReleases } from "@/src/lib/actions/helpers";
 
 const requireUserMock = vi.mocked(requireUser);
-const requireAdminMock = vi.mocked(requireAdmin);
+const getSessionMock = vi.mocked(getSessionFromCookie);
 const notifyMock = vi.mocked(notify);
 const mockPaymentMock = vi.mocked(assertMockPaymentsAllowed);
 const redirectMock = vi.mocked(redirect);
@@ -162,8 +168,10 @@ beforeEach(() => {
   requireUserMock.mockReset().mockImplementation(() => {
     throw new Error("AUTH_REQUIRE_USER_REACHED_WHILE_FINANCE_DISABLED");
   });
-  requireAdminMock.mockReset().mockImplementation(() => {
-    throw new Error("AUTH_REQUIRE_ADMIN_REACHED_WHILE_FINANCE_DISABLED");
+  // rbac (requireAdminUser/requireCapability) đọc session qua seam này —
+  // tripwire chứng minh admin auth KHÔNG được chạm khi tài chính tắt.
+  getSessionMock.mockReset().mockImplementation(() => {
+    throw new Error("AUTH_SESSION_REACHED_WHILE_FINANCE_DISABLED");
   });
   notifyMock.mockReset().mockImplementation(() => {
     throw new Error("NOTIFY_REACHED_WHILE_FINANCE_DISABLED");
@@ -378,7 +386,7 @@ describe("withdraw actions — deny khi tài chính tắt (spec §4.1: wallet mu
     await expectDenied(
       processWithdrawAction(fd({ withdrawId: "wr-1", action: "paid" })),
     );
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
     expect(modelSpy("WithdrawRequest", "updateAll")).not.toHaveBeenCalled(); // claim paid
     expect(modelSpy("LedgerEntry", "create")).not.toHaveBeenCalled(); // withdrawPaid
     expect(modelSpy("AdminAuditLog", "create")).not.toHaveBeenCalled(); // audit
@@ -395,7 +403,7 @@ describe("admin finance actions — deny khi tài chính tắt (admin KHÔNG ph�
         ),
       );
     }
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
     expect(modelSpy("Dispute", "update")).not.toHaveBeenCalled();
     expect(modelSpy("Payment", "update")).not.toHaveBeenCalled(); // refunded/released
     expect(modelSpy("Order", "update")).not.toHaveBeenCalled();
@@ -408,7 +416,7 @@ describe("admin finance actions — deny khi tài chính tắt (admin KHÔNG ph�
     await expectDenied(
       updateCommissionAction(fd({ categoryId: "cat-1", commissionRate: 10 })),
     );
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
     expect(modelSpy("Category", "update")).not.toHaveBeenCalled();
   });
 
@@ -416,7 +424,7 @@ describe("admin finance actions — deny khi tài chính tắt (admin KHÔNG ph�
     await expectDenied(
       updateSettingAction(fd({ key: "escrow_auto_release_days", value: "7" })),
     );
-    expect(requireAdminMock).not.toHaveBeenCalled();
+    expect(getSessionMock).not.toHaveBeenCalled();
     expect(modelSpy("PlatformSetting", "update")).not.toHaveBeenCalled();
     expect(modelSpy("PlatformSetting", "create")).not.toHaveBeenCalled();
   });

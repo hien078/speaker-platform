@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/src/prisma/db.client";
+import { requireCapability } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
 import { DormantFinanceNotice } from "./dormant-notice";
@@ -17,6 +18,9 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Tổng quan" };
 
 export default async function AdminDashboardPage() {
+  // Guard server-side (spec §4.5) — analytics.read: super/ops/analyst (ma trận §5.4.1).
+  await requireCapability("analytics.read");
+
   // Escrow auto-release chạy qua cron /api/cron/auto-release (CRON_SECRET) —
   // KHÔNG chạy theo page load nữa (trước đây: processAutoReleases() ở đây).
 

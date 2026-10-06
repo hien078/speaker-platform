@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireCapability } from "@/src/lib/rbac";
 import { formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
 import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";
@@ -10,6 +11,8 @@ export const metadata = { title: "Quản trị — Người dùng" };
 export default async function AdminUsersPage({
   searchParams,
 }: PageProps<"/admin/users">) {
+  // Guard server-side (spec §4.5) — user.view_basic: super/ops (ma trận §5.4.1).
+  await requireCapability("user.view_basic");
   const sp = (await searchParams) as { q?: string; role?: string };
   const q = sp.q?.trim() ?? "";
   type UserRole = "buyer" | "seller" | "admin";
