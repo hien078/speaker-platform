@@ -16,7 +16,10 @@
  *     FORBIDDEN.
  *  3. requireCapability grant đúng role → trả về context { user, session }.
  *  4. Legacy role="admin" + adminRole=null → KHÔNG cấp gì (spec §8.5: boolean
- *     cũ không phải authorization thường trực).
+ *     cũ không phải authorization thường trực); adminRole là DB string lạ
+ *     (legacy/typo ngoài union) cũng deny sạch — fail closed TƯỜNG MINH,
+ *     không để `.includes` trên undefined ném TypeError thay vì FORBIDDEN
+ *     (review follow-up Task 4).
  *  5. requireAdminUser — cổng vào /admin: chưa đăng nhập → redirect /login;
  *     adminRole null → redirect /; adminRole bất kỳ → context.
  *
@@ -83,6 +86,15 @@ const userWith = (adminRole: AdminRole | null, role: "buyer" | "seller" | "admin
 const login = (user: Record<string, unknown>): void => {
   sessionState.current = { session: { ...SESSION }, user };
 };
+
+/**
+ * Session user với adminRole là DB string ngoài union — TS không mô tả được
+ * runtime (legacy/typo/enum thêm sau này); guard phải deny sạch, không crash.
+ */
+const userWithUnknownRole = (raw: string): Record<string, unknown> => ({
+  ...userWith(null),
+  adminRole: raw,
+});
 
 const ROLES: AdminRole[] = ["super_admin", "operations_admin", "moderator", "support", "analyst"];
 
@@ -171,6 +183,15 @@ describe("ROLE_CAPABILITIES — ma trận §5.4.1 từng ô (fail closed trên m
       expect(capabilitiesOf(role)).toEqual(ROLE_CAPABILITIES[role]);
     }
   });
+
+  it("capabilitiesOf: DB string lạ (legacy/typo/enum mới hơn app) → rỗng — fail closed, không TypeError", () => {
+    // Runtime: adminRole đến từ DB dưới dạng string — TS không mô tả được giá
+    // trị ngoài union (review follow-up Task 4). Key prototype ("constructor")
+    // cũng không lọt qua own-property check của matrix.
+    expect(capabilitiesOf("admin" as unknown as AdminRole)).toEqual([]);
+    expect(capabilitiesOf("auditor" as unknown as AdminRole)).toEqual([]);
+    expect(capabilitiesOf("constructor" as unknown as AdminRole)).toEqual([]);
+  });
 });
 
 // ─── 2+3. requireCapability — deny sai role, grant đúng role (spec §4.5) ─────
@@ -200,6 +221,14 @@ describe("requireCapability — deny/grant (spec §4.5 — backend authorization
     for (const cap of ALL_CAPS) {
       await expect(requireCapability(cap), `legacy admin × ${cap}`).rejects.toThrowError(/^FORBIDDEN$/);
     }
+  });
+
+  it("adminRole là DB string lạ (legacy/typo) → FORBIDDEN — fail closed, không TypeError 500", async () => {
+    // Giá trị adminRole ngoài union (TS không mô tả được runtime) phải deny
+    // sạch (review follow-up Task 4) — không crash `.includes` trên undefined.
+    login(userWithUnknownRole("admin"));
+    await expect(requireCapability("listing.moderate")).rejects.toThrowError(/^FORBIDDEN$/);
+    await expect(requireCapability("admin.access")).rejects.toThrowError(/^FORBIDDEN$/);
   });
 
   it("grant đúng role → trả về context { user, session }", async () => {

@@ -1,4 +1,5 @@
 import { db } from "@/src/prisma/db.client";
+import { requireCapability } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE, CONDITION_LABELS } from "@/src/lib/constants";
 import { approveListingAction, rejectListingAction } from "@/src/lib/actions/admin";
@@ -10,6 +11,9 @@ export const metadata = { title: "Quản trị — Duyệt tin" };
 export default async function AdminListingsPage({
   searchParams,
 }: PageProps<"/admin/listings">) {
+  // Guard server-side (spec §4.5/§4.9) — moderation queue cần listing.moderate;
+  // requireAdminUser ở layout chỉ là cổng vào /admin, không phải quyền xem queue.
+  await requireCapability("listing.moderate");
   const sp = (await searchParams) as { tab?: string };
   const tab = sp.tab === "all" ? "all" : "pending";
 

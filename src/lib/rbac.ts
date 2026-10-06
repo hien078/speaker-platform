@@ -82,10 +82,18 @@ export const ROLE_CAPABILITIES: Record<AdminRole, readonly Capability[]> = {
   analyst: ["admin.access", "analytics.read"],
 };
 
-/** Capability của một role — null/undefined → rỗng (fail closed, spec §8.5). */
+/**
+ * Capability của một role — null/undefined → rỗng (fail closed, spec §8.5).
+ *
+ * Runtime có thể nhận DB string ngoài union (legacy/typo/enum thêm sau này —
+ * TS không mô tả được giá trị DB cũ) → fail closed TƯỜNG MINH: chỉ own
+ * property của matrix mới được capability (key lạ kể cả key prototype như
+ * "constructor" → rỗng), không để `.includes` trên undefined ném TypeError
+ * thay vì deny (review follow-up Task 4).
+ */
 export function capabilitiesOf(role: AdminRole | null | undefined): readonly Capability[] {
   if (role === null || role === undefined) return [];
-  return ROLE_CAPABILITIES[role];
+  return Object.hasOwn(ROLE_CAPABILITIES, role) ? ROLE_CAPABILITIES[role] : [];
 }
 
 /** Context admin sau guard — action/page dùng user.id (audit) + session (step-up Task 8). */
