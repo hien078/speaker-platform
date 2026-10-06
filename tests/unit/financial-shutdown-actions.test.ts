@@ -493,6 +493,9 @@ describe("finance BẬT (dev/test) — ranh giới mở, hành vi legacy giữ n
       role: "buyer",
       avatarUrl: null,
       isVerifiedSeller: false,
+      // Batch 2 Task 2: SessionUser thêm adminRole + sessionId (bắt buộc)
+      adminRole: null,
+      sessionId: "sess-fixture",
     });
     await expect(payEscrowAction(fd({ orderId: "order-1" }))).rejects.toThrowError(
       /DB_TOUCHED_WHILE_FINANCE_DISABLED/, // đi qua hết guard, chạm db thật (mock)

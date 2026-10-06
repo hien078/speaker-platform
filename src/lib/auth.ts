@@ -1,18 +1,37 @@
 import "server-only";
 import { cookies } from "next/headers";
-import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
-import { db } from "@/src/prisma/db.client";
+import {
+  SESSION_COOKIE,
+  getSessionFromCookie,
+  revokeSession,
+  type SessionUser,
+} from "@/src/lib/session";
 import { safeNextPath } from "@/src/lib/redirect";
 
-const SESSION_COOKIE = "sp_session";
-const SESSION_DAYS = 30;
+/**
+ * Auth — password hashing + ranh giới đăng nhập. Session (token opaque DB-backed,
+ * TTL, revocation, inventory) sống ở src/lib/session.ts; module này giữ nguyên
+ * chữ ký public của Batch 1 và delegate sang đó:
+ *
+ * - createSession(userId, opts?) — delegate nguyên signature (thêm opts tùy chọn).
+ * - getCurrentUser() — (await getSessionFromCookie())?.user ?? null — MỘT lookup
+ *   session + user, không đọc lại DB lần hai.
+ * - destroySession() — revoke session hiện tại (reason "logout") + xóa cookie.
+ * - hashPassword / verifyPassword / requireUser / requireAdmin — giữ nguyên.
+ *
+ * SessionUser ĐỊNH NGHĨA Ở session.ts (tránh import vòng auth↔session) và
+ * re-export ở đây cho các import hiện tại (spec §8.5: adminRole là nguồn
+ * authorization duy nhất — role chỉ còn display; isVerifiedSeller legacy
+ * chỉ hiển thị).
+ *
+ * JWT/jose đã bỏ (Batch 2 Task 2): cookie mang token opaque random 256-bit,
+ * DB lưu SHA-256 — xem src/lib/session.ts. Cookie cũ (JWT) vô hiệu sau deploy
+ * — mọi người dùng đăng nhập lại một lần (chấp nhận cho private beta pre-launch).
+ */
 
-function getSecret(): Uint8Array {
-  const secret = process.env.AUTH_SECRET;
-  if (!secret) throw new Error("AUTH_SECRET chưa cấu hình trong .env");
-  return new TextEncoder().encode(secret);
-}
+export type { SessionUser } from "@/src/lib/session";
+export { createSession } from "@/src/lib/session";
 
 export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hash(password, 10);
@@ -22,62 +41,19 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
   return bcrypt.compare(password, hash);
 }
 
-export async function createSession(userId: string): Promise<void> {
-  const token = await new SignJWT({ sub: userId })
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime(`${SESSION_DAYS}d`)
-    .sign(getSecret());
-
-  const cookieStore = await cookies();
-  cookieStore.set(SESSION_COOKIE, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: SESSION_DAYS * 24 * 60 * 60,
-  });
-}
-
+/** Đăng xuất: thu hồi session trong DB (revocation thật — token không dùng lại được) + xóa cookie. */
 export async function destroySession(): Promise<void> {
+  const current = await getSessionFromCookie();
+  if (current) {
+    await revokeSession(current.session.id, "logout");
+  }
   const cookieStore = await cookies();
   cookieStore.delete(SESSION_COOKIE);
 }
 
-export type SessionUser = {
-  id: string;
-  email: string;
-  name: string;
-  role: "buyer" | "seller" | "admin";
-  avatarUrl: string | null;
-  isVerifiedSeller: boolean;
-};
-
 /** Đọc user hiện tại từ session cookie. Trả về null nếu chưa đăng nhập. */
 export async function getCurrentUser(): Promise<SessionUser | null> {
-  const cookieStore = await cookies();
-  const token = cookieStore.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-
-  try {
-    const { payload } = await jwtVerify(token, getSecret());
-    const userId = payload.sub;
-    if (!userId) return null;
-
-    const user = await db.orm.public.User.first({ id: userId });
-    if (!user) return null;
-
-    return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      avatarUrl: user.avatarUrl,
-      isVerifiedSeller: user.isVerifiedSeller,
-    };
-  } catch {
-    return null;
-  }
+  return (await getSessionFromCookie())?.user ?? null;
 }
 
 /** Yêu cầu đăng nhập — redirect về /login nếu chưa. Dùng trong server actions. */
@@ -96,6 +72,11 @@ export async function requireUser(): Promise<SessionUser> {
   return user!;
 }
 
+/**
+ * Legacy ranh giới admin (Batch 1) — Task 4 thay bằng rbac.requireCapability*
+ * và xóa hàm này cùng mọi call site trong cùng commit đó. Cho tới lúc đó,
+ * check role vẫn hoạt động trên SessionUser mới (đọc user.role — không đổi).
+ */
 export async function requireAdmin(): Promise<SessionUser> {
   const user = await requireUser();
   if (user.role !== "admin") throw new Error("FORBIDDEN");

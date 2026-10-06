@@ -235,6 +235,9 @@ const ADMIN_USER = {
   role: "admin",
   avatarUrl: null,
   isVerifiedSeller: false,
+  // Batch 2 Task 2: SessionUser thêm adminRole + sessionId (bắt buộc)
+  adminRole: null,
+  sessionId: "sess-fixture",
 } as const;
 
 // ─── React element tree helpers (async server component return value) ────────

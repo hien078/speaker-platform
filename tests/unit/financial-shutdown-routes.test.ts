@@ -223,6 +223,9 @@ beforeEach(() => {
     role: "buyer",
     avatarUrl: null,
     isVerifiedSeller: false,
+    // Batch 2 Task 2: SessionUser thêm adminRole + sessionId (bắt buộc)
+    adminRole: null,
+    sessionId: "sess-fixture",
   });
   rateLimitMock.mockReset().mockResolvedValue(null); // không limit — limited = null
   markEscrowPaidMock.mockReset().mockResolvedValue(true);
