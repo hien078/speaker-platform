@@ -35,6 +35,12 @@ TMP_DIR="$(mktemp -d)"
 export DB_PASSWORD="smoke-$(openssl rand -hex 16)"
 export AUTH_SECRET="smoke-$(openssl rand -hex 32)"
 export CRON_SECRET="smoke-$(openssl rand -hex 32)"
+# Batch 2 (Task 8): app container chạy NODE_ENV=production (Dockerfile:43) →
+# instrumentation fail-fast đòi ADMIN_MFA_ENCRYPTION_KEY (env.ts REQUIRED_KEYS —
+# blocker B1 của Task 12 gate, cùng lỗi như scripts/smoke.sh). Giá trị TEST sinh
+# random: PHẢI là base64 THUẦN của ĐÚNG 32 byte (openssl rand -base64 32) —
+# KHÔNG tiền tố "smoke-": admin-mfa-key.ts validate strict RFC 4648 → 32 byte.
+export ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 export SMOKE_PORT="$PORT"
 export REPO_ROOT="$(pwd)"
 

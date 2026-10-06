@@ -53,6 +53,10 @@ services:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
       AUTH_SECRET: ${AUTH_SECRET:?docker-smoke.sh set}
       CRON_SECRET: ${CRON_SECRET:?docker-smoke.sh set}
+      # Batch 2 (Task 8): bắt buộc ở production (env.ts REQUIRED_KEYS →
+      # instrumentation fail-fast) — docker-smoke.sh sinh random, base64 thuần
+      # của đúng 32 byte (validate strict trong admin-mfa-key.ts).
+      ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?docker-smoke.sh set}
       NEXT_PUBLIC_APP_URL: https://smoke.invalid
       # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong stack smoke —
       # mọi finance entry point phải deny typed (scripts/docker-smoke.sh assert).

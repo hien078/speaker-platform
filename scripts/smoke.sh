@@ -59,8 +59,12 @@ echo "── smoke: app=127.0.0.1:$PORT db-container=$CONTAINER (db port $DB_POR
 # build production nếu chưa có (idempotent — preflight đã build thì nhảy)
 if [[ ! -d .next/standalone ]]; then
   echo "── thiếu .next/standalone — build production (placeholder env)"
+  # Build KHÔNG chạy instrumentation fail-fast (preflight production-build
+  # gate xanh không cần key) — nhưng set ADMIN_MFA_ENCRYPTION_KEY cho đồng bộ:
+  # env production hoàn chỉnh, base64 thuần 32 byte nếu build có đọc.
   DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
     AUTH_SECRET="smoke-build-placeholder" \
+    ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)" \
     npm run build
 fi
 
@@ -95,6 +99,12 @@ export DATABASE_URL="$DB_URL"
 export NODE_ENV="production"
 export AUTH_SECRET="smoke-$(openssl rand -hex 32)"
 export CRON_SECRET="smoke-$(openssl rand -hex 32)"
+# Batch 2 (Task 8): ADMIN_MFA_ENCRYPTION_KEY bắt buộc ở production (env.ts
+# REQUIRED_KEYS → instrumentation fail-fast exit(1) khi thiếu — blocker B1
+# của Task 12 gate). Giá trị TEST sinh random: PHẢI là base64 THUẦN của ĐÚNG
+# 32 byte (openssl rand -base64 32) — KHÔNG tiền tố "smoke-" như các key trên:
+# admin-mfa-key.ts validate strict RFC 4648 → 32 byte, prefix sẽ fail validation.
+export ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
 # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong cấu hình beta.
 # NODE_ENV=production đã hard-off ở src/lib/financial-features.ts — set
 # explicit để hợp đồng beta được liệt kê đầy đủ trong cấu hình smoke.
