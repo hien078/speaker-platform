@@ -27,11 +27,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-// ─── db.client mock — in-memory ListingImageUpload + ListingImage ──────────────
+// ─── db.client mock — in-memory ListingImageUpload + ListingImage + Listing ──
 
 const dbState = vi.hoisted(() => ({
   uploads: [] as Array<Record<string, unknown>>,
   images: [] as Array<Record<string, unknown>>,
+  listings: [] as Array<Record<string, unknown>>,
   writes: [] as string[], // mọi lệnh write (create/update/updateAll/delete) — spy
 }));
 
@@ -126,6 +127,12 @@ vi.mock("@/src/prisma/db.client", () => {
       sortOrder: 0,
       checklistSlot: null,
     })),
+    // Review fix (LOW): attached-set read scope theo sellerId — cần Listing row
+    Listing: makeModel(dbState.listings, "Listing", () => ({
+      id: `listing-${dbState.listings.length + 1}`,
+      sellerId: "seller-unknown",
+      status: "draft",
+    })),
   };
   return {
     db: {
@@ -168,6 +175,16 @@ const seedUpload = (ownerUserId: string, storageKey: string): void => {
   });
 };
 
+/** Listing row — attached-set read scope theo (id, sellerId) sau review fix. */
+const seedListing = (id: string, sellerId: string): void => {
+  dbState.listings.push({
+    id,
+    sellerId,
+    status: "approved",
+    title: `listing ${id}`,
+  });
+};
+
 const seedAttached = (listingId: string, url: string): void => {
   dbState.images.push({
     id: `img-${dbState.images.length + 1}`,
@@ -189,7 +206,10 @@ const expectImageError = (
 beforeEach(() => {
   dbState.uploads.length = 0;
   dbState.images.length = 0;
+  dbState.listings.length = 0;
   dbState.writes.length = 0;
+  // LISTING thuộc SELLER — rule (2) compat đọc attached-set THEO listing này
+  seedListing(LISTING, SELLER);
 });
 
 afterEach(() => {
@@ -296,6 +316,31 @@ describe("assertListingImagesOwned — rule (2) attached compat", () => {
     seedAttached(OTHER_LISTING, "/img/listings/x.svg");
     await expectImageError(
       { sellerId: SELLER, listingId: LISTING, imageUrls: ["/img/listings/x.svg"] },
+      "IMAGE_URL_INVALID",
+    );
+  });
+
+  it("review fix (LOW): listingId của seller KHÁC → attached-set KHÔNG được dùng (read scope theo sellerId)", async () => {
+    // OTHER_LISTING thuộc seller-2, ảnh /img/… gắn vào ĐÚNG listing đó — nếu
+    // read theo listingId thuần, rule (2) sẽ honour ảnh của listing người khác.
+    seedListing(OTHER_LISTING, OTHER_SELLER);
+    seedAttached(OTHER_LISTING, "/img/listings/x.svg");
+    await expectImageError(
+      { sellerId: SELLER, listingId: OTHER_LISTING, imageUrls: ["/img/listings/x.svg"] },
+      "IMAGE_URL_INVALID",
+    );
+    // row-less /uploads/<uuid>.jpg gắn vào listing người khác cũng KHÔNG passes
+    seedAttached(OTHER_LISTING, URL_PRE_B4);
+    await expectImageError(
+      { sellerId: SELLER, listingId: OTHER_LISTING, imageUrls: [URL_PRE_B4] },
+      "IMAGE_NOT_OWNED",
+    );
+  });
+
+  it("listingId KHÔNG tồn tại → attached-set rỗng (fail closed — rule 2 không có gì để giữ)", async () => {
+    seedAttached("listing-khong-ton-tai", "/img/listings/x.svg");
+    await expectImageError(
+      { sellerId: SELLER, listingId: "listing-khong-ton-tai", imageUrls: ["/img/listings/x.svg"] },
       "IMAGE_URL_INVALID",
     );
   });

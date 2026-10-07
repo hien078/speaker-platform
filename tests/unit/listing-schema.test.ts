@@ -355,6 +355,102 @@ describe("legacyListingEditSchema — chỉ validation hiện có (không thêm)
   });
 });
 
+// ─── 3b. Legacy schema — structured fields validate-WHEN-PRESENT (review fix) ──
+
+describe("legacyListingEditSchema — structured fields validate-when-present (review fix MEDIUM)", () => {
+  // Base object type các field structured là z.string()/z.array UNBOUNDED —
+  // legacy regime KHÔNG được phép lọt 1MB knownDefects / 50k fulfillment
+  // entries / giá trị rác qua chúng (Task 4 write theo input đã parse).
+
+  it("knownDefects 1MB → FREE_TEXT_INVALID (cap FREE_TEXT_MAX chạy cả legacy)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ knownDefects: "x".repeat(1024 * 1024) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:FREE_TEXT_INVALID");
+  });
+
+  it("includedAccessories / repairHistory quá FREE_TEXT_MAX → FREE_TEXT_INVALID (legacy)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ includedAccessories: "x".repeat(FREE_TEXT_MAX + 1) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:FREE_TEXT_INVALID");
+    expect(
+      legacyListingEditSchema.safeParse(legacyInput({ repairHistory: "x".repeat(FREE_TEXT_MAX + 1) }))
+        .success,
+    ).toBe(false);
+  });
+
+  it("fulfillmentMethods 50.000 entries → FULFILLMENT_DUPLICATE (chỉ 4 giá trị hợp lệ — mảng bị bound ngầm)", () => {
+    const fiftyK = Array.from({ length: 50_000 }, () => "meetup");
+    expect(() =>
+      validateListingSubmission(legacyInput({ fulfillmentMethods: fiftyK }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:FULFILLMENT_DUPLICATE");
+  });
+
+  it("fulfillmentMethods giá trị sai → FULFILLMENT_INVALID (legacy)", () => {
+    expect(() =>
+      validateListingSubmission(legacyInput({ fulfillmentMethods: ["teleport"] }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:FULFILLMENT_INVALID");
+  });
+
+  it("inventoryContext sai giá trị → INVENTORY_CONTEXT_INVALID (legacy — KHÔNG đòi presence)", () => {
+    expect(() =>
+      validateListingSubmission(legacyInput({ inventoryContext: "refurbished" }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:INVENTORY_CONTEXT_INVALID");
+    // presence KHÔNG bắt buộc — null vẫn passes (grandfathered)
+    expect(legacyListingEditSchema.safeParse(legacyInput({ inventoryContext: null })).success).toBe(
+      true,
+    );
+  });
+
+  it("provinceLevelCode sai giá trị → PROVINCE_INVALID (legacy — null vẫn passes)", () => {
+    expect(() =>
+      validateListingSubmission(legacyInput({ provinceLevelCode: "binh-duong" }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:PROVINCE_INVALID");
+    expect(legacyListingEditSchema.safeParse(legacyInput()).success).toBe(true);
+  });
+
+  it("locationDisplayName quá LOCATION_DISPLAY_MAX → LOCATION_DISPLAY_INVALID (legacy)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ locationDisplayName: "x".repeat(LOCATION_DISPLAY_MAX + 1) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:LOCATION_DISPLAY_INVALID");
+  });
+
+  it("structured fields ĐẦY ĐỦ + HỢP LỆ → legacy vẫn passes (validate-when-present, KHÔNG reject-presence)", () => {
+    expect(
+      legacyListingEditSchema.safeParse(
+        legacyInput({
+          inventoryContext: "used",
+          includedAccessories: "Sạc, cáp",
+          knownDefects: "Trầy nhẹ",
+          repairHistory: "Thay pin 2025",
+          fulfillmentMethods: ["meetup", "carrier"],
+          provinceLevelCode: "ha-noi",
+          locationDisplayName: "Khu vực Cầu Giấy",
+        }),
+      ).success,
+    ).toBe(true);
+  });
+
+  it("price ±Infinity → PRICE_INVALID cả legacy lẫn beta (base union cho qua — superRefine chặn)", () => {
+    expect(() =>
+      validateListingSubmission(legacyInput({ price: Number.POSITIVE_INFINITY }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:PRICE_INVALID");
+    expect(() =>
+      validateListingSubmission(legacyInput({ price: Number.NEGATIVE_INFINITY }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:PRICE_INVALID");
+    expectValidationCode(betaInput({ price: Number.POSITIVE_INFINITY }), "PRICE_INVALID");
+    expectValidationCode(betaInput({ price: Number.NEGATIVE_INFINITY }), "PRICE_INVALID");
+  });
+});
+
 // ─── 4. Draft schema — base + structured tùy chọn (spec §4.4/§5.6.2) ───────────
 
 describe("draftListingSchema — draft trước verification (spec §4.4)", () => {
@@ -451,5 +547,34 @@ describe("validateListingSubmission — regime switch (conditional fields)", () 
     }
     expect(caught).toBeInstanceOf(Error);
     expect((caught as Error).message).toBe("LISTING_VALIDATION_FAILED:BRAND_REQUIRED");
+  });
+
+  it("wrapper legacy→beta full-validation: input ĐẦY ĐỦ hợp lệ passes CẢ HAI regime (Task 4 gọi wrapper)", () => {
+    // Cùng một input đầy đủ (structured + brand/model + province) — beta
+    // requiredness đầy đủ passes; legacy validate-when-present cũng passes
+    // (structured hợp lệ không bị legacy từ chối).
+    const full = betaInput();
+    expect(() => validateListingSubmission(full, "beta")).not.toThrow();
+    expect(() => validateListingSubmission(full, "legacy")).not.toThrow();
+
+    // Cùng input thiếu structured: beta chặn (INVENTORY_CONTEXT_REQUIRED),
+    // legacy bỏ qua requiredness nhưng VẪN validate giá trị khi có —
+    // inventoryContext rác thì CẢ HAI regime đều chặn (typed code).
+    const missing = betaInput({
+      inventoryContext: null,
+      fulfillmentMethods: null,
+      locationDisplayName: null,
+    });
+    expect(() => validateListingSubmission(missing, "beta")).toThrowError(
+      "LISTING_VALIDATION_FAILED:INVENTORY_CONTEXT_REQUIRED",
+    );
+    expect(() => validateListingSubmission(missing, "legacy")).not.toThrow();
+    const garbage = betaInput({ inventoryContext: "refurbished" });
+    expect(() => validateListingSubmission(garbage, "beta")).toThrowError(
+      "LISTING_VALIDATION_FAILED:INVENTORY_CONTEXT_INVALID",
+    );
+    expect(() => validateListingSubmission(garbage, "legacy")).toThrowError(
+      "LISTING_VALIDATION_FAILED:INVENTORY_CONTEXT_INVALID",
+    );
   });
 });

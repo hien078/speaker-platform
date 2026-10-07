@@ -12,6 +12,11 @@ services:
     # Tên cố định cho ops deterministic (backup cron: docker exec loaviet-db ...)
     container_name: loaviet-db
     restart: unless-stopped
+    # M1 (Batch 4 Task 3 review): bound bộ nhớ db — host 1-2GB chung app, không
+    # để query lớn (evidence snapshots, full-text) kéo cả host; OOM-kill land vào
+    # container (restart: unless-stopped tự lên lại) thay vì host. Postgres 16
+    # mặc định shared_buffers 128MB — 512M đủ cho beta single-instance.
+    mem_limit: 512m
     environment:
       POSTGRES_USER: loaviet
       POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
@@ -53,6 +58,14 @@ services:
     build: .
     container_name: loaviet-app
     restart: unless-stopped
+    # M1 (Batch 4 Task 3 review): bound bộ nhớ app — sharp re-encode decode
+    # theo định dạng (PNG interlaced/16-bit ~200-400MB/lần nếu không bound);
+    # trong app đã có semaphore 1-re-encode-đồng-thời + sharp.cache(false) +
+    # sharp.concurrency(1) (src/lib/image-process.ts) nên worst-case process ≈
+    # baseline Next ~250MB + 1 decode ~150-200MB ≈ 450-500MB. 768m chặn OOM
+    # lan sang db/host; OOM-kill land vào container (restart tự lên lại).
+    # Host 1GB: hạ xuống 512m + hạ cap ảnh (image-process.ts) theo runbook.
+    mem_limit: 768m
     ports:
       # CHỈ bind loopback — nginx (cùng host) proxy sang đây; KHÔNG expose
       # app trực tiếp ra internet (rate limit đọc proxy header chỉ khi

@@ -20,7 +20,9 @@
  *      listing này (rule 2); detached → IMAGE_NOT_OWNED (re-attach bị chặn —
  *      seller re-upload, re-encode; accepted compat behavior).
  *  (2) không qua rule (1) NHƯNG đã gắn vào listing này (ListingImage row
- *      listingId+url tồn tại) → CHỈ chấp nhận khi url khớp
+ *      listingId+url tồn tại — read scope THEO listing của CHÍNH sellerId:
+ *      listing của seller khác không được dùng làm nguồn attached-set, review
+ *      fix LOW) → CHỈ chấp nhận khi url khớp
  *      ATTACHED_IMAGE_PATH_PATTERN (/img|/uploads path sạch) và KHÔNG chứa
  *      ".." (ảnh seed /img/… và ảnh /uploads/ pre-Batch-4 ĐÃ GẮN được giữ
  *      nguyên — B1 compat pin).
@@ -78,11 +80,19 @@ export async function assertListingImagesOwned(
     throw new Error("IMAGE_DUPLICATE");
   }
 
-  // (c) tập url đã gắn vào listing này (rule 2) — MỘT read cho cả list
+  // (c) tập url đã gắn vào listing này (rule 2) — MỘT read cho cả list.
+  //     Review fix (LOW): read scope theo (id, sellerId) — listing của seller
+  //     KHÁC không được dùng làm nguồn attached-set (đọc theo listingId thuần
+  //     cho phép rule (2) honour ảnh gắn vào listing người khác). Listing không
+  //     tồn tại / không thuộc seller → tập rỗng → mọi url rơi rule (3) fail
+  //     closed (caller Task 4 đã load + check ownership listing trước đó).
   const attachedUrls = new Set<string>();
   if (listingId !== undefined) {
-    const rows = await db.orm.public.ListingImage.where({ listingId }).all();
-    for (const row of rows) attachedUrls.add(row.url);
+    const listing = await db.orm.public.Listing.first({ id: listingId, sellerId });
+    if (listing !== null) {
+      const rows = await db.orm.public.ListingImage.where({ listingId }).all();
+      for (const row of rows) attachedUrls.add(row.url);
+    }
   }
 
   // (d) per-URL rules theo thứ tự (1) → (2) → (3)

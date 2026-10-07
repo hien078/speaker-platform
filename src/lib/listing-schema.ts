@@ -16,8 +16,10 @@
  *    có), free-text ≤ FREE_TEXT_MAX, description ≤ DESCRIPTION_MAX.
  *  - `legacyListingEditSchema` (regime "legacy"): CHỈ rule đang chạy trong
  *    createListingAction/updateListingAction hôm nay (title 8–120, description
- *    ≥20, price bounds, ≥1 ảnh) — KHÔNG thêm (legacy listing giữ nguyên hành vi,
- *    spec §8/§8.3 — Review Focus 5).
+ *    ≥20, price bounds, ≥1 ảnh) — KHÔNG thêm requiredness (legacy listing giữ
+ *    nguyên hành vi, spec §8/§8.3 — Review Focus 5); NHƯNG structured fields
+ *    MỚI được validate-WHEN-PRESENT (review fix MEDIUM — xem
+ *    checkStructuredWhenPresent) vì base object type chúng unbounded.
  *  - `draftListingSchema`: base requiredness (cột NON-NULL hiện có của Listing
  *    + province — city derive từ province, item 12) + structured TUYỆN CHỌN +
  *    images 0..8 (≥1 ảnh là rule của SUBMIT, không phải của draft).
@@ -293,6 +295,50 @@ const checkLocationDisplay = (v: ListingBase, ctx: RefineCtx): void => {
   }
 };
 
+/**
+ * Rule draft + legacy (validate-WHEN-PRESENT): structured fields CHỈ validate
+ * GIÁ TRỊ khi seller cung cấp — presence KHÔNG bắt buộc (draft tùy chọn theo
+ * spec §4.4; legacy grandfathered theo spec §8/§8.3).
+ *
+ * Review fix (Task 2 MEDIUM): base object type các field này là
+ * z.string()/z.array UNBOUNDED — legacy regime KHÔNG được phép lọt 1MB
+ * knownDefects / 50k fulfillment entries / giá trị rác qua chúng (Task 4 write
+ * theo input đã parse). Cùng bộ check cho cả hai regime — KHÔNG thêm
+ * requiredness mới cho legacy (chỉ value-check khi có).
+ */
+const checkStructuredWhenPresent = (v: ListingBase, ctx: RefineCtx): void => {
+  // inventoryContext — giá trị ∈ inventory_context khi có (§5.6)
+  if (!isBlank(v.inventoryContext) &&
+      !(INVENTORY_CONTEXTS as readonly string[]).includes(v.inventoryContext)) {
+    issue(ctx, "inventoryContext", "INVENTORY_CONTEXT_INVALID");
+  }
+  // free-text ≤ FREE_TEXT_MAX (chống unbounded rows)
+  checkFreeTexts(v, ctx);
+  // fulfillment — giá trị hợp lệ + không trùng khi có (§5.2/A7); mảng bị bound
+  // ngầm: chỉ 4 giá trị hợp lệ tồn tại nên >4 entry chắc chắn trùng
+  const methods = v.fulfillmentMethods ?? null;
+  if (methods !== null && methods.length > 0) {
+    for (const m of methods) {
+      if (!(LISTING_FULFILLMENT_METHODS as readonly string[]).includes(m)) {
+        issue(ctx, "fulfillmentMethods", "FULFILLMENT_INVALID");
+        break;
+      }
+    }
+    if (new Set(methods).size !== methods.length) {
+      issue(ctx, "fulfillmentMethods", "FULFILLMENT_DUPLICATE");
+    }
+  }
+  // province — mã ∈ 34 registry (FD-1) khi có
+  if (!isBlank(v.provinceLevelCode) && !isProvinceCode(v.provinceLevelCode)) {
+    issue(ctx, "provinceLevelCode", "PROVINCE_INVALID");
+  }
+  // locationDisplayName — capped khi có (§5.9)
+  if (!isBlank(v.locationDisplayName) &&
+      v.locationDisplayName.length > LOCATION_DISPLAY_MAX) {
+    issue(ctx, "locationDisplayName", "LOCATION_DISPLAY_INVALID");
+  }
+};
+
 // ─── Ba regime schema ─────────────────────────────────────────────────────────
 
 /**
@@ -326,6 +372,13 @@ export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
  * ≥1 ảnh, ≤8 ảnh): KHÔNG đòi brand/model/structured/province (grandfathered —
  * legacy listing giữ nguyên hành vi, spec §8/§8.3). imageSlots là field MỚI
  * (Batch 4) nên defensive check độ dài/giá trị vẫn chạy.
+ *
+ * Review fix (MEDIUM): structured fields MỚI (inventoryContext/free-text/
+ * fulfillment/province/location) được validate-WHEN-PRESENT — cùng bộ check
+ * như draft (checkStructuredWhenPresent): giá trị sai → typed code, KHÔNG có
+ * → bỏ qua. Base object type chúng là z.string()/z.array unbounded nên nếu
+ * legacy bỏ qua hoàn toàn, 1MB knownDefects / 50k fulfillment entries lọt
+ * qua → unbounded rows. KHÔNG thêm requiredness (legacy giữ nguyên hành vi).
  */
 export const legacyListingEditSchema: z.ZodType<ListingSubmissionInput> =
   listingBaseObject.superRefine((v, ctx) => {
@@ -333,6 +386,7 @@ export const legacyListingEditSchema: z.ZodType<ListingSubmissionInput> =
     if (v.description.length < 20) issue(ctx, "description", "DESCRIPTION_INVALID");
     checkPrice(v, ctx);
     checkCategory(v, ctx);
+    checkStructuredWhenPresent(v, ctx);
     if (v.imageUrls.length === 0) issue(ctx, "imageUrls", "IMAGE_REQUIRED");
     checkImageCount(v, ctx);
     checkImageDuplicates(v, ctx);
@@ -353,28 +407,10 @@ export const draftListingSchema: z.ZodType<ListingSubmissionInput> =
     checkCategory(v, ctx);
     checkCondition(v, ctx);
     checkProvince(v, ctx);
-    // structured TUYỆN CHỌN — chỉ validate GIÁ TRỊ khi seller cung cấp
-    if (!isBlank(v.inventoryContext) &&
-        !(INVENTORY_CONTEXTS as readonly string[]).includes(v.inventoryContext)) {
-      issue(ctx, "inventoryContext", "INVENTORY_CONTEXT_INVALID");
-    }
-    checkFreeTexts(v, ctx);
-    const methods = v.fulfillmentMethods ?? null;
-    if (methods !== null && methods.length > 0) {
-      for (const m of methods) {
-        if (!(LISTING_FULFILLMENT_METHODS as readonly string[]).includes(m)) {
-          issue(ctx, "fulfillmentMethods", "FULFILLMENT_INVALID");
-          break;
-        }
-      }
-      if (new Set(methods).size !== methods.length) {
-        issue(ctx, "fulfillmentMethods", "FULFILLMENT_DUPLICATE");
-      }
-    }
-    if (!isBlank(v.locationDisplayName) &&
-        v.locationDisplayName.length > LOCATION_DISPLAY_MAX) {
-      issue(ctx, "locationDisplayName", "LOCATION_DISPLAY_INVALID");
-    }
+    // structured TUYỆN CHỌN — validate GIÁ TRỊ khi seller cung cấp (cùng bộ
+    // check với legacy — checkStructuredWhenPresent; province đã required ở
+    // checkProvince nên ở đây chỉ còn value-check khi có)
+    checkStructuredWhenPresent(v, ctx);
     checkImageCount(v, ctx);
     checkImageDuplicates(v, ctx);
     checkSlots(v, ctx);

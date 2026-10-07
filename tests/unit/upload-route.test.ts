@@ -18,17 +18,16 @@
  *    (MIME_NOT_ALLOWED / MAGIC_MISMATCH) — pin lại ở tầng route.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 vi.mock("server-only", () => ({}));
 
-// ─── fs mock — spy writeFile/mkdir, KHÔNG chạm đĩa thật ───────────────────────
+// ─── fs mock — spy writeFile/mkdir/unlink, KHÔNG chạm đĩa thật ─────────────────
 
 const orderState = vi.hoisted(() => ({ events: [] as string[] }));
 const fsState = vi.hoisted(() => ({
   writes: [] as Array<{ path: string; buffer: Buffer }>,
+  unlinks: [] as string[],
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -39,14 +38,20 @@ vi.mock("node:fs/promises", () => ({
     orderState.events.push("write");
     fsState.writes.push({ path: String(p), buffer: Buffer.from(data as Uint8Array) });
   }),
+  // L2 — route xoá file MỘT PHẦN best-effort khi writeFile fail
+  unlink: vi.fn(async (p: unknown) => {
+    orderState.events.push("unlink");
+    fsState.unlinks.push(String(p));
+  }),
 }));
 
-// ─── db mock — in-memory ListingImageUpload (ownership row) ──────────────────
+// ─── db mock — in-memory ListingImageUpload + UserSuspension ─────────────────
 
 const dbState = vi.hoisted(() => ({
   uploads: [] as Array<Record<string, unknown>>,
   createdKeys: [] as string[],
   deletes: [] as Array<Record<string, unknown>>,
+  suspensions: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@/src/prisma/db.client", () => ({
@@ -70,6 +75,17 @@ vi.mock("@/src/prisma/db.client", () => ({
                 (r) => !Object.entries(pred).every(([k, v]) => r[k] === v),
               );
               return before - dbState.uploads.length;
+            }),
+          }),
+        },
+        // Batch 3 isUserSuspended đọc UserSuspension active (L4)
+        UserSuspension: {
+          where: (pred: Record<string, unknown>) => ({
+            first: vi.fn(async () => {
+              const rows = dbState.suspensions.filter((r) =>
+                Object.entries(pred).every(([k, v]) => r[k] === v),
+              );
+              return rows[0] ?? null;
             }),
           }),
         },
@@ -103,13 +119,20 @@ vi.mock("@/src/lib/observability", () => ({
   captureEvent: vi.fn(),
 }));
 
+// ─── image-process mock — wrapper đếm được quanh reencodeImage THẬT ──────────
+// (cross-module recipe — same-module spy không chạy được trong vitest; default
+// delegate sang bản thật nên mọi test hiện có giữ nguyên hành vi)
+
+vi.mock("@/src/lib/image-process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/src/lib/image-process")>();
+  return { ...actual, reencodeImage: vi.fn(actual.reencodeImage) };
+});
+
 import { POST } from "../../app/api/upload/route";
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { IMAGE_MAX_BYTES, reencodeImage } from "@/src/lib/image-process";
 import { writeFile } from "node:fs/promises";
-
-const root = fileURLToPath(new URL("../..", import.meta.url));
-const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
+import nextConfig from "../../next.config";
 
 async function tinyPng(): Promise<Buffer> {
   return sharp({ create: { width: 1, height: 1, channels: 3, background: "#000" } })
@@ -122,10 +145,27 @@ function pngFile(buf: Buffer, name = "a.png", type = "image/png"): File {
   return new File([new Uint8Array(buf)], name, { type });
 }
 
+/**
+ * Request upload — undici KHÔNG tự set Content-Length cho FormData body, route
+ * (L1) giờ yêu cầu header nên test set thủ công (framing thật do server đảm
+ * bảo — route chỉ dùng header làm precheck bound).
+ */
 function uploadRequest(file: File, headers: Record<string, string> = {}): Request {
   const fd = new FormData();
   fd.append("file", file);
-  return new Request("http://localhost:3000/api/upload", { method: "POST", body: fd, headers });
+  return new Request("http://localhost:3000/api/upload", {
+    method: "POST",
+    body: fd,
+    headers: { "content-length": "2048", ...headers },
+  });
+}
+
+/** Request KHÔNG có Content-Length (chunked/stream — L1 reject path). */
+function requestWithoutLength(body?: FormData): Request {
+  return new Request("http://localhost:3000/api/upload", {
+    method: "POST",
+    body: body ?? new FormData(),
+  });
 }
 
 beforeEach(() => {
@@ -133,9 +173,11 @@ beforeEach(() => {
   resetRateLimits();
   orderState.events.length = 0;
   fsState.writes.length = 0;
+  fsState.unlinks.length = 0;
   dbState.uploads.length = 0;
   dbState.createdKeys.length = 0;
   dbState.deletes.length = 0;
+  dbState.suspensions.length = 0;
   obsState.errors.length = 0;
   authState.user = { id: "user-1" };
 });
@@ -175,13 +217,113 @@ describe("POST /api/upload — auth + early rejects", () => {
     const arrayBufferSpy = vi.spyOn(file, "arrayBuffer");
     const fd = new FormData();
     fd.append("file", file);
-    const request = new Request("http://localhost:3000/api/upload", { method: "POST" });
+    const request = new Request("http://localhost:3000/api/upload", {
+      method: "POST",
+      headers: { "content-length": "2048" },
+    });
     vi.spyOn(request, "formData").mockResolvedValue(fd);
 
     const res = await POST(request);
 
     expect(res.status).toBe(400);
     expect(arrayBufferSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Review fix L1 — Content-Length bắt buộc (chunked/stream bypass precheck) ──
+
+describe("POST /api/upload — Content-Length precheck (L1)", () => {
+  it("request KHÔNG có Content-Length (chunked/stream) → 411 TRƯỚC formData()", async () => {
+    const request = requestWithoutLength();
+    const formDataSpy = vi.spyOn(request, "formData").mockResolvedValue(new FormData());
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(411);
+    expect(((await res.json()) as { error: string }).error).toBe("CONTENT_LENGTH_REQUIRED");
+    expect(formDataSpy).not.toHaveBeenCalled();
+  });
+
+  it("Content-Length không phải số nguyên ≥0 → 400 INVALID_CONTENT_LENGTH", async () => {
+    const bad = new Request("http://localhost:3000/api/upload", {
+      method: "POST",
+      headers: { "content-length": "abc" },
+    });
+    const res = await POST(bad);
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("INVALID_CONTENT_LENGTH");
+
+    const negative = new Request("http://localhost:3000/api/upload", {
+      method: "POST",
+      headers: { "content-length": "-5" },
+    });
+    const res2 = await POST(negative);
+    expect(res2.status).toBe(400);
+    expect(((await res2.json()) as { error: string }).error).toBe("INVALID_CONTENT_LENGTH");
+  });
+
+  it("Content-Length hợp lệ nhỏ → đi tiếp tới auth (401 khi chưa đăng nhập)", async () => {
+    authState.user = null;
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+    expect(res.status).toBe(401);
+  });
+});
+
+// ─── Review fix L3 — malformed multipart → 400 INVALID_BODY ───────────────────
+
+describe("POST /api/upload — malformed multipart (L3)", () => {
+  it("request.formData() throw (multipart hỏng) → 400 INVALID_BODY, không ghi file/row", async () => {
+    const request = uploadRequest(pngFile(await tinyPng()));
+    vi.spyOn(request, "formData").mockRejectedValue(new Error("terminated: bad multipart"));
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { error: string }).error).toBe("INVALID_BODY");
+    expect(fsState.writes.length).toBe(0);
+    expect(dbState.uploads.length).toBe(0);
+    expect(obsState.errors.some((e) => e.scope === "upload")).toBe(true);
+  });
+});
+
+// ─── Review fix L4 — suspended user không được upload ─────────────────────────
+
+describe("POST /api/upload — suspension guard (L4 — Batch 3 isUserSuspended)", () => {
+  it("user đang bị đình chỉ (UserSuspension active) → 403 ACCOUNT_SUSPENDED, không file/row", async () => {
+    dbState.suspensions.push({ id: "susp-1", userId: "user-1", status: "active" });
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { error: string }).error).toBe("ACCOUNT_SUSPENDED");
+    expect(fsState.writes.length).toBe(0);
+    expect(dbState.uploads.length).toBe(0);
+    expect(orderState.events).toEqual([]); // chặn TRƯỚC mkdir/row/write
+  });
+
+  it("suspension đã lifted KHÔNG chặn (chỉ episode active)", async () => {
+    dbState.suspensions.push({ id: "susp-1", userId: "user-1", status: "lifted" });
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+
+    expect(res.status).toBe(200);
+    expect(fsState.writes.length).toBe(1);
+  });
+});
+
+// ─── Review fix M1a — semaphore đầy → 503 TOO_BUSY (typed) ─────────────────────
+
+describe("POST /api/upload — re-encode busy → 503 (M1a)", () => {
+  it("reencodeImage TOO_BUSY → 503 + Retry-After, KHÔNG ghi file/row", async () => {
+    vi.mocked(reencodeImage).mockImplementationOnce(
+      async () => ({ ok: false, reason: "TOO_BUSY" }),
+    );
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+
+    expect(res.status).toBe(503);
+    expect(((await res.json()) as { error: string }).error).toBe("TOO_BUSY");
+    expect(res.headers.get("retry-after")).toBeDefined();
+    expect(fsState.writes.length).toBe(0);
+    expect(dbState.uploads.length).toBe(0);
+    expect(orderState.events).toEqual([]); // chặn TRƯỚC mkdir/row/write
   });
 });
 
@@ -250,9 +392,30 @@ describe("POST /api/upload — re-encode + ownership row (Review Focus 1)", () =
 
     expect(res.status).toBe(500);
     // row đã tạo bị xoá theo đúng storageKey — không để lại row mồ côi
+    // (L2: file partial cũng bị unlink best-effort trước khi dọn row)
     expect(dbState.deletes).toEqual([{ storageKey: dbState.createdKeys[0] }]);
     expect(dbState.uploads.length).toBe(0);
-    expect(orderState.events).toEqual(["mkdir", "row", "write", "delete"]);
+    expect(orderState.events).toEqual(["mkdir", "row", "write", "unlink", "delete"]);
+  });
+
+  it("L2 — writeFile fail sau khi ghi MỘT PHẦN → file partial bị unlink best-effort (không để file công khai không owner)", async () => {
+    vi.mocked(writeFile).mockImplementationOnce(async (p: unknown, data: unknown) => {
+      orderState.events.push("write");
+      // ghi MỘT PHẦN rồi lỗi — đúng dạng ENOSPC/EIO giữa chừng
+      fsState.writes.push({ path: String(p), buffer: Buffer.from(data as Uint8Array) });
+      throw new Error("ENOSPC");
+    });
+    const input = await tinyPng();
+
+    const res = await POST(uploadRequest(pngFile(input)));
+
+    expect(res.status).toBe(500);
+    // file partial bị xoá theo đúng path storageKey — best-effort, không crash
+    expect(fsState.unlinks).toHaveLength(1);
+    expect(fsState.unlinks[0]).toContain(String(dbState.createdKeys[0]));
+    // row cũng bị dọn (giữ nguyên bất biến row-first cleanup)
+    expect(dbState.deletes).toEqual([{ storageKey: dbState.createdKeys[0] }]);
+    expect(orderState.events).toEqual(["mkdir", "row", "write", "unlink", "delete"]);
   });
 });
 
@@ -333,11 +496,19 @@ describe("POST /api/upload — SVG/MIME spoof (pin lại ở tầng route)", () 
 });
 
 describe("/uploads serving headers (next.config.ts — spec §7.5)", () => {
-  it("serves /uploads with nosniff + CSP default-src 'none'; sandbox", () => {
-    const src = read("next.config.ts");
-    expect(src).toContain('source: "/uploads/:path*"');
-    expect(src).toContain('"X-Content-Type-Options"');
-    expect(src).toContain('"nosniff"');
-    expect(src).toContain("default-src 'none'; sandbox");
+  it("headers() emits nosniff + CSP default-src 'none'; sandbox for /uploads/:path*", async () => {
+    // ĐÁNH GIÁ OUTPUT của next.config.ts headers() — KHÔNG phải string presence
+    // trong file (review fix: test phải chứng minh cấu hình chạy được và ra
+    // đúng header, không phải source chứa chữ).
+    expect(typeof nextConfig.headers).toBe("function");
+    const entries = await nextConfig.headers!();
+    const uploads = entries.find((h) => h.source === "/uploads/:path*");
+    expect(uploads).toBeDefined();
+    expect(uploads!.headers).toEqual(
+      expect.arrayContaining([
+        { key: "X-Content-Type-Options", value: "nosniff" },
+        { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" },
+      ]),
+    );
   });
 });
