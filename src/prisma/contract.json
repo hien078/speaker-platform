@@ -136,12 +136,20 @@
       "model": "PriceHistory",
       "namespace": "public"
     },
+    "ProductEvent": {
+      "model": "ProductEvent",
+      "namespace": "public"
+    },
     "ProductModel": {
       "model": "ProductModel",
       "namespace": "public"
     },
     "Review": {
       "model": "Review",
+      "namespace": "public"
+    },
+    "SearchAlias": {
+      "model": "SearchAlias",
       "namespace": "public"
     },
     "SellerVerification": {
@@ -317,6 +325,23 @@
               {
                 "name": "used",
                 "value": "used"
+              }
+            ]
+          },
+          "listing_location_source": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "seller_declared",
+                "value": "seller_declared"
+              },
+              {
+                "name": "legacy_mapped",
+                "value": "legacy_mapped"
+              },
+              {
+                "name": "unresolved",
+                "value": "unresolved"
               }
             ]
           },
@@ -671,6 +696,19 @@
               {
                 "name": "message",
                 "value": "message"
+              }
+            ]
+          },
+          "search_alias_target": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "brand",
+                "value": "brand"
+              },
+              {
+                "name": "model",
+                "value": "model"
               }
             ]
           },
@@ -1705,6 +1743,21 @@
                   "model": "ProductModel",
                   "namespace": "public"
                 }
+              },
+              "searchAliases": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "brandId"
+                  ]
+                },
+                "to": {
+                  "model": "SearchAlias",
+                  "namespace": "public"
+                }
               }
             },
             "storage": {
@@ -2685,6 +2738,19 @@
                   "kind": "scalar"
                 }
               },
+              "locationSource": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "listing_location_source",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
               "negotiable": {
                 "nullable": false,
                 "type": {
@@ -2721,6 +2787,13 @@
                 }
               },
               "repairHistory": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "searchTextNormalized": {
                 "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
@@ -3009,6 +3082,9 @@
                 "locationDisplayName": {
                   "column": "locationDisplayName"
                 },
+                "locationSource": {
+                  "column": "locationSource"
+                },
                 "negotiable": {
                   "column": "negotiable"
                 },
@@ -3026,6 +3102,9 @@
                 },
                 "repairHistory": {
                   "column": "repairHistory"
+                },
+                "searchTextNormalized": {
+                  "column": "searchTextNormalized"
                 },
                 "sellerId": {
                   "column": "sellerId"
@@ -5250,6 +5329,157 @@
               "table": "PriceHistory"
             }
           },
+          "ProductEvent": {
+            "fields": {
+              "actorPseudonym": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "conversationId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "isInternal": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "listingId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "metadata": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/json@1",
+                  "kind": "scalar"
+                }
+              },
+              "name": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "occurredAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "productModelId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "provinceCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "pseudonymKeyVersion": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "schemaVersion": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "searchSessionId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sessionPseudonym": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {},
+            "storage": {
+              "fields": {
+                "actorPseudonym": {
+                  "column": "actorPseudonym"
+                },
+                "conversationId": {
+                  "column": "conversationId"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "isInternal": {
+                  "column": "isInternal"
+                },
+                "listingId": {
+                  "column": "listingId"
+                },
+                "metadata": {
+                  "column": "metadata"
+                },
+                "name": {
+                  "column": "name"
+                },
+                "occurredAt": {
+                  "column": "occurredAt"
+                },
+                "productModelId": {
+                  "column": "productModelId"
+                },
+                "provinceCode": {
+                  "column": "provinceCode"
+                },
+                "pseudonymKeyVersion": {
+                  "column": "pseudonymKeyVersion"
+                },
+                "schemaVersion": {
+                  "column": "schemaVersion"
+                },
+                "searchSessionId": {
+                  "column": "searchSessionId"
+                },
+                "sessionPseudonym": {
+                  "column": "sessionPseudonym"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ProductEvent"
+            }
+          },
           "ProductModel": {
             "fields": {
               "brandId": {
@@ -5410,6 +5640,21 @@
                 },
                 "to": {
                   "model": "PriceHistory",
+                  "namespace": "public"
+                }
+              },
+              "searchAliases": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "productModelId"
+                  ]
+                },
+                "to": {
+                  "model": "SearchAlias",
                   "namespace": "public"
                 }
               }
@@ -5588,6 +5833,126 @@
               },
               "namespaceId": "public",
               "table": "Review"
+            }
+          },
+          "SearchAlias": {
+            "fields": {
+              "alias": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "brandId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "productModelId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "target": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "search_alias_target",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              }
+            },
+            "relations": {
+              "brand": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "brandId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Brand",
+                  "namespace": "public"
+                }
+              },
+              "productModel": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "productModelId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ProductModel",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "alias": {
+                  "column": "alias"
+                },
+                "brandId": {
+                  "column": "brandId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "productModelId": {
+                  "column": "productModelId"
+                },
+                "target": {
+                  "column": "target"
+                }
+              },
+              "namespaceId": "public",
+              "table": "SearchAlias"
             }
           },
           "SellerVerification": {
@@ -8789,6 +9154,11 @@
                   "prefix": "Listing_inventoryContext_check"
                 },
                 {
+                  "expression": "\"locationSource\" IN ('seller_declared', 'legacy_mapped', 'unresolved')",
+                  "name": "Listing_locationSource_check_4813b5cf",
+                  "prefix": "Listing_locationSource_check"
+                },
+                {
                   "expression": "\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed', 'archived')",
                   "name": "Listing_status_check_f81f49ae",
                   "prefix": "Listing_status_check"
@@ -8890,6 +9260,17 @@
                   "nativeType": "text",
                   "nullable": true
                 },
+                "locationSource": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "listing_location_source",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
                 "negotiable": {
                   "codecId": "pg/bool@1",
                   "default": {
@@ -8920,6 +9301,11 @@
                   "nullable": true
                 },
                 "repairHistory": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "searchTextNormalized": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": true
@@ -9090,6 +9476,13 @@
                   "expression": "to_tsvector('english', \"description\")",
                   "name": "listing_desc_search_1a2bbe9f",
                   "prefix": "listing_desc_search",
+                  "type": "gin",
+                  "unique": false
+                },
+                {
+                  "expression": "to_tsvector('simple', \"searchTextNormalized\")",
+                  "name": "listing_search_text_search_90e9bd00",
+                  "prefix": "listing_search_text_search",
                   "type": "gin",
                   "unique": false
                 },
@@ -11138,6 +11531,143 @@
               },
               "uniques": []
             },
+            "ProductEvent": {
+              "columns": {
+                "actorPseudonym": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "conversationId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "isInternal": {
+                  "codecId": "pg/bool@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "listingId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "metadata": {
+                  "codecId": "pg/json@1",
+                  "nativeType": "json",
+                  "nullable": true
+                },
+                "name": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "occurredAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "productModelId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "provinceCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "pseudonymKeyVersion": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "1"
+                  },
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "schemaVersion": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "searchSessionId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sessionPseudonym": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [],
+              "indexes": [
+                {
+                  "columns": [
+                    "actorPseudonym",
+                    "occurredAt"
+                  ],
+                  "name": "ProductEvent_actorPseudonym_occurredAt_idx_2b704e82",
+                  "prefix": "ProductEvent_actorPseudonym_occurredAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "conversationId"
+                  ],
+                  "name": "ProductEvent_conversationId_idx_669215a6",
+                  "prefix": "ProductEvent_conversationId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "listingId"
+                  ],
+                  "name": "ProductEvent_listingId_idx_953decda",
+                  "prefix": "ProductEvent_listingId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "name",
+                    "occurredAt"
+                  ],
+                  "name": "ProductEvent_name_occurredAt_idx_212a4f4e",
+                  "prefix": "ProductEvent_name_occurredAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "searchSessionId"
+                  ],
+                  "name": "ProductEvent_searchSessionId_idx_2ab99a8a",
+                  "prefix": "ProductEvent_searchSessionId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "ProductModel": {
               "checks": [
                 {
@@ -11429,6 +11959,142 @@
                 {
                   "columns": [
                     "orderId"
+                  ]
+                }
+              ]
+            },
+            "SearchAlias": {
+              "checks": [
+                {
+                  "expression": "\"target\" IN ('brand', 'model')",
+                  "name": "SearchAlias_target_check_4dbecc53",
+                  "prefix": "SearchAlias_target_check"
+                },
+                {
+                  "expression": "((target = 'brand' AND \"brandId\" IS NOT NULL AND \"productModelId\" IS NULL) OR (target = 'model' AND \"productModelId\" IS NOT NULL AND \"brandId\" IS NULL))",
+                  "name": "search_alias_target_ids_8672a4d4",
+                  "prefix": "search_alias_target_ids"
+                }
+              ],
+              "columns": {
+                "alias": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "brandId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "productModelId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "target": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "search_alias_target",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "brandId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "SearchAlias"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Brand"
+                  }
+                },
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "productModelId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "SearchAlias"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ProductModel"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "alias"
+                  ],
+                  "name": "SearchAlias_alias_idx_0aae2ef5",
+                  "prefix": "SearchAlias_alias_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "brandId"
+                  ],
+                  "name": "SearchAlias_brandId_idx_02e95397",
+                  "prefix": "SearchAlias_brandId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "productModelId"
+                  ],
+                  "name": "SearchAlias_productModelId_idx_5c4e2620",
+                  "prefix": "SearchAlias_productModelId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "alias",
+                    "target"
                   ]
                 }
               ]
@@ -12451,6 +13117,14 @@
                 "used"
               ]
             },
+            "listing_location_source": {
+              "kind": "valueSet",
+              "values": [
+                "seller_declared",
+                "legacy_mapped",
+                "unresolved"
+              ]
+            },
             "listing_status": {
               "kind": "valueSet",
               "values": [
@@ -12592,6 +13266,13 @@
                 "message"
               ]
             },
+            "search_alias_target": {
+              "kind": "valueSet",
+              "values": [
+                "brand",
+                "model"
+              ]
+            },
             "seller_type": {
               "kind": "valueSet",
               "values": [
@@ -12646,10 +13327,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "66d2193a8ecdd3a6c4dd8c53d30e7a883b4818f443d88e9f7be76a1cd1139717"
+    "storageHash": "1350a596e5d91729f817bb862f0dc4089c7fbb2676d3fc96fe8889a8fce8760e"
   },
   "execution": {
-    "executionHash": "bd380c983cd9d1c3c573dbc1d28825f74638a85637f20e1a5d99db6e24ef4dc5",
+    "executionHash": "7bb84274aed07e15ea090dc797ec4f1b4219725ac02193989c75e98c03faa0c6",
     "mutations": {
       "defaults": [
         {
@@ -13130,6 +13811,17 @@
             "kind": "generator"
           },
           "ref": {
+            "entry": "ProductEvent",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
             "entry": "ProductModel",
             "field": "id",
             "namespace": "public"
@@ -13157,6 +13849,17 @@
           },
           "ref": {
             "entry": "Review",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "SearchAlias",
             "field": "id",
             "namespace": "public"
           }

@@ -23,7 +23,7 @@
  *     không có cách biết content hiện tại đã duyệt hay chưa).
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
@@ -57,6 +57,16 @@ const prevMigration = JSON.parse(
 
 const INVARIANT = "backfill-listing-approved-content-at";
 const dataOp = ops.find((o) => o.operationClass === "data");
+
+// Head của migration graph trên disk — dir mới nhất theo timestamp prefix.
+// Ref production phải trỏ vào head này (quy tắc advance-ref cùng commit —
+// Batch 2/4 Task 1, Batch 5 Task 1): mọi migration đã commit nằm trên đường
+// `db migrate --to production` đi qua.
+const headDir = readdirSync(`${root}/migrations/app`)
+  .filter((e) => /^\d{8}T\d{4}_/.test(e))
+  .sort()
+  .at(-1)!;
+const headTo = (JSON.parse(read(`migrations/app/${headDir}/migration.json`)) as { to: string }).to;
 
 describe("migration backfill approvedContentAt — artefact contract (b4-holistic round-4)", () => {
   it("data op tồn tại duy nhất, KHÔNG op schema nào khác (data-only)", () => {
@@ -97,7 +107,13 @@ describe("migration backfill approvedContentAt — artefact contract (b4-holisti
     // header file) — thiếu một trong ba thì backfill KHÔNG BAO GIỜ chạy.
     expect(dataOp!.invariantId).toBe(INVARIANT);
     expect(migrationJson.providedInvariants).toEqual([INVARIANT]);
-    expect(productionRef.hash).toBe(migrationJson.to);
+    // Batch 5 Task 1 đã advance ref production qua migration mới — ref không
+    // còn trỏ THẲNG vào self-edge này mà trỏ vào head mới nhất của graph.
+    // Điều kiện để backfill VẪN CHẠY trên đường tới production là ref tiếp
+    // tục khai báo invariant (dòng dưới): path walk buộc đi qua self-edge
+    // đúng một lần — đã chứng minh `db migrate --show --from @empty --to
+    // production` = 7 migration, gồm round4 backfill + batch5.
     expect(productionRef.invariants).toContain(INVARIANT);
+    expect(productionRef.hash).toBe(headTo);
   });
 });
