@@ -96,6 +96,24 @@ export async function mergeModelAction(formData: FormData): Promise<void> {
       if (target.categoryId !== model.categoryId || target.brandId !== model.brandId) {
         throw new Error("MODEL_TARGET_MISMATCH");
       }
+      // b4-holistic round-4 (LOW partial — concurrent opposite merges): LOCK
+      // TARGET row bằng CAS UPDATE (giá trị không đổi — status approved →
+      // approved — nhưng UPDATE lấy ROW LOCK) TRƯỚC khi claim source. Trước
+      // fix: guard merge chéo chỉ chặn TUẦN TỰ (stale page) — hai request
+      // ĐỒNG THỜI A→B + B→A dưới READ COMMITTED: cả hai đọc target approved
+      // (MVCC), claim source KHÁC NHAU (lock A của tx1, lock B của tx2 —
+      // không đụng nhau), Listing/PriceHistory moves đụng row disjoint →
+      // CẢ HAI commit → A.merged=B VÀ B.merged=A — mọi listing trỏ model
+      // merged, MODEL_INVALID chặn approve/submit/toggle vĩnh viễn (failure
+      // finding 464). Sau lock: merge ngược hoặc BLOCK trên row lock rồi
+      // re-evaluate predicate sau commit bên kia (thấy 'merged' → 0 rows →
+      // sentinel MODEL_TARGET_INVALID), hoặc Postgres deadlock-abort MỘT
+      // bên (rethrow — fail closed). Cả hai: TỐI ĐA MỘT merge commit.
+      // (Race test thật: tests/integration/catalog-merge-race.test.ts.)
+      const targetLock = await tx.orm.public.ProductModel
+        .where({ id: targetId, status: "approved" })
+        .updateAll({ status: "approved" });
+      if (targetLock.length === 0) throw new Error("MODEL_TARGET_INVALID");
       // Claim source CAS theo status đã đọc — merge chéo A↔B từ hai tab stale
       // thua race ở request thứ hai (0 rows → sentinel).
       const claimed = await tx.orm.public.ProductModel
