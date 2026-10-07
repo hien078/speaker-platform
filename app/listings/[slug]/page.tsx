@@ -5,6 +5,7 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDateShort, cn } from "@/src/lib/utils";
+import { labelOf } from "@/src/lib/listing-error-text";
 import {
   CONDITION_LABELS,
   FULFILLMENT_METHOD_LABELS,
@@ -128,7 +129,7 @@ export default async function ListingDetailPage({
                 {listing.viewCount} lượt xem
               </span>
               <span className="badge bg-[var(--paper)] text-[var(--ink-2)]">
-                {CONDITION_LABELS[listing.condition]}
+                {labelOf(CONDITION_LABELS, listing.condition, listing.condition)}
               </span>
               {listing.negotiable && (
                 <span className="badge bg-[var(--accent-soft)] text-[var(--accent)]">Mặc cả</span>
@@ -168,7 +169,7 @@ export default async function ListingDetailPage({
                     <div className="flex items-start justify-between gap-3">
                       <dt className="shrink-0 text-[var(--muted)]">Nguồn hàng</dt>
                       <dd className="text-right font-medium text-[var(--ink-2)]">
-                        {INVENTORY_CONTEXT_LABELS[listing.inventoryContext] ?? listing.inventoryContext}
+                        {labelOf(INVENTORY_CONTEXT_LABELS, listing.inventoryContext, listing.inventoryContext)}
                       </dd>
                     </div>
                   )}
@@ -177,8 +178,10 @@ export default async function ListingDetailPage({
                       <div className="flex items-start justify-between gap-3">
                         <dt className="shrink-0 text-[var(--muted)]">Giao hàng</dt>
                         <dd className="text-right font-medium text-[var(--ink-2)]">
+                          {/* LOW-1: fulfillmentMethods là cột Json — giá trị arbitrary;
+                              lookup own-property-safe, fallback hiển thị giá trị thô */}
                           {(listing.fulfillmentMethods as string[])
-                            .map((m) => FULFILLMENT_METHOD_LABELS[m] ?? m)
+                            .map((m) => labelOf(FULFILLMENT_METHOD_LABELS, m, m))
                             .join(", ")}
                         </dd>
                       </div>

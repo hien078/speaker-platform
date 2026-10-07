@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
+import { labelOf } from "@/src/lib/listing-error-text";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE } from "@/src/lib/constants";
 import { toggleListingVisibilityAction, deleteListingAction, submitListingAction } from "@/src/lib/actions/listings";
 import { Package, Eye, EyeOff, Trash2, Plus, Pencil, Send } from "lucide-react";
@@ -73,8 +74,9 @@ export default async function MyListingsPage({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("badge", LISTING_STATUS_BADGE[l.status])}>
-                      {LISTING_STATUS_LABELS[l.status]}
+                    {/* LOW-1: label lookup own-property-safe — key là DB data (status) */}
+                    <span className={cn("badge", labelOf(LISTING_STATUS_BADGE, l.status, ""))}>
+                      {labelOf(LISTING_STATUS_LABELS, l.status, l.status)}
                     </span>
                     {l.acceptExchange && (
                       <span className="badge bg-[#eaf2fb] text-[#2563a8]">Trao đổi</span>

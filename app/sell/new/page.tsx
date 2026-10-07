@@ -3,6 +3,7 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { BETA_PUBLICATION_CATEGORIES } from "@/src/lib/beta-categories";
 import { LISTING_FULFILLMENT_METHODS, PHOTO_CHECKLIST_SLOTS } from "@/src/lib/listing-schema";
+import { labelOf } from "@/src/lib/listing-error-text";
 import { PROVINCES } from "@/src/lib/provinces";
 import {
   checkSellerPublicationRequirements,
@@ -77,11 +78,11 @@ export default async function SellNewPage() {
           inventoryContexts={Object.entries(INVENTORY_CONTEXT_LABELS).map(([value, label]) => ({ value, label }))}
           fulfillmentMethods={LISTING_FULFILLMENT_METHODS.map((value) => ({
             value,
-            label: FULFILLMENT_METHOD_LABELS[value] ?? value,
+            label: labelOf(FULFILLMENT_METHOD_LABELS, value, value),
           }))}
           photoSlots={PHOTO_CHECKLIST_SLOTS.map((value) => ({
             value,
-            label: PHOTO_CHECKLIST_SLOT_LABELS[value] ?? value,
+            label: labelOf(PHOTO_CHECKLIST_SLOT_LABELS, value, value),
           }))}
           requirementLabels={SELLER_PUBLICATION_REQUIREMENT_LABELS}
           verification={{ ok: verification.ok, missing: verification.missing }}

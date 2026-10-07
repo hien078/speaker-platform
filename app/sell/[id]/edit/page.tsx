@@ -4,6 +4,8 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { BETA_PUBLICATION_CATEGORIES, listingRegimeForCategorySlug } from "@/src/lib/beta-categories";
 import { LISTING_FULFILLMENT_METHODS, PHOTO_CHECKLIST_SLOTS } from "@/src/lib/listing-schema";
+import { labelOf, submitErrorText } from "@/src/lib/listing-error-text";
+import { isModerationLocked } from "@/src/lib/moderation";
 import { PROVINCES } from "@/src/lib/provinces";
 import {
   checkSellerPublicationRequirements,
@@ -23,47 +25,6 @@ import { ArrowLeft, Pencil, Send } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Sửa tin đăng" };
-
-/**
- * ?error= typed code → thông báo tiếng Việt (đích redirect của submitListingAction —
- * Batch 4 Task 4/5). CHỈ cho phép typed code cố định; giá trị lạ → generic (fail
- * closed — KHÔNG phản chiếu query text). CONCURRENT_CHANGE: submit đụng trạng
- * thái đổi tay (claim 0 row — parallel note của Task 4 review-fix).
- */
-const SUBMIT_ERROR_TEXT: Record<string, string> = {
-  CONCURRENT_CHANGE: "Tin vừa thay đổi trạng thái — tải lại trang và kiểm tra lại",
-  RATE_LIMITED: "Bạn thao tác quá nhanh — thử lại sau ít phút",
-  CONTENT_INVALID: "Nội dung tin chưa hợp lệ — kiểm tra lại các bước",
-  CATEGORY_NOT_PUBLICATION_ALLOWED: "Danh mục chưa mở cho đăng tin trong giai đoạn beta",
-  CATEGORY_NOT_FOUND: "Danh mục không hợp lệ",
-  CATEGORY_REQUIRED: "Chọn danh mục",
-  BRAND_REQUIRED: "Chọn thương hiệu",
-  MODEL_REQUIRED: "Chọn model sản phẩm",
-  MODEL_INVALID: "Model sản phẩm không hợp lệ",
-  MODEL_BRAND_MISMATCH: "Model không thuộc thương hiệu đã chọn",
-  IMAGE_REQUIRED: "Thêm ít nhất 1 ảnh sản phẩm",
-  IMAGE_TOO_MANY: "Tối đa 8 ảnh",
-  IMAGE_NOT_OWNED: "Ảnh không thuộc về bạn — tải ảnh lại từ thiết bị",
-  IMAGE_URL_INVALID: "Đường dẫn ảnh không hợp lệ",
-  IMAGE_DUPLICATE: "Ảnh bị trùng lặp",
-  IMAGE_SLOT_INVALID: "Slot ảnh không hợp lệ",
-  IMAGE_SLOT_MISMATCH: "Số ảnh và số slot không khớp",
-  TITLE_INVALID: "Tiêu đề từ 8–120 ký tự",
-  DESCRIPTION_INVALID: "Mô tả từ 20–4.000 ký tự",
-  PRICE_INVALID: "Giá từ 100.000₫ đến 2 tỷ ₫",
-  CONDITION_REQUIRED: "Chọn tình trạng sản phẩm",
-  CONDITION_INVALID: "Tình trạng sản phẩm không hợp lệ",
-  INVENTORY_CONTEXT_REQUIRED: "Chọn nguồn hàng (mới / mở hộp / đã qua sử dụng)",
-  INVENTORY_CONTEXT_INVALID: "Nguồn hàng không hợp lệ",
-  FREE_TEXT_INVALID: "Nội dung quá dài (tối đa 2.000 ký tự)",
-  FULFILLMENT_REQUIRED: "Chọn ít nhất 1 phương thức giao hàng",
-  FULFILLMENT_INVALID: "Phương thức giao hàng không hợp lệ",
-  FULFILLMENT_DUPLICATE: "Phương thức giao hàng bị trùng",
-  PROVINCE_REQUIRED: "Chọn tỉnh/thành phố",
-  PROVINCE_INVALID: "Mã tỉnh/thành phố không hợp lệ",
-  LOCATION_DISPLAY_REQUIRED: "Nhập khu vực hiển thị (không nhập địa chỉ nhà riêng)",
-  LOCATION_DISPLAY_INVALID: "Khu vực hiển thị quá dài (tối đa 120 ký tự)",
-};
 
 /**
  * Sửa tin (Batch 4 Task 5): regime switch THEO CATEGORY SLUG của listing
@@ -91,6 +52,37 @@ export default async function EditListingPage({
     .first();
 
   if (!listing || listing.sellerId !== user.id) notFound();
+
+  // ─── R5 — moderation lock (review fix MEDIUM-1): tin bị moderation takedown
+  // thì seller KHÔNG được sửa — guard qua isModerationLocked (Batch 3 helper
+  // từ @/src/lib/moderation — KHÔNG hardcode status). Action đã guard
+  // (LISTING_MODERATION_LOCKED — listings.ts); đây là read-only notice thay
+  // cho form. Link kháng cáo: case gắn sanction takedown (Batch 3 appeal
+  // route /appeal/[caseId] — case đã atomic actioned tại takedown S6 nên
+  // subject appeal được; takedown không qua case → không có link).
+  if (isModerationLocked(listing.status)) {
+    const takedown = await db.orm.public.ModerationAction
+      .where({ targetType: "listing", targetId: listing.id, actionType: "listing.taken_down" })
+      .orderBy((a) => a.createdAt.desc())
+      .first();
+    return (
+      <main className="mx-auto max-w-2xl px-4 py-16 text-center lg:px-8">
+        <p className="text-lg font-bold">Tin đã bị gỡ bởi kiểm duyệt</p>
+        <p className="mt-2 text-sm text-[var(--muted)]">
+          Tin đang bị khóa bởi quyết định kiểm duyệt và không thể chỉnh sửa tại đây.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          <Link href="/sell/my" className="btn-secondary text-sm">Quay lại tin của tôi</Link>
+          {takedown?.caseId != null && (
+            <Link href={`/appeal/${takedown.caseId}`} className="btn-ghost text-sm">
+              Xem quyết định kiểm duyệt
+            </Link>
+          )}
+        </div>
+      </main>
+    );
+  }
+
   if (listing.status === "sold") {
     return (
       <main className="mx-auto max-w-2xl px-4 py-16 text-center lg:px-8">
@@ -160,7 +152,9 @@ export default async function EditListingPage({
 
       {submitError !== null && (
         <div className="mt-5 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
-          {SUBMIT_ERROR_TEXT[submitError] ?? SUBMIT_ERROR_TEXT.CONTENT_INVALID}
+          {/* LOW-1: lookup own-property-safe — code lạ/prototype key (?error=__proto__)
+              → generic, KHÔNG crash (map + helper sống ở src/lib/listing-error-text.ts) */}
+          {submitErrorText(submitError)}
         </div>
       )}
 
@@ -175,11 +169,11 @@ export default async function EditListingPage({
             inventoryContexts={Object.entries(INVENTORY_CONTEXT_LABELS).map(([value, label]) => ({ value, label }))}
             fulfillmentMethods={LISTING_FULFILLMENT_METHODS.map((value) => ({
               value,
-              label: FULFILLMENT_METHOD_LABELS[value] ?? value,
+              label: labelOf(FULFILLMENT_METHOD_LABELS, value, value),
             }))}
             photoSlots={PHOTO_CHECKLIST_SLOTS.map((value) => ({
               value,
-              label: PHOTO_CHECKLIST_SLOT_LABELS[value] ?? value,
+              label: labelOf(PHOTO_CHECKLIST_SLOT_LABELS, value, value),
             }))}
             requirementLabels={SELLER_PUBLICATION_REQUIREMENT_LABELS}
             verification={{ ok: verification.ok, missing: verification.missing }}
