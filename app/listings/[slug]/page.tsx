@@ -5,7 +5,12 @@ import { getCurrentUser } from "@/src/lib/auth";
 import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDateShort, cn } from "@/src/lib/utils";
-import { CONDITION_LABELS } from "@/src/lib/constants";
+import { labelOf } from "@/src/lib/listing-error-text";
+import {
+  CONDITION_LABELS,
+  FULFILLMENT_METHOD_LABELS,
+  INVENTORY_CONTEXT_LABELS,
+} from "@/src/lib/constants";
 import {
   SELLER_VERIFIED_BADGE_LABEL,
   isVerifiedSellerStatus,
@@ -115,13 +120,16 @@ export default async function ListingDetailPage({
               <span className="inline-flex items-center gap-1.5">
                 <MapPin className="size-4 text-amber-500/80" />
                 {listing.city}
+                {listing.locationDisplayName != null && listing.locationDisplayName !== "" && (
+                  <span className="text-[var(--muted)]">· {listing.locationDisplayName}</span>
+                )}
               </span>
               <span className="inline-flex items-center gap-1.5">
                 <Eye className="size-4" />
                 {listing.viewCount} lượt xem
               </span>
               <span className="badge bg-[var(--paper)] text-[var(--ink-2)]">
-                {CONDITION_LABELS[listing.condition]}
+                {labelOf(CONDITION_LABELS, listing.condition, listing.condition)}
               </span>
               {listing.negotiable && (
                 <span className="badge bg-[var(--accent-soft)] text-[var(--accent)]">Mặc cả</span>
@@ -142,6 +150,75 @@ export default async function ListingDetailPage({
                 {listing.description}
               </p>
             </div>
+
+            {/* ═══ Thông tin chi tiết có cấu trúc (Batch 4 — spec §5.6) ═══
+                Legacy listing giữ NULL ("chưa thu thập") → section vắng hoàn toàn
+                (conditional render — KHÔNG render text "null"/placeholder). */}
+            {(listing.inventoryContext != null ||
+              listing.includedAccessories != null ||
+              listing.knownDefects != null ||
+              listing.repairHistory != null ||
+              (Array.isArray(listing.fulfillmentMethods) &&
+                (listing.fulfillmentMethods as string[]).length > 0)) && (
+              <div className="mt-6 border-t border-[var(--line)] pt-5">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
+                  Thông tin chi tiết
+                </h2>
+                <dl className="mt-3 space-y-2 text-sm">
+                  {listing.inventoryContext != null && (
+                    <div className="flex items-start justify-between gap-3">
+                      <dt className="shrink-0 text-[var(--muted)]">Nguồn hàng</dt>
+                      <dd className="text-right font-medium text-[var(--ink-2)]">
+                        {labelOf(INVENTORY_CONTEXT_LABELS, listing.inventoryContext, listing.inventoryContext)}
+                      </dd>
+                    </div>
+                  )}
+                  {Array.isArray(listing.fulfillmentMethods) &&
+                    (listing.fulfillmentMethods as string[]).length > 0 && (
+                      <div className="flex items-start justify-between gap-3">
+                        <dt className="shrink-0 text-[var(--muted)]">Giao hàng</dt>
+                        <dd className="text-right font-medium text-[var(--ink-2)]">
+                          {/* LOW-1: fulfillmentMethods là cột Json — giá trị arbitrary;
+                              lookup own-property-safe, fallback hiển thị giá trị thô */}
+                          {(listing.fulfillmentMethods as string[])
+                            .map((m) => labelOf(FULFILLMENT_METHOD_LABELS, m, m))
+                            .join(", ")}
+                        </dd>
+                      </div>
+                    )}
+                </dl>
+                {listing.includedAccessories != null && (
+                  <div className="mt-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                      Phụ kiện đi kèm
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--ink-2)]">
+                      {listing.includedAccessories}
+                    </p>
+                  </div>
+                )}
+                {listing.knownDefects != null && (
+                  <div className="mt-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                      Vết xước / hư hại đã biết
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--ink-2)]">
+                      {listing.knownDefects}
+                    </p>
+                  </div>
+                )}
+                {listing.repairHistory != null && (
+                  <div className="mt-3">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--muted)]">
+                      Lịch sử sửa chữa
+                    </p>
+                    <p className="mt-1 whitespace-pre-wrap text-[15px] leading-relaxed text-[var(--ink-2)]">
+                      {listing.repairHistory}
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Model catalog (§5) */}
             {model && (

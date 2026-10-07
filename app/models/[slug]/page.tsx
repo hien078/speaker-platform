@@ -124,7 +124,12 @@ export default async function ModelPage({
               </p>
             </div>
             <div className="card p-4">
-              <p className="text-xs text-[var(--muted)]">Khoảng giá thị trường</p>
+              {/* LOW-3 (PROVISIONAL — FD-3, Batch 8 Founder Decision Register):
+                  <3 mẫu giá thì KHÔNG gọi là "thị trường" — chỉ là khoảng giá đã
+                  thu thập (low-sample context §13.6/§5.8.2, không claim authoritative). */}
+              <p className="text-xs text-[var(--muted)]">
+                {stats.count < 3 ? "Khoảng giá đã thu thập" : "Khoảng giá thị trường"}
+              </p>
               <p className="mt-1.5 text-sm font-semibold text-[var(--ink)]">
                 {formatVND(stats.low)} — {formatVND(stats.high)}
               </p>

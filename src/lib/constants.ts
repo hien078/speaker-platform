@@ -1,4 +1,5 @@
 /** Nhãn tiếng Việt cho các enum — dùng chung toàn app */
+import { PROVINCES } from "@/src/lib/provinces";
 import type {
   ReportReasonCode,
   ModerationCaseState,
@@ -26,6 +27,8 @@ export const LISTING_STATUS_LABELS: Record<string, string> = {
   // + console render trạng thái với nhãn con người; Batch 4 Task 5 chỉ thêm
   // `archived`. KHÔNG dùng cho seller self-hide.
   removed: "Đã gỡ bởi kiểm duyệt",
+  // §5.6.2 lifecycle — reserved, chưa có transition nào trong Batch 4 ghi giá trị
+  archived: "Đã lưu trữ",
 };
 
 export const LISTING_STATUS_BADGE: Record<string, string> = {
@@ -37,6 +40,8 @@ export const LISTING_STATUS_BADGE: Record<string, string> = {
   sold: "bg-sky-500/15 text-sky-400",
   // R8 — badge cho `removed` (moderation takedown)
   removed: "bg-red-500/15 text-red-400",
+  // §5.6.2 lifecycle — reserved (Batch 4 Task 5)
+  archived: "bg-zinc-700/60 text-zinc-400",
 };
 
 export const CONDITION_LABELS: Record<string, string> = {
@@ -102,21 +107,61 @@ export const DISPUTE_STATUS_LABELS: Record<string, string> = {
   closed: "Đã đóng",
 };
 
-export const CITIES = [
-  "Hà Nội",
-  "TP. Hồ Chí Minh",
-  "Đà Nẵng",
-  "Hải Phòng",
-  "Cần Thơ",
-  "Bình Dương",
-  "Đồng Nai",
-  "Khánh Hòa",
-  "Lâm Đồng",
-  "Nghệ An",
-  "Quảng Ninh",
-  "Thừa Thiên Huế",
-  "Khác",
-];
+/**
+ * Khu vực lọc /listings + select form legacy (FD-1 — Batch 4 Task 5 refresh).
+ *
+ * 34 displayName chuẩn của registry src/lib/provinces.ts (NQ 202/2025/QH15 —
+ * derive THẲNG TỪ registry, không copy tay cho không trôi) + "Khác". Tên stale
+ * pre-merger của các tỉnh đã sáp nhập KHÔNG còn trong list — tên đơn vị mới
+ * ("Huế", "TP. Hồ Chí Minh"…) có mặt. Listing beta ghi city =
+ * PROVINCE_CODES[code] nên filter exact-match khớp; listing legacy giữ
+ * free-text cũ (filter debt — KHÔNG backfill, spec §8.3; form select render
+ * option riêng cho stored value ngoài list — item 11).
+ */
+export const CITIES = [...PROVINCES.map((p) => p.displayName), "Khác"];
+
+// ─── Batch 4 — structured portable-speaker listing (spec §5.6/§5.6.3/§5.2) ──────
+
+/**
+ * PROVISIONAL (A1/FD-3): nhãn inventory context là founder-authored content
+ * pending — Batch 8 Founder Decision Register; giá trị hiện tại theo comment
+ * enum contract (mới / mở hộp chưa dùng / đã qua sử dụng), founder có thể đổi
+ * additive trước beta. Định nghĩa từng grade (và chồng lấn new/open_box với
+ * product_condition) = A1 — KHÔNG bịa ở đây.
+ */
+export const INVENTORY_CONTEXT_LABELS: Record<string, string> = {
+  new: "Mới / nguyên seal",
+  open_box: "Mở hộp chưa dùng",
+  used: "Đã qua sử dụng",
+};
+
+/**
+ * PROVISIONAL (A7/FD-3): mapping §5.2 (Deal fulfillment methods) — recorded
+ * decision A7; nhãn tiếng Việt là founder-authored content pending (Batch 8
+ * Founder Decision Register).
+ */
+export const FULFILLMENT_METHOD_LABELS: Record<string, string> = {
+  meetup: "Gặp trực tiếp",
+  seller_delivery: "Người bán giao đến",
+  carrier: "Gửi qua đơn vị vận chuyển",
+  other: "Khác",
+};
+
+/**
+ * PROVISIONAL (A2/FD-3): nhãn 8 slot ảnh §5.6.3 — founder-authored content
+ * pending (Batch 8 Founder Decision Register); requiredness từng slot = A2
+ * (KHÔNG slot nào bắt buộc — chỉ rule ≥1 ảnh hiện có).
+ */
+export const PHOTO_CHECKLIST_SLOT_LABELS: Record<string, string> = {
+  front: "Mặt trước",
+  back: "Mặt sau",
+  control_panel: "Bảng điều khiển",
+  ports: "Cổng sạc / kết nối",
+  damage: "Vết xước / hư hại chính",
+  accessories: "Phụ kiện đi kèm",
+  box: "Hộp / vỏ (nếu có)",
+  label_serial: "Nhãn / serial",
+};
 
 /**
  * Nhãn tiếng Việt cho chín lý do báo cáo lạm dụng — spec §5.5 verbatim

@@ -15,6 +15,11 @@ export function ProfileForm({
     {},
   );
 
+  // Item 11 (Batch 4 Task 5): stored profile city NGOÀI CITIES (giá trị free-text
+  // cũ) → option RIÊNG, chọn được — KHÔNG rewrite im lặng về option đầu.
+  const storedCity = defaults.city;
+  const extraCity = storedCity !== "" && !CITIES.includes(storedCity) ? storedCity : null;
+
   return (
     <form action={formAction} className="space-y-4">
       <div>
@@ -30,6 +35,7 @@ export function ProfileForm({
           <label className="label" htmlFor="city">Khu vực</label>
           <select id="city" name="city" className="input" defaultValue={defaults.city}>
             <option value="">— Chọn khu vực —</option>
+            {extraCity !== null && <option value={extraCity}>{extraCity}</option>}
             {CITIES.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
