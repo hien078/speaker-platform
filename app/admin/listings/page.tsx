@@ -5,6 +5,12 @@ import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE, CONDITION_LABELS } from "@
 import { listingRegimeForCategorySlug } from "@/src/lib/beta-categories";
 import { isVerifiedSellerStatus } from "@/src/lib/seller-verification-status";
 import { PROVINCE_CODES } from "@/src/lib/provinces";
+import type {
+  InventoryContext,
+  ListingFulfillmentMethod,
+  PhotoChecklistSlot,
+} from "@/src/lib/listing-schema";
+import { ATTACHED_IMAGE_PATH_PATTERN } from "@/src/lib/listing-images";
 import { approveListingAction, rejectListingAction } from "@/src/lib/actions/admin";
 import { FileSearch, CheckCircle2, XCircle } from "lucide-react";
 
@@ -15,17 +21,20 @@ import { FileSearch, CheckCircle2, XCircle } from "lucide-react";
 // rule), exports chưa tồn tại ở tree này. Labels sống cục bộ với giá trị theo
 // comment contract.prisma + spec §5.2/§5.6.3. PROVISIONAL (FD-3): label copy là
 // founder-authored content pending — Batch 8 Founder Decision Register.
-// Follow-up sau khi Task 5 merge: unify về constants.ts (ghi trong report).
+// TODO(L1): unify with constants.ts after Task 5 merges.
+//
+// L1 (review fix): map TYPED theo union Task 2 (listing-schema.ts) — thiếu key
+// fail typecheck, Record<string, string> rỗng không lọt nữa.
 
 /** Enum `inventory_context` (contract.prisma — spec §5.6): new/open_box/used. */
-const INVENTORY_CONTEXT_LABELS: Record<string, string> = {
+const INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string> = {
   new: "Mới / nguyên seal",
   open_box: "Mở hộp chưa dùng",
   used: "Đã qua sử dụng",
 };
 
 /** §5.2 fulfillment methods (mapping A7): meetup/seller_delivery/carrier/other. */
-const FULFILLMENT_METHOD_LABELS: Record<string, string> = {
+const FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string> = {
   meetup: "Gặp trực tiếp",
   seller_delivery: "Người bán tự giao",
   carrier: "Đơn vị vận chuyển",
@@ -33,7 +42,7 @@ const FULFILLMENT_METHOD_LABELS: Record<string, string> = {
 };
 
 /** 8 slot ảnh §5.6.3 — nhãn caption cho gallery duyệt. */
-const PHOTO_CHECKLIST_SLOT_LABELS: Record<string, string> = {
+const PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string> = {
   front: "Mặt trước",
   back: "Mặt sau",
   control_panel: "Bảng điều khiển",
@@ -48,12 +57,31 @@ const PHOTO_CHECKLIST_SLOT_LABELS: Record<string, string> = {
 const orDash = (v: string | null | undefined): string =>
   v != null && v.trim().length > 0 ? v : "—";
 
+/**
+ * Label lookup an toàn (L4 — review fix): Object.hasOwn TRƯỚC khi tra map —
+ * key lạ (dữ liệu legacy/dirty không qua enum) → raw value làm text, KHÔNG
+ * undefined. Map TYPED (L1) + hasOwn = cả typecheck lẫn runtime đều khép.
+ */
+const labelOrRaw = <K extends string>(labels: Record<K, string>, raw: string): string =>
+  Object.hasOwn(labels, raw) ? labels[raw as K] : raw;
+
+/**
+ * Chỉ render <img> khi url là PATH same-origin sạch (M2 — review fix): reuse
+ * ATTACHED_IMAGE_PATH_PATTERN của Task 2 (listing-images.ts — import, KHÔNG
+ * copy pattern local) + chặn ".." như rule (2) của ownership check. URL có
+ * scheme (https://… — row pre-Batch-4 có thể còn giữ) KHÔNG bao giờ vào
+ * <img src>: browser moderator sẽ request nó → leak IP/UA về server của
+ * kẻ gắn tracking pixel. Ảnh bị chặn → placeholder text, KHÔNG link tới nó.
+ */
+const isSafeImagePath = (url: string): boolean =>
+  ATTACHED_IMAGE_PATH_PATTERN.test(url) && !url.includes("..");
+
 /** fulfillmentMethods (Json) → nhãn hiển thị an toàn — chỉ phần tử string. */
 const fulfillmentLabel = (raw: unknown): string => {
   if (!Array.isArray(raw)) return "—";
   const parts: string[] = [];
   for (const m of raw) {
-    if (typeof m === "string") parts.push(FULFILLMENT_METHOD_LABELS[m] ?? m);
+    if (typeof m === "string") parts.push(labelOrRaw(FULFILLMENT_METHOD_LABELS, m));
   }
   return parts.length > 0 ? parts.join(" · ") : "—";
 };
@@ -71,7 +99,10 @@ export default async function AdminListingsPage({
   const tab = sp.tab === "all" ? "all" : "pending";
 
   const listings = await db.orm.public.Listing
-    .where(tab === "pending" ? { status: "pending" } : {})
+    // L5 (review fix): draft là seller-private (chưa submit — spec §4.4) —
+    // KHÔNG xuất hiện ở queue moderator, kể cả tab "Tất cả". MỌI query của
+    // page này loại draft (tab Chờ duyệt = pending hẹp hơn, cũng không draft).
+    .where((l) => (tab === "pending" ? l.status.eq("pending") : l.status.neq("draft")))
     // Badge "đã xác minh" đọc WORKFLOW SỐNG (SellerVerification.status —
     // spec §8.2): seller bị thu hồi mất badge NGAY; boolean legacy
     // isVerifiedSeller đã đóng băng (Batch 2 review fix) — KHÔNG còn nguồn.
@@ -81,11 +112,16 @@ export default async function AdminListingsPage({
     // slug để derive regime beta/legacy (§5.6.1) — badge trên card.
     .include("category", (c) => c.select("name", "slug"))
     .include("brand", (b) => b.select("name"))
-    // Model chuẩn (§6.3 Step 1) — link /models/<slug> cho moderator.
-    .include("productModel", (m) => m.select("name", "slug"))
-    // Gallery MỌI ảnh + caption slot §5.6.3 — KHÔNG cắt ở ảnh đầu (bỏ limit 1 ảnh).
+    // Model chuẩn (§6.3 Step 1) — link /models/<slug> cho moderator; status
+    // (L3) để badge model chưa canonical (pending/merged — enum model_status).
+    .include("productModel", (m) => m.select("name", "slug", "status"))
+    // Gallery MỌI ảnh + caption slot §5.6.3 — KHÔNG cắt ở ảnh đầu (bỏ limit 1 ảnh);
+    // L2 (review fix): cap 12 ảnh theo sortOrder — include branch không kéo
+    // vô hạn ảnh của listing legacy (Prisma 8 hỗ trợ .limit trên include branch).
     .include("images", (i) =>
-      i.select("id", "url", "checklistSlot").orderBy((img) => img.sortOrder.asc()))
+      i.select("id", "url", "checklistSlot")
+        .orderBy((img) => img.sortOrder.asc())
+        .limit(12))
     .orderBy((l) => l.createdAt.desc())
     .limit(100)
     .all();
@@ -126,10 +162,13 @@ export default async function AdminListingsPage({
             // Regime category (§5.6.1): beta = trong allowlist, legacy = grandfathered.
             const isBeta = listingRegimeForCategorySlug(l.category!.slug) === "beta";
             // Vị trí canonical (§5.6): locationDisplayName (thô) + tỉnh canonical
-            // từ registry 34 đơn vị (FD-1) — NULL = legacy → "—".
+            // từ registry 34 đơn vị (FD-1) — NULL = legacy → "—". L4: hasOwn trước
+            // khi tra PROVINCE_CODES — mã lạ → raw value làm text.
             const provinceName =
-              l.provinceLevelCode != null
-                ? (PROVINCE_CODES[l.provinceLevelCode] ?? l.provinceLevelCode)
+              l.provinceLevelCode != null && l.provinceLevelCode.trim().length > 0
+                ? (Object.hasOwn(PROVINCE_CODES, l.provinceLevelCode)
+                    ? PROVINCE_CODES[l.provinceLevelCode]
+                    : l.provinceLevelCode)
                 : null;
             const locationParts = [l.locationDisplayName, provinceName].filter(
               (p): p is string => p != null && p.trim().length > 0,
@@ -145,12 +184,19 @@ export default async function AdminListingsPage({
                       l.images.map((img) => (
                         <figure key={img.id} className="w-14">
                           <div className="relative block size-14 overflow-hidden rounded-lg bg-[var(--paper-deep)]">
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img src={img.url} alt="" className="size-full object-cover" />
+                            {isSafeImagePath(img.url) ? (
+                              /* eslint-disable-next-line @next/next/no-img-element */
+                              <img src={img.url} alt="" className="size-full object-cover" />
+                            ) : (
+                              /* M2: url không tin được → placeholder, KHÔNG request, KHÔNG link */
+                              <span className="grid size-full place-items-center p-1 text-center text-[9px] leading-[1.1] text-[var(--muted)]">
+                                URL ảnh không hợp lệ
+                              </span>
+                            )}
                           </div>
                           <figcaption className="mt-0.5 text-center text-[10px] leading-3 text-[var(--muted)]">
                             {img.checklistSlot != null
-                              ? (PHOTO_CHECKLIST_SLOT_LABELS[img.checklistSlot] ?? img.checklistSlot)
+                              ? labelOrRaw(PHOTO_CHECKLIST_SLOT_LABELS, img.checklistSlot)
                               : "—"}
                           </figcaption>
                         </figure>
@@ -195,7 +241,7 @@ export default async function AdminListingsPage({
                         <p className="text-[var(--muted)]">Nguồn hàng</p>
                         <p className="font-medium text-[var(--ink-2)]">
                           {l.inventoryContext != null
-                            ? (INVENTORY_CONTEXT_LABELS[l.inventoryContext] ?? l.inventoryContext)
+                            ? labelOrRaw(INVENTORY_CONTEXT_LABELS, l.inventoryContext)
                             : "—"}
                         </p>
                       </div>
@@ -203,12 +249,24 @@ export default async function AdminListingsPage({
                         <p className="text-[var(--muted)]">Model chuẩn</p>
                         <p className="font-medium text-[var(--ink-2)]">
                           {l.productModel ? (
-                            <a
-                              href={`/models/${l.productModel.slug}`}
-                              className="text-[var(--accent)] underline-offset-2 hover:underline"
-                            >
-                              {l.productModel.name}
-                            </a>
+                            <>
+                              <a
+                                href={`/models/${l.productModel.slug}`}
+                                className="text-[var(--accent)] underline-offset-2 hover:underline"
+                              >
+                                {l.productModel.name}
+                              </a>
+                              {l.productModel.status !== "approved" && (
+                                /* L3: model chưa canonical (pending chờ duyệt /
+                                 * merged đã gộp — enum model_status) → badge cạnh
+                                 * link, moderator KHÔNG duyệt như model chuẩn. */
+                                <span className="ml-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">
+                                  {l.productModel.status === "merged"
+                                    ? "Model đã gộp"
+                                    : "Model chờ duyệt"}
+                                </span>
+                              )}
+                            </>
                           ) : (
                             "—"
                           )}

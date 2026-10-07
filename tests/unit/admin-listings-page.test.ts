@@ -1,6 +1,7 @@
 /**
  * Admin review surface — structured fields + workflow badge (Batch 4 Task 6 —
- * spec §5.6/§5.6.1/§5.6.3, §8.2) — source-contract tests.
+ * spec §5.6/§5.6.1/§5.6.3, §8.2) — source-contract tests (TIGHTENED — review
+ * fix M1).
  *
  * /admin/listings là nơi moderator duyệt tin: card phải hiển thị ĐỦ trường
  * structured (spec §5.6) để quyết định duyệt/từ chối trên thông tin thật,
@@ -9,14 +10,22 @@
  * — spec §8.2, Batch 2 review fix) chứ không phải boolean legacy
  * `isVerifiedSeller` đã đóng băng (revoked seller phải mất badge NGAY).
  *
- * Source contract (như seller-verified-badge.test.ts): đọc source page,
- * assert cấu trúc — KHÔNG jsdom. Guard server-side (FORBIDDEN trước db read)
- * đã có tests/unit/admin-listings-guard.test.ts; guard action approve/reject
- * assert ở rbac.test.ts + publication-gate.test.ts.
+ * Review fix M1: source-string test bare (`toContain("INVENTORY_CONTEXT_LABELS")`,
+ * `toContain("—")`…) match CẢ comment — badge điều kiện ĐẢO NGỢC, map rỗng,
+ * field bị xóa vẫn xanh hết. HÀNH VI (moderator THẤY gì) chuyển sang RENDER
+ * tests trong tests/unit/admin-listings-guard.test.ts (textOf/srcsOf/hrefsOf
+ * harness trên element tree thật). File này chỉ giữ source-contract KHÔNG thể
+ * thỏa bởi comment: usage-shaped regex (indexing/call site), absence contract
+ * (KHÔNG boolean legacy, KHÔNG XSS sink, KHÔNG PII mới), include shape, typed
+ * maps (L1).
+ *
+ * Guard server-side (FORBIDDEN trước db read) + render hành vi: guard file.
+ * Guard action approve/reject assert ở rbac.test.ts + publication-gate.test.ts.
  *
  * Label maps (INVENTORY_CONTEXT_LABELS/…) sống cục bộ trong page vì Task 5
  * (chủ sở hữu src/lib/constants.ts) chạy song song trong batch — xem comment
- * trong page; test chỉ pin TÊN được dùng, không pin vị trí định nghĩa.
+ * trong page; test pin map TYPED theo union Task 2 (L1), không pin vị trí
+ * định nghĩa.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -26,53 +35,51 @@ const root = fileURLToPath(new URL("../..", import.meta.url));
 const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
 const PAGE = "app/admin/listings/page.tsx";
 
-// ─── Structured fields (spec §5.6) ───────────────────────────────────────────
+// ─── Structured fields (spec §5.6) — typed maps + usage call sites ──────────
 
 describe("admin listings review card — structured fields (spec §5.6)", () => {
-  it("render các trường structured: nguồn hàng, phụ kiện, lỗi đã biết, lịch sử sửa, giao hàng, vị trí, slot ảnh", () => {
+  it("label maps TYPED theo union Task 2 (L1) — thiếu key fail typecheck", () => {
     const src = read(PAGE);
-    expect(src).toContain("INVENTORY_CONTEXT_LABELS");
-    expect(src).toContain("knownDefects");
-    expect(src).toContain("repairHistory");
-    expect(src).toContain("includedAccessories");
-    expect(src).toContain("FULFILLMENT_METHOD_LABELS");
-    expect(src).toContain("locationDisplayName");
-    expect(src).toContain("PHOTO_CHECKLIST_SLOT_LABELS");
+    expect(src).toMatch(/INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string>/);
+    expect(src).toMatch(/FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string>/);
+    expect(src).toMatch(/PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string>/);
+    // union type import từ listing-schema (Task 2) — KHÔNG định nghĩa lại local
+    expect(src).toMatch(
+      /import type \{\s*InventoryContext,\s*ListingFulfillmentMethod,\s*PhotoChecklistSlot,\s*\} from "@\/src\/lib\/listing-schema"/,
+    );
   });
 
-  it("vị trí canonical: locationDisplayName + tỉnh từ registry FD-1 (PROVINCE_CODES)", () => {
+  it("lookup qua Object.hasOwn + raw fallback (L4) — call site, không tên trong comment", () => {
     const src = read(PAGE);
-    expect(src).toContain("PROVINCE_CODES");
-    expect(src).toContain("provinceLevelCode");
+    expect(src).toMatch(/labelOrRaw\(INVENTORY_CONTEXT_LABELS, l\.inventoryContext\)/);
+    expect(src).toMatch(/labelOrRaw\(FULFILLMENT_METHOD_LABELS, m\)/);
+    expect(src).toMatch(/labelOrRaw\(PHOTO_CHECKLIST_SLOT_LABELS, img\.checklistSlot\)/);
+    expect(src).toMatch(/Object\.hasOwn\(PROVINCE_CODES, l\.provinceLevelCode\)/);
   });
 
-  it("model chuẩn render thành link /models/<slug>", () => {
-    expect(read(PAGE)).toContain("/models/");
-  });
-
-  it("legacy NULL → em-dash (spec §8.3 — không backfill, hiển thị '—')", () => {
-    expect(read(PAGE)).toContain("—");
+  it("structured free-text qua orDash (NULL legacy → '—') — call site từng field", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/orDash\(l\.includedAccessories\)/);
+    expect(src).toMatch(/orDash\(l\.knownDefects\)/);
+    expect(src).toMatch(/orDash\(l\.repairHistory\)/);
+    expect(src).toMatch(/l\.locationDisplayName/);
   });
 });
 
-// ─── Beta vs legacy category badge (spec §5.6.1) ─────────────────────────────
+// ─── Beta vs legacy category badge (spec §5.6.1) — usage call ────────────────
 
 describe("admin listings review card — badge regime category (spec §5.6.1)", () => {
-  it("phân biệt allowlist (beta) vs legacy qua regime Task 2 + render 2 nhãn", () => {
-    const src = read(PAGE);
-    expect(src).toContain("listingRegimeForCategorySlug");
-    expect(src).toContain("Danh mục beta");
-    expect(src).toContain("Danh mục legacy");
+  it("regime derive qua listingRegimeForCategorySlug (Task 2) trên slug DB row", () => {
+    expect(read(PAGE)).toMatch(/listingRegimeForCategorySlug\(l\.category!\.slug\)/);
   });
 });
 
 // ─── Seller badge đọc WORKFLOW (spec §8.2 — Batch 2 review fix) ───────────────
 
 describe("admin listings review card — seller badge đọc SellerVerification (spec §8.2)", () => {
-  it("include sellerVerification.status + isVerifiedSellerStatus, KHÔNG đọc boolean legacy", () => {
+  it("isVerifiedSellerStatus gọi trên sellerVerification.status — KHÔNG đọc boolean legacy", () => {
     const src = read(PAGE);
-    expect(src).toContain("sellerVerification");
-    expect(src).toContain("isVerifiedSellerStatus");
+    expect(src).toMatch(/isVerifiedSellerStatus\(l\.seller!\.sellerVerification\?\.status\)/);
     // Đọc boolean legacy = truy cập property `.isVerifiedSeller` (comment nhắc
     // TÊN không tính — regex chỉ match property access; `isVerifiedSellerStatus`
     // không match vì không có `.` trước và không có \b giữa "r"/"S").
@@ -80,17 +87,48 @@ describe("admin listings review card — seller badge đọc SellerVerification 
   });
 });
 
-// ─── Gallery — MỌI ảnh + caption slot (spec §5.6.3) ───────────────────────────
+// ─── Gallery — mọi ảnh + caption slot + cap (spec §5.6.3 + L2) ──────────────
 
 describe("admin listings review card — gallery mọi ảnh + caption slot (spec §5.6.3)", () => {
-  it("images include KHÔNG .limit(1) + select checklistSlot", () => {
+  it("images include: select checklistSlot + orderBy sortOrder + cap 12 (L2), KHÔNG cắt ảnh đầu", () => {
     const src = read(PAGE);
+    expect(src).toMatch(
+      /include\("images", \(i\) =>\s*i\.select\("id", "url", "checklistSlot"\)\s*\.orderBy\(\(img\) => img\.sortOrder\.asc\(\)\)\s*\.limit\(12\)/,
+    );
     expect(src).not.toContain(".limit(1)");
-    expect(src).toMatch(/include\("images",[\s\S]*?checklistSlot/);
+  });
+});
+
+// ─── Ảnh an toàn (M2) — reuse validator Task 2, placeholder cho url lạ ──────
+
+describe("admin listings review card — img src same-origin (M2 — review fix)", () => {
+  it("reuse ATTACHED_IMAGE_PATH_PATTERN (listing-images.ts) + chặn '..' — import, KHÔNG copy local", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/from "@\/src\/lib\/listing-images"/);
+    expect(src).toMatch(/ATTACHED_IMAGE_PATH_PATTERN\.test\(url\) && !url\.includes\("\.\."\)/);
   });
 
-  it("render mọi ảnh (map) — gallery không cắt ở ảnh đầu", () => {
-    expect(read(PAGE)).toMatch(/images\.map\(/);
+  it("url bị chặn → placeholder text, KHÔNG link tới nó", () => {
+    const src = read(PAGE);
+    expect(src).toContain("URL ảnh không hợp lệ");
+  });
+});
+
+// ─── Model chuẩn (L3) — status select + badge chưa canonical ─────────────────
+
+describe("admin listings review card — model chuẩn status (L3 — review fix)", () => {
+  it("select ProductModel.status + badge khi status !== 'approved' (enum model_status)", () => {
+    const src = read(PAGE);
+    expect(src).toMatch(/m\.select\("name", "slug", "status"\)/);
+    expect(src).toMatch(/l\.productModel\.status !== "approved"/);
+  });
+});
+
+// ─── Query (L5) — draft seller-private, loại khỏi mọi tab ─────────────────────
+
+describe("admin listings page — query loại draft (L5 — spec §4.4)", () => {
+  it("mọi listing query của page loại status 'draft'", () => {
+    expect(read(PAGE)).toMatch(/l\.status\.neq\("draft"\)/);
   });
 });
 
@@ -103,7 +141,7 @@ describe("admin listings review card — guard + PII (spec §4.5/§4.8)", () => 
 
   it("seller email render như hiện tại (không THÊM PII — không phone)", () => {
     const src = read(PAGE);
-    expect(src).toContain("email");
+    expect(src).toMatch(/s\.select\("name", "email"\)/);
     expect(src).not.toContain("phone");
   });
 
