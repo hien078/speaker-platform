@@ -47,6 +47,11 @@ vi.mock("@/src/lib/actions/admin", () => ({
 const dbState = vi.hoisted(() => ({ allCalls: 0 }));
 
 vi.mock("@/src/prisma/db.client", () => {
+  // Fixture shape theo query Batch 4 Task 6 (fixture shape only — invariant
+  // guard không đổi): seller (name/email) + nested sellerVerification (badge
+  // đọc workflow — spec §8.2), category (name + slug — badge regime §5.6.1),
+  // productModel, images KHÔNG .limit(1) (id/url/checklistSlot), structured
+  // fields NULL = legacy "not captured" (spec §8.3).
   const LISTING = {
     id: "listing-1",
     title: "Loa JBL Charge 5 cũ",
@@ -56,10 +61,22 @@ vi.mock("@/src/prisma/db.client", () => {
     city: "Hà Nội",
     description: "Loa bluetooth cũ còn tốt",
     createdAt: "2026-10-06T08:00:00.000Z",
-    images: [{ url: "/loa.jpg" }],
-    seller: { name: "Trần Bán", email: "ban@loaviet.test", isVerifiedSeller: false },
-    category: { name: "Loa bluetooth" },
+    inventoryContext: null,
+    includedAccessories: null,
+    knownDefects: null,
+    repairHistory: null,
+    fulfillmentMethods: null,
+    provinceLevelCode: null,
+    locationDisplayName: null,
+    images: [{ id: "img-1", url: "/loa.jpg", checklistSlot: null }],
+    seller: {
+      name: "Trần Bán",
+      email: "ban@loaviet.test",
+      sellerVerification: { status: "verified" },
+    },
+    category: { name: "Loa bluetooth", slug: "loa-bluetooth" },
     brand: null,
+    productModel: null,
   };
   const chain = {
     where: () => chain,
