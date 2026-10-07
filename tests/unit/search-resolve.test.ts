@@ -117,6 +117,7 @@ vi.mock("@/src/prisma/db.client", () => {
 
 import { resolveSearchQuery, SEARCHABLE_MODEL_STATUSES } from "@/src/lib/search-resolve";
 import { seedSearchAliases } from "../../scripts/seed-search-aliases";
+import { db } from "@/src/prisma/db.client";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const read = (p: string): string => readFileSync(join(root, p), "utf8");
@@ -480,6 +481,43 @@ describe("seedSearchAliases — S9/A7 (offline seed, content founder-reviewed)",
 
     await expect(seedSearchAliases(true, file)).rejects.toThrow(/SEED_REFUSED_NONLOCAL/);
     expect(dbState.aliases).toHaveLength(0);
+  });
+
+  // ── b5-review T5 SPLIT: guard THỨ HAI (NODE_ENV) có test riêng — container
+  // sidecar/pgbouncer trên 127.0.0.1 với NODE_ENV=production chỉ bị guard này
+  // chặn (guard đích không cháy vì host local-looking); xóa/đảo thứ tự nó mà
+  // mọi test vẫn xanh = khoảng trống không ai phát hiện.
+
+  it("--apply khi NODE_ENV=production (DB local-looking 127.0.0.1) → SEED_REFUSED_PRODUCTION, transaction KHÔNG được gọi", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const file = founderFile([{ alias: "soundlink", target: "model", productModelId: "model-soundlink" }]);
+
+    await expect(seedSearchAliases(true, file)).rejects.toThrow(/SEED_REFUSED_PRODUCTION/);
+    // KHÔNG row nào được tạo — tx apply không chạy tới
+    expect(vi.mocked(db.transaction).mock.calls).toHaveLength(0);
+    expect(dbState.aliases).toHaveLength(0);
+  });
+
+  it("--allow-production → --apply chạy thật cả khi NODE_ENV=production (hành động có chủ đích)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const file = founderFile([{ alias: "soundlink", target: "model", productModelId: "model-soundlink" }]);
+
+    const report = await seedSearchAliases(true, file, { allowProduction: true });
+
+    expect(report.mode).toBe("apply");
+    expect(report.created).toBe(1);
+    expect(dbState.aliases).toHaveLength(1);
+  });
+
+  it("dry-run dưới NODE_ENV=production được phép (chỉ đọc + in plan — compose migrate)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const file = founderFile([{ alias: "soundlink", target: "model", productModelId: "model-soundlink" }]);
+
+    const report = await seedSearchAliases(false, file);
+
+    expect(report.mode).toBe("dry-run");
+    expect(report.planned).toBe(1);
+    expect(dbState.aliases).toHaveLength(0); // dry-run KHÔNG ghi
   });
 
   it("file founder sai shape → typed error, KHÔNG ghi gì (fail closed trước khi mutate)", async () => {
