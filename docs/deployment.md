@@ -136,6 +136,21 @@ docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/founder.json:/app/founder.json:ro" \
   migrate npx tsx scripts/seed-beta-catalog.ts --apply --models /app/founder.json --allow-production
 
+# 5b. Backfill location canonical (BẮT BUỘC sau migration Batch 5 — mọi row
+#     legacy còn locationSource NULL; province filter + trạng thái
+#     seller_declared/legacy_mapped/unresolved chỉ tồn tại sau bước này).
+#     Dry-run TRƯỚC (chỉ đọc + in counts — KHÔNG cần --allow-production; guard
+#     chỉ chặn --apply), rồi --apply --allow-production (script tự từ chối
+#     --apply vào DB non-local khi thiếu cờ — guard từ ĐÍCH, cùng posture seed
+#     ở trên; idempotent — chạy lại 0 row mới):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts            # dry-run (xem counts)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts --apply --allow-production
+#     Rollback nếu cần: script in declaredIds + SQL ở header script (B3).
+
 # 6. Duyệt model pending trong /admin/catalog (founder) — seed tạo model ở
 #    status "pending"; model CHỈ hiện trong form đăng tin sau khi được duyệt.
 # 7. Kiểm tra sức khoẻ

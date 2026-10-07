@@ -32,6 +32,14 @@
  *   - post-migration verification: tests/integration/listing-location.test.ts
  *     (dry-run → apply → idempotent → rollback) + `npx prisma db verify`.
  *
+ * Guard --apply (b5-review T2 — seed-beta-catalog posture, b4-holistic
+ * round-3/round-4): backfill vào DB production/non-local phải là hành động CÓ
+ * CHỦ ĐÍCH — guard quyết TỪ ĐÍCH (host DATABASE_URL ≠ localhost/127.0.0.1/::1
+ * → BACKFILL_REFUSED_NONLOCAL) + belt-and-braces NODE_ENV=production →
+ * BACKFILL_REFUSED_PRODUCTION; --allow-production mở cả hai. DRY-RUN KHÔNG bị
+ * guard (chỉ đọc + in counts — compose service migrate set NODE_ENV=production
+ * nên guard chặn cả dry-run sẽ phá bước doc bắt buộc).
+ *
  * Rollback (B3 — SQL documented, chạy qua psql):
  *   UPDATE "Listing" SET "provinceLevelCode" = NULL, "locationSource" = NULL
  *     WHERE "locationSource" IN ('legacy_mapped', 'unresolved');
@@ -47,13 +55,19 @@
  * dynamic import, KHÔNG top-level import (dotenv chỉ được phép BỔ SUNG
  * config, không được là nguồn ngầm định đích).
  *
- * Usage:
- *   DATABASE_URL=… npx tsx scripts/backfill-listing-location.ts            # dry-run (mặc định)
- *   DATABASE_URL=… npx tsx scripts/backfill-listing-location.ts --apply   # chạy thật
+ * Usage (trên VPS chạy qua image migrate — xem docs/deployment.md §2):
+ *   docker compose -f docker-compose.prod.yml run --rm \
+ *     -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+ *     migrate npx tsx scripts/backfill-listing-location.ts                       # dry-run
+ *   … scripts/backfill-listing-location.ts --apply --allow-production            # chạy thật
+ * Local dev/test (DATABASE_URL 127.0.0.1/localhost):
+ *   DATABASE_URL=… npx tsx scripts/backfill-listing-location.ts                 # dry-run (mặc định)
+ *   DATABASE_URL=… npx tsx scripts/backfill-listing-location.ts --apply          # chạy thật
  *   (từ chối chạy khi process.env thiếu DATABASE_URL — kể cả khi .env có)
  */
 import { isProvinceCode } from "../src/lib/provinces";
 import { resolveLegacyLocation } from "../src/lib/location";
+import { isLocalSeedTarget } from "./seed-beta-catalog";
 
 /** Báo cáo backfill — counts theo từng resolution (spec §8.6 dry-run/apply). */
 export type BackfillListingLocationReport = {
@@ -72,6 +86,11 @@ export type BackfillListingLocationReport = {
   declaredIds: string[];
 };
 
+/** Cho --apply thật khi NODE_ENV=production / đích non-local (CLI: --allow-production). */
+export type BackfillListingLocationOptions = {
+  allowProduction?: boolean;
+};
+
 /**
  * Chạy backfill. `isApply=false` → dry-run (chỉ đọc + báo cáo would-be counts);
  * `isApply=true` → ghi từng row với CAS (compare-and-set theo giá trị đã đọc:
@@ -81,10 +100,25 @@ export type BackfillListingLocationReport = {
  */
 export async function backfillListingLocation(
   isApply: boolean,
+  options?: BackfillListingLocationOptions,
 ): Promise<BackfillListingLocationReport> {
   // Fail closed khi thiếu cấu hình đích (cả khi gọi trực tiếp từ test).
   if (!process.env.DATABASE_URL) {
     throw new Error("DATABASE_URL chưa đặt trong môi trường — script offline cần DB rõ ràng.");
+  }
+  // Fail closed (b5-review T2): backfill vào DB production/non-local phải là
+  // hành động có chủ đích — guard TỪ ĐÍCH (isLocalSeedTarget của seed-beta-
+  // catalog, b4-holistic round-3 posture) + belt-and-braces NODE_ENV. Dry-run
+  // (chỉ đọc + in counts) KHÔNG bị guard.
+  if (isApply && !options?.allowProduction && !isLocalSeedTarget(process.env.DATABASE_URL)) {
+    throw new Error(
+      "BACKFILL_REFUSED_NONLOCAL: --apply vào DB non-local phải là hành động có chủ đích — truyền --allow-production.",
+    );
+  }
+  if (isApply && process.env.NODE_ENV === "production" && !options?.allowProduction) {
+    throw new Error(
+      "BACKFILL_REFUSED_PRODUCTION: từ chối backfill --apply khi NODE_ENV=production — truyền --allow-production để chạy thật (dry-run không cần).",
+    );
   }
   // Dynamic import: db.client (kèm dotenv) chỉ nạp SAU khi đích đã được xác nhận.
   const { db } = await import("../src/prisma/db.client");
@@ -120,6 +154,11 @@ export async function backfillListingLocation(
       const claimed = await db.orm.public.Listing
         .where({ id: row.id })
         .where((l) => l.locationSource.isNull()) // CAS theo giá trị đã đọc
+        .where({ provinceLevelCode: row.provinceLevelCode }) // CAS mã ĐÃ QUÉT —
+        // b5-review T2 SPLIT: legacy edit concurrent (corrections item 3: city
+        // đổi → re-resolve → mã NULL + source NULL) không thể khiến row bị đánh
+        // seller_declared với mã NULL (rồi rơi khỏi mọi scan sau + vào declaredIds
+        // như thể mã Batch 4 tồn tại) — mã đổi giữa scan và write → 0 rows → alreadyDone.
         .updateAll({ locationSource: "seller_declared" });
       if (claimed.length === 0) {
         report.alreadyDone += 1; // writer khác đã ghi giữa scan và write
@@ -201,13 +240,27 @@ async function main(): Promise<void> {
     process.exit(1);
   }
   const isApply = process.argv.includes("--apply");
+  const allowProduction = process.argv.includes("--allow-production");
+  // Guard từ ĐÍCH + NODE_ENV (belt-and-braces) — CHỈ --apply; dry-run được phép
+  // (b5-review T2 — seed-beta-catalog posture, guard trong hàm export lặp lại
+  // cho caller trực tiếp).
+  if (isApply && !allowProduction && !isLocalSeedTarget(process.env.DATABASE_URL)) {
+    console.error(
+      `✗ BACKFILL_REFUSED_NONLOCAL: --apply vào đích non-local ${describeTarget(process.env.DATABASE_URL)} — truyền --allow-production (hành động có chủ đích).`,
+    );
+    process.exit(1);
+  }
+  if (isApply && process.env.NODE_ENV === "production" && !allowProduction) {
+    console.error("✗ BACKFILL_REFUSED_PRODUCTION: NODE_ENV=production — truyền --allow-production để chạy thật (dry-run không cần).");
+    process.exit(1);
+  }
   if (!isApply) {
     console.log("── dry-run (mặc định) — truyền --apply để chạy thật");
   } else {
     // In đích TRƯỚC khi --apply chạm dữ liệu — không password.
     console.log(`── ĐÍCH: ${describeTarget(process.env.DATABASE_URL)} (không in password)`);
   }
-  const report = await backfillListingLocation(isApply);
+  const report = await backfillListingLocation(isApply, { allowProduction });
   console.log(`── chế độ: ${report.mode}`);
   console.log(`── quét (locationSource IS NULL): ${report.scanned}`);
   console.log(`── đã xong từ trước (locationSource NOT NULL + thua CAS): ${report.alreadyDone}`);
