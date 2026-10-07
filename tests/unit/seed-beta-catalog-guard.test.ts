@@ -59,3 +59,43 @@ describe("seedBetaCatalog — guard --apply từ ĐÍCH (b4-holistic round-3)", 
   });
 });
 
+// ─── b4-holistic round-4 — dry-run dưới NODE_ENV=production (migrate image) ──
+
+describe("seedBetaCatalog — guard NODE_ENV chỉ chặn --apply, dry-run được phép (b4-holistic round-4)", () => {
+  /**
+   * Finding: compose service migrate set NODE_ENV=production (5adcbe2) —
+   * guard NODE_ENV cũ chặn CẢ dry-run (bước BẮT BUỘC trong docs/deployment.md
+   * §2 bước 5) → operator không xem được plan như doc ghi, hoặc phải đoán
+   * --allow-production cho một lệnh CHỈ ĐỌC. Dry-run không mutate (in plan +
+   * slug đã có) — an toàn dưới production; --apply đã có guard TỪ ĐÍCH
+   * (isLocalSeedTarget) + guard NODE_ENV này.
+   */
+  it("dry-run (isApply=false) NODE_ENV=production → KHÔNG SEED_REFUSED_PRODUCTION — đọc plan được", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+    vi.stubEnv("NODE_ENV", "production");
+    const err = await seedBetaCatalog(false).then(
+      () => null,
+      (e) => e,
+    );
+    // Đi tới dynamic import DB (lỗi kết nối port 1) — KHÔNG bị guard chặn
+    expect(err?.message ?? "").not.toMatch(/SEED_REFUSED_PRODUCTION/);
+  });
+
+  it("--apply NODE_ENV=production thiếu --allow-production → SEED_REFUSED_PRODUCTION (fail closed)", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+    vi.stubEnv("NODE_ENV", "production");
+    await expect(seedBetaCatalog(true)).rejects.toThrowError(/SEED_REFUSED_PRODUCTION/);
+  });
+
+  it("--apply NODE_ENV=production CÓ --allow-production → guard NODE_ENV pass (guard đích lo phần còn lại)", async () => {
+    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+    vi.stubEnv("NODE_ENV", "production");
+    const err = await seedBetaCatalog(true, undefined, { allowProduction: true }).then(
+      () => null,
+      (e) => e,
+    );
+    expect(err?.message ?? "").not.toMatch(/SEED_REFUSED_PRODUCTION/);
+    expect(err?.message ?? "").not.toMatch(/SEED_REFUSED_NONLOCAL/);
+  });
+});
+

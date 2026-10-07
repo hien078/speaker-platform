@@ -116,13 +116,22 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml run --rm migrate
 
 # 5. Seed beta catalog (BẮT BUỘC lần đầu sau Batch 4 — xem chú ý dưới)
-cd /opt/loaviet   # gốc repo trên VPS
+#    (đang đứng trong gốc repo — thư mục clone ở bước 1; KHÔNG cd /opt/loaviet)
+#    Dry-run TRƯỚC (chỉ đọc + in plan — KHÔNG cần --allow-production; service
+#    migrate set NODE_ENV=production nhưng guard chỉ chặn --apply):
 docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
-  migrate npx tsx scripts/seed-beta-catalog.ts            # dry-run trước (xem plan)
+  migrate npx tsx scripts/seed-beta-catalog.ts            # dry-run (xem plan)
+#    --apply KHÔNG kèm model founder (category + brand focus vẫn được tạo):
 docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
-  -v "$PWD/founder.json:/app/founder.json:ro" `# chỉ khi có file model founder` \
+  migrate npx tsx scripts/seed-beta-catalog.ts --apply --allow-production
+#    --apply KÈM model founder — CHỈ khi file founder.json có sẵn trên VPS
+#    (mount + --models phải đi CÙNG NHAU; thiếu file thì Docker TẠO THƯ MỤC
+#    tại đường dẫn mount → script chết EISDIR):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  -v "$PWD/founder.json:/app/founder.json:ro" \
   migrate npx tsx scripts/seed-beta-catalog.ts --apply --models /app/founder.json --allow-production
 
 # 6. Duyệt model pending trong /admin/catalog (founder) — seed tạo model ở

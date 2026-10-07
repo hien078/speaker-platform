@@ -59,8 +59,12 @@ docker compose -f docker-compose.prod.yml up -d --build
 # LẦN ĐẦU sau Batch 4 (bắt buộc): seed beta catalog — category
 # portable_bluetooth_speaker + model chuẩn CHỈ tồn tại qua script này
 # (không có admin action tạo Category; thiếu → /sell/new không có danh mục,
-# mọi seller bị chặn). Dry-run trước, rồi --apply --allow-production
-# (script tự từ chối --apply vào DB non-local khi thiếu cờ — guard từ ĐÍCH):
+# mọi seller bị chặn). Dry-run trước (chỉ đọc — KHÔNG cần --allow-production;
+# service migrate set NODE_ENV=production nhưng guard chỉ chặn --apply),
+# rồi --apply --allow-production (script tự từ chối --apply vào DB non-local
+# khi thiếu cờ — guard từ ĐÍCH). Có file model founder → thêm mount
+# -v "$PWD/founder.json:/app/founder.json:ro" + --models /app/founder.json
+# (CÙNG NHAU — thiếu file thì Docker tạo thư mục tại mount → EISDIR):
 docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
   migrate npx tsx scripts/seed-beta-catalog.ts

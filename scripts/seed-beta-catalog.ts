@@ -47,8 +47,11 @@
  * env THẬT: dotenv chỉ được phép BỔ SUNG config, không phải nguồn đích ngầm
  * định — backfill precedent L3).
  *
- * NODE_ENV=production: từ chối trừ khi --allow-production tường minh (seed
- * catalog vào DB thật phải là hành động có chủ đích — fail closed).
+ * NODE_ENV=production: từ chối --apply trừ khi --allow-production tường minh
+ * (seed catalog vào DB thật phải là hành động có chủ đích — fail closed);
+ * DRY-RUN được phép (chỉ đọc + in plan — b4-holistic round-4: compose service
+ * migrate set NODE_ENV=production nên guard cũ chặn cả dry-run, bước bắt buộc
+ * trong docs/deployment.md §2 không chạy được như doc ghi).
  * b4-holistic round-3: --apply vào DB NON-LOCAL (host ≠ localhost/127.0.0.1/
  * ::1 — vd compose migrate → db:5432) cũng từ chối trừ khi --allow-production
  * — guard quyết từ ĐÍCH, không chỉ từ NODE_ENV (stage migrate không set
@@ -318,11 +321,15 @@ export async function seedBetaCatalog(
       "SEED_REFUSED_NONLOCAL: --apply vào DB non-local phải là hành động có chủ đích — truyền --allow-production.",
     );
   }
-  // Belt-and-braces giữ nguyên (CẢ dry-run lẫn --apply — review fix L10):
-  // NODE_ENV=production → từ chối trừ khi --allow-production.
-  if (process.env.NODE_ENV === "production" && !options?.allowProduction) {
+  // Belt-and-braces CHỈ --apply (b4-holistic round-4 — review fix L10 thu hẹp):
+  // NODE_ENV=production → từ chối MUTATE trừ khi --allow-production. Dry-run
+  // (chỉ đọc + in plan) ĐƯỢC PHÉP — compose service migrate set
+  // NODE_ENV=production (5adcbe2) nên guard cũ chặn cả dry-run (bước BẮT
+  // BUỘC trong docs/deployment.md §2 bước 5) → operator không xem được plan
+  // như doc ghi. --apply đã có guard TỪ ĐÍCH (isLocalSeedTarget) phía trên.
+  if (isApply && process.env.NODE_ENV === "production" && !options?.allowProduction) {
     throw new Error(
-      "SEED_REFUSED_PRODUCTION: từ chối seed khi NODE_ENV=production — truyền --allow-production để chạy thật.",
+      "SEED_REFUSED_PRODUCTION: từ chối seed --apply khi NODE_ENV=production — truyền --allow-production để chạy thật (dry-run không cần).",
     );
   }
   // L3 (backfill precedent): DATABASE_URL phải có trong MÔI TRƯỜNG THẬT
@@ -609,8 +616,11 @@ async function main(): Promise<void> {
     console.error(`── ${USAGE}`);
     process.exit(1);
   }
-  if (process.env.NODE_ENV === "production" && !args.allowProduction) {
-    console.error("✗ SEED_REFUSED_PRODUCTION: NODE_ENV=production — truyền --allow-production để seed thật.");
+  // Belt-and-braces CHỈ --apply (b4-holistic round-4 — thu hẹp như guard trong
+  // seedBetaCatalog): dry-run dưới NODE_ENV=production (compose migrate) được
+  // phép — chỉ ĐỌC + in plan; --apply đã có guard từ ĐÍCH phía dưới.
+  if (args.isApply && process.env.NODE_ENV === "production" && !args.allowProduction) {
+    console.error("✗ SEED_REFUSED_PRODUCTION: NODE_ENV=production — truyền --allow-production để seed thật (dry-run không cần).");
     process.exit(1);
   }
   // b4-holistic round-3: guard từ ĐÍCH — --apply vào DB non-local (compose
