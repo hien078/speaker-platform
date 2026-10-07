@@ -81,10 +81,22 @@ export default async function AdminCatalogPage() {
                     </summary>
                     <form action={mergeModelAction} className="mt-2 flex gap-2">
                       <input type="hidden" name="modelId" value={m.id} />
+                      {/* b4-holistic round-3: target CHỈ model approved CÙNG
+                          category + CÙNG brand — merge sang brand/category khác
+                          làm mọi listing chuyển qua fail canonical gate
+                          (MODEL_BRAND_MISMATCH/MODEL_INVALID) vĩnh viễn.
+                          Action tự enforce (server là gate — đây là UI filter). */}
                       <select name="targetId" className="input h-8 text-xs">
-                        {approved.filter((x) => x.id !== m.id).map((x) => (
-                          <option key={x.id} value={x.id}>{x.brand!.name} {x.name}</option>
-                        ))}
+                        {approved
+                          .filter(
+                            (x) =>
+                              x.id !== m.id &&
+                              x.categoryId === m.categoryId &&
+                              x.brandId === m.brandId,
+                          )
+                          .map((x) => (
+                            <option key={x.id} value={x.id}>{x.brand!.name} {x.name}</option>
+                          ))}
                       </select>
                       <button type="submit" className="btn-secondary h-8 shrink-0 px-3 text-xs">
                         <GitMerge className="size-3.5" />

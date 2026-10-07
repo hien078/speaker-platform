@@ -56,6 +56,16 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   bị chặn (reason typed: listing_version_missing / listing_changed_during_
  *   review — KHÔNG free text); listing.approve_blocked thêm reason
  *   moderator_conflict (recusal S9) + listing_version_missing.
+ *   (b4-holistic round-3): model.approved / model.merged — catalog admin
+ *   (approveModelAction CAS pending→approved; mergeModelAction claim +
+ *   chuyển listing/price history + brandId resync) — auditEventTx trong
+ *   cùng tx với claim (KHÔNG fire-after-commit).
+ *   (b4-holistic round-3 — finance dormant, LATENT): listing.sold —
+ *   completeExchangeAction (detail via=exchange_completion) +
+ *   createOrderAction (detail via=order_created) — claim 'sold' CÓ ĐIỀU KIỆN
+ *   theo approved + audit trong cùng tx; finance TẮT trong beta nên đường
+ *   này hôm nay unreachable (xem docs/operations/private-beta-finance-
+ *   shutdown-verification.md §7 re-enable checklist).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

@@ -65,6 +65,16 @@ describe("admin listings review card — structured fields (spec §5.6)", () => 
     expect(src).toMatch(/orDash\(l\.repairHistory\)/);
     expect(src).toMatch(/l\.locationDisplayName/);
   });
+
+  it("b4-holistic round-3 — KHÔNG line-clamp: moderator đọc TOÀN VĂN description/free-text trước khi duyệt", () => {
+    // Trước fix: line-clamp-1/line-clamp-2 che dòng 3+ (số điện thoại/Zalo giấu
+    // dưới phần clamp) — moderator duyệt content KHÔNG bao giờ thấy. Sau fix:
+    // whitespace-pre-wrap + break-words + max-h cuộn (không cắt).
+    const src = read(PAGE);
+    expect(src).not.toMatch(/line-clamp-\d/);
+    expect(src).toMatch(/max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed/);
+    expect(src.match(/max-h-40 overflow-y-auto whitespace-pre-wrap break-words/g)?.length).toBe(3);
+  });
 });
 
 // ─── Beta vs legacy category badge (spec §5.6.1) — usage call ────────────────

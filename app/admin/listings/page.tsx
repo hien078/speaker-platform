@@ -210,7 +210,12 @@ export default async function AdminListingsPage({
                       </span>
                       <span className="text-xs text-[var(--muted)]">{formatDate(l.createdAt)}</span>
                     </div>
-                    <p className="mt-1.5 line-clamp-1 font-bold">{l.title}</p>
+                    {/* b4-holistic round-3 (LOW — admin card clipping): KHÔNG
+                        line-clamp — moderator PHẢI đọc TOÀN VĂN trước khi duyệt
+                        (số điện thoại/Zalo giấu ở dòng 3+ của description/free-text
+                        bị clamp che mất → duyệt nhầm). whitespace-pre-wrap +
+                        break-words + max-h cuộn được thay vì cắt. */}
+                    <p className="mt-1.5 break-words font-bold">{l.title}</p>
                     <p className="mt-0.5 text-xs text-[var(--muted)]">
                       {l.category!.name}{l.brand ? ` · ${l.brand.name}` : ""} · {CONDITION_LABELS[l.condition]} · {l.city}
                     </p>
@@ -222,7 +227,7 @@ export default async function AdminListingsPage({
                       )}
                     </p>
                     <p className="mt-1 text-base font-extrabold text-[var(--accent)]">{formatVND(l.price)}</p>
-                    <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--ink-2)]">{l.description}</p>
+                    <p className="mt-1 max-h-64 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-relaxed text-[var(--ink-2)]">{l.description}</p>
 
                     {/* ─── Structured fields (Batch 4 — spec §5.6) — NULL = legacy → "—" ─── */}
                     <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
@@ -273,15 +278,15 @@ export default async function AdminListingsPage({
                       </div>
                       <div className="col-span-2">
                         <p className="text-[var(--muted)]">Phụ kiện kèm theo</p>
-                        <p className="line-clamp-2 font-medium text-[var(--ink-2)]">{orDash(l.includedAccessories)}</p>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-medium text-[var(--ink-2)]">{orDash(l.includedAccessories)}</p>
                       </div>
                       <div className="col-span-2">
                         <p className="text-[var(--muted)]">Vết lỗi đã biết</p>
-                        <p className="line-clamp-2 font-medium text-[var(--ink-2)]">{orDash(l.knownDefects)}</p>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-medium text-[var(--ink-2)]">{orDash(l.knownDefects)}</p>
                       </div>
                       <div className="col-span-2 sm:col-span-4">
                         <p className="text-[var(--muted)]">Lịch sử sửa chữa</p>
-                        <p className="line-clamp-2 font-medium text-[var(--ink-2)]">{orDash(l.repairHistory)}</p>
+                        <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-medium text-[var(--ink-2)]">{orDash(l.repairHistory)}</p>
                       </div>
                     </div>
                   </div>

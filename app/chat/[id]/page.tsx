@@ -34,6 +34,19 @@ export default async function ConversationPage({
   const other = (convo.buyerId === user.id ? convo.seller : convo.buyer)!;
   const listing = convo.listing;
 
+  // b4-holistic round-3 (LOW — chat leak): listing KHÔNG còn công khai
+  // (pending/rejected/removed/draft) → buyer KHÔNG được thấy title/ảnh/giá
+  // MỚI (seller edit in-place content chưa duyệt — trang detail đã 404, chat
+  // là nơi duy nhất còn lộ). Viewer là SELLER của tin (convo.sellerId) hoặc
+  // status ∈ {approved, hidden, sold} → hiển thị đầy đủ; ngược lại placeholder
+  // trung tính KHÔNG ảnh KHÔNG link. Lịch sử chat vẫn đọc được.
+  const listingVisible =
+    listing != null &&
+    (convo.sellerId === user.id ||
+      listing.status === "approved" ||
+      listing.status === "hidden" ||
+      listing.status === "sold");
+
   // Batch 3 Task 3 (spec §5.5/§7.8) — banner direction-aware + composer
   // disabled. UI CONVENIENCE: route POST là boundary (403 CHAT_BLOCKED /
   // ACCOUNT_SUSPENDED kể cả khi composer bị bypass); lịch sử vẫn đọc được.
@@ -90,7 +103,7 @@ export default async function ConversationPage({
                 className="btn-secondary h-8 px-3 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
               />
             )}
-            {listing && (
+            {listing && listingVisible && (
               <Link
                 href={`/listings/${listing.slug}`}
                 className="hidden min-w-0 items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2 transition hover:border-[var(--accent)]/45 sm:flex"
@@ -108,6 +121,13 @@ export default async function ConversationPage({
                   <p className="text-xs font-bold text-[var(--accent)]">{formatVND(listing.price)}</p>
                 </div>
               </Link>
+            )}
+            {listing && !listingVisible && (
+              /* b4-holistic round-3: placeholder trung tính — KHÔNG title/ảnh/
+                  giá/link của content chưa duyệt đã bị gỡ */
+              <span className="hidden rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2 text-xs text-[var(--muted)] sm:block">
+                Tin đăng không còn hiển thị
+              </span>
             )}
           </div>
         </div>

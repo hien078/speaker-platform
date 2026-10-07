@@ -13,17 +13,20 @@ export default async function ChatListPage() {
   if (!user) redirect("/login");
 
   // hội thoại nơi tôi là buyer hoặc seller
+  // b4-holistic round-3 (LOW — chat leak): select thêm status — listing
+  // pending/rejected/removed KHÔNG hiển thị title/ảnh cho viewer không phải
+  // seller (content chưa duyệt edit in-place; trang detail đã 404).
   const [asBuyer, asSeller] = await Promise.all([
     db.orm.public.Conversation
       .where({ buyerId: user.id })
       .include("seller", (s) => s.select("id", "name"))
-      .include("listing", (l) => l.select("title", "slug").include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1)))
+      .include("listing", (l) => l.select("title", "slug", "status", "sellerId").include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1)))
       .orderBy((c) => c.lastMessageAt.desc())
       .all(),
     db.orm.public.Conversation
       .where({ sellerId: user.id })
       .include("buyer", (b) => b.select("id", "name"))
-      .include("listing", (l) => l.select("title", "slug").include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1)))
+      .include("listing", (l) => l.select("title", "slug", "status", "sellerId").include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1)))
       .orderBy((c) => c.lastMessageAt.desc())
       .all(),
   ]);
@@ -32,6 +35,13 @@ export default async function ChatListPage() {
     ...asBuyer.map((c) => ({ convo: c, role: "buyer" as const, other: c.seller })),
     ...asSeller.map((c) => ({ convo: c, role: "seller" as const, other: c.buyer })),
   ].sort((a, b) => (b.convo.lastMessageAt ?? b.convo.createdAt).localeCompare(a.convo.lastMessageAt ?? a.convo.createdAt));
+
+  // b4-holistic round-3: listing công khai = approved | hidden | sold HOẶC viewer
+  // là seller CỦA TIN (convo.sellerId === user.id — seller thấy tin mình mọi
+  // status). Row không công khai → placeholder trung tính, KHÔNG ảnh/title.
+  const listingVisible = (l: { status: string; sellerId: string } | null): boolean =>
+    l != null &&
+    (l.sellerId === user.id || l.status === "approved" || l.status === "hidden" || l.status === "sold");
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10 lg:px-8">
@@ -52,7 +62,7 @@ export default async function ChatListPage() {
       ) : (
         <div className="mt-8 space-y-2.5">
           {conversations.map(({ convo, role, other }) => {
-            const image = convo.listing?.images[0]?.url;
+            const image = listingVisible(convo.listing) ? convo.listing?.images[0]?.url : undefined;
             return (
               <Link
                 key={convo.id}
@@ -74,8 +84,13 @@ export default async function ChatListPage() {
                       {role === "buyer" ? "Bạn mua" : "Bạn bán"}
                     </span>
                   </div>
+                  {/* b4-holistic round-3: title listing CHỈ hiển thị khi công khai
+                      (approved/hidden/sold) hoặc viewer là seller của tin — content
+                      pending/rejected/removed → placeholder trung tính. */}
                   <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
-                    {convo.listing?.title ?? "Hội thoại"}
+                    {convo.listing != null && !listingVisible(convo.listing)
+                      ? "Tin đăng không còn hiển thị"
+                      : (convo.listing?.title ?? "Hội thoại")}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">

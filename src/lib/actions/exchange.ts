@@ -9,6 +9,8 @@ import { recordLedgerTx, escrowIn, escrowRelease } from "@/src/lib/ledger";
 import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
 import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
+import { auditEventTx } from "@/src/lib/audit-event";
+import { captureError } from "@/src/lib/observability";
 
 export type ExchangeFormState = { error?: string };
 
@@ -165,34 +167,71 @@ export async function completeExchangeAction(formData: FormData): Promise<void> 
   if (offer.cashTopup === 0 && offer.status !== "accepted") return;
 
   const now = new Date().toISOString();
-  await db.transaction(async (tx) => {
-    if (offer.cashTopup > 0 && offer.status === "paid") {
-      const { commissionAmount, sellerPayout } = computeCommission(offer.cashTopup, offer.commissionRate);
-      await tx.orm.public.Payment
-        .where({ exchangeOfferId: offerId })
-        .update({ status: "released", releasedAt: now });
-      await tx.orm.public.Payout.create({
-        orderId: null,
-        sellerId: listing.sellerId,
-        amount: sellerPayout,
-        status: "released",
+  // b4-holistic round-3 (LOW — finance dormant path, LATENT): MỌI write CÓ
+  // ĐIỀU KIỆN theo status đã đọc — takedown 'removed' / seller edit 'pending'
+  // giữa read và write KHÔNG bị ghi đè 'sold' (trước fix: .update() đơn-row vô
+  // điều kiện xóa moderation lock + đưa content chưa duyệt vào binding offer).
+  // Sentinel THROW ra khỏi callback (KHÔNG catch trong callback), classify
+  // NGOÀI tx. Finance TẮT trong beta (assertFinancialFeaturesEnabled trên) —
+  // hardening cho lần bật lại, hành vi hôm nay không đổi.
+  try {
+    await db.transaction(async (tx) => {
+      if (offer.cashTopup > 0 && offer.status === "paid") {
+        const { commissionAmount, sellerPayout } = computeCommission(offer.cashTopup, offer.commissionRate);
+        await tx.orm.public.Payment
+          .where({ exchangeOfferId: offerId })
+          .update({ status: "released", releasedAt: now });
+        await tx.orm.public.Payout.create({
+          orderId: null,
+          sellerId: listing.sellerId,
+          amount: sellerPayout,
+          status: "released",
+        });
+        // ledger: escrow trả tiền bù — seller nhận sau hoa hồng, platform thu hoa hồng
+        await recordLedgerTx(tx, "exchange", offerId, escrowRelease(listing.sellerId, offer.cashTopup, commissionAmount, `Giải ngân tiền bù trao đổi offer ${offerId.slice(0, 8)}`));
+      }
+      // offer transition CAS theo status đã đọc — stale click (offer đã
+      // completed/cancelled bởi request khác) → 0 rows → sentinel, KHÔNG double-complete.
+      const claimedOffer = await tx.orm.public.ExchangeOffer
+        .where({ id: offerId, status: offer.status })
+        .updateAll({ status: "completed" });
+      if (claimedOffer.length === 0) throw new Error("OFFER_CONCURRENT_CHANGE");
+      // đánh dấu 2 tin đã đổi chủ — CÓ ĐIỀU KIỆN theo approved: moderation
+      // takedown/pending KHÔNG bị clobber thành 'sold' (lock mất + unreviewed
+      // content vào giao dịch binding). 0 rows → sentinel.
+      const claimedListing = await tx.orm.public.Listing
+        .where({ id: offer.listingId, status: "approved" })
+        .updateAll({ status: "sold" });
+      if (claimedListing.length === 0) throw new Error("LISTING_NOT_SELLABLE");
+      if (offer.myListingId) {
+        const claimedMine = await tx.orm.public.Listing
+          .where({ id: offer.myListingId, status: "approved" })
+          .updateAll({ status: "sold" });
+        if (claimedMine.length === 0) throw new Error("LISTING_NOT_SELLABLE");
+      }
+      // audit listing.sold sống chết cùng tx (b4-holistic round-3 — KHÔNG
+      // fire-after-commit; actor = người hoàn tất, subject = seller của tin)
+      await auditEventTx(tx, {
+        actorId: user.id,
+        subjectId: listing.sellerId,
+        action: "listing.sold",
+        resourceType: "Listing",
+        resourceId: offer.listingId,
+        detail: "via=exchange_completion", // typed value — KHÔNG free text (§4.8)
       });
-      // ledger: escrow trả tiền bù — seller nhận sau hoa hồng, platform thu hoa hồng
-      await recordLedgerTx(tx, "exchange", offerId, escrowRelease(listing.sellerId, offer.cashTopup, commissionAmount, `Giải ngân tiền bù trao đổi offer ${offerId.slice(0, 8)}`));
+    });
+  } catch (e) {
+    // Classify NGOÀI tx: sentinel (stale click / listing đổi tay) → no-op + log
+    // (đường latent, finance off); lỗi khác ném tiếp (fail closed).
+    if (
+      e instanceof Error &&
+      (e.message === "OFFER_CONCURRENT_CHANGE" || e.message === "LISTING_NOT_SELLABLE")
+    ) {
+      captureError("exchange.complete", e, { offerId });
+      return;
     }
-    await tx.orm.public.ExchangeOffer
-      .where({ id: offerId })
-      .update({ status: "completed" });
-    // đánh dấu 2 tin đã đổi chủ
-    await tx.orm.public.Listing
-      .where({ id: offer.listingId })
-      .update({ status: "sold" });
-    if (offer.myListingId) {
-      await tx.orm.public.Listing
-        .where({ id: offer.myListingId })
-        .update({ status: "sold" });
-    }
-  });
+    throw e;
+  }
 
   revalidatePath("/exchange");
 }
