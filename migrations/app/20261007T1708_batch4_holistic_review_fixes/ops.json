@@ -1,0 +1,44 @@
+[
+  {
+    "id": "column.public.Listing.approvedContentAt",
+    "label": "Add column \"approvedContentAt\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "approvedContentAt",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"approvedContentAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "approvedContentAt"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"approvedContentAt\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"approvedContentAt\" timestamptz"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"approvedContentAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "approvedContentAt"
+        ]
+      }
+    ]
+  }
+]
