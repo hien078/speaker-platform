@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import Link from "next/link";
 import {
   createListingAction,
@@ -93,6 +93,7 @@ export function PortableListingForm({
   requirementLabels,
   verification,
   edit,
+  maxImages = 8,
 }: {
   categories: { id: string; name: string }[];
   brands: { id: string; name: string }[];
@@ -105,6 +106,14 @@ export function PortableListingForm({
   requirementLabels: Record<string, string>;
   verification: { ok: boolean; missing: string[] };
   edit?: PortableListingEdit;
+  /**
+   * Cap ảnh TOÀN TIN (LISTING_MAX_IMAGES — server schema, truyền từ page qua
+   * prop vì component KHÔNG import listing-schema.ts — spec §4.5 props only,
+   * pin tests/unit/portable-listing-form.test.ts). b4-holistic: trước fix
+   * mỗi slot picker có max riêng 8 (8×8 = 64 ảnh) trong khi server cap 8/tin
+   * → mọi save IMAGE_TOO_MANY sau khi đã đốt budget upload.
+   */
+  maxImages?: number;
 }) {
   const isDraftEdit = edit?.status === "draft";
 
@@ -127,6 +136,16 @@ export function PortableListingForm({
     dispatchSubmit,
     {},
   );
+  // Dispatch thủ công (b4-holistic round-1 MEDIUM form-action-contract): React 19
+  // gọi requestFormReset trên MỌI form action KHÔNG throw — kể cả action trả
+  // {error} — nên form.reset() wipe textarea uncontrolled (description/
+  // accessories/defects/repair) và revert DOM select/checkbox/radio về giá trị
+  // mount-time; React state không đổi → KHÔNG re-sync DOM (value prop không
+  // đổi giữa 2 render) → save kế tiếp đọc FormData từ DOM ĐÃ RESET = silent
+  // revert (province/brand/model về ""). Bỏ action prop + dispatch qua
+  // onSubmit + startTransition: KHÔNG requestFormReset; isPending của
+  // useActionState vẫn track đúng (gọi trong transition — React docs).
+  const [, startTransition] = useTransition();
 
   // ─── Bước hiện tại (progressive disclosure — mọi bước đều mount, ẩn bằng CSS
   //     để dữ liệu uncontrolled KHÔNG mất khi qua lại bước) ─────────────────────
@@ -146,6 +165,14 @@ export function PortableListingForm({
   const [provinceLevelCode, setProvinceLevelCode] = useState(edit?.provinceLevelCode ?? "");
   const [locationDisplayName, setLocationDisplayName] = useState(edit?.locationDisplayName ?? "");
   const [fulfillment, setFulfillment] = useState<string[]>(edit?.fulfillmentMethods ?? []);
+  // ─── Free-text CONTROLLED (b4-holistic round-1 MEDIUM): 4 textarea trước fix
+  // uncontrolled (defaultValue) — form.reset() của React 19 (xem comment
+  // startTransition) wipe chúng sau MỌI action response kể cả {error}; giá trị
+  // control là nguồn duy nhất của thật — reset/select-revert không còn đụng được.
+  const [description, setDescription] = useState(edit?.description ?? "");
+  const [includedAccessories, setIncludedAccessories] = useState(edit?.includedAccessories ?? "");
+  const [knownDefects, setKnownDefects] = useState(edit?.knownDefects ?? "");
+  const [repairHistory, setRepairHistory] = useState(edit?.repairHistory ?? "");
 
   /** Tiêu đề auto-suggest từ brand+model — CHỈ đề xuất khi trống hoặc đang là đề xuất cũ (editable). */
   function suggestTitle(nextBrandId: string, nextModelId: string): void {
@@ -187,6 +214,24 @@ export function PortableListingForm({
     imageUrls.filter((_, i) => (imageSlots[i] ?? null) === slotValue);
   const unslottedImages = imageUrls.filter((_, i) => (imageSlots[i] ?? null) == null);
 
+  // ─── Cap ảnh TOÀN TIN (b4-holistic round-1 LOW): count mỗi picker lift lên
+  // đây qua onCountChange — tổng (kể ảnh chưa gán slot) chặn TRƯỚC khi upload
+  // thay vì để server IMAGE_TOO_MANY sau khi đốt budget upload. Key "" = bucket
+  // ảnh chưa gán slot (slotValue null).
+  const [imageCounts, setImageCounts] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    for (const slot of photoSlots) initial[slot.value] = imagesBySlot(slot.value).length;
+    initial[""] = unslottedImages.length;
+    return initial;
+  });
+  const onSlotCountChange = (slotKey: string) => (count: number) => {
+    setImageCounts((prev) => ({ ...prev, [slotKey]: count }));
+  };
+  const totalImages = Object.values(imageCounts).reduce((a, b) => a + b, 0);
+  /** Ngân sách ảnh còn lại cho MỘT picker = cap toàn tin − ảnh của các picker khác. */
+  const slotBudget = (slotKey: string): number =>
+    Math.max(0, maxImages - (totalImages - (imageCounts[slotKey] ?? 0)));
+
   const brandModels = models.filter((m) => m.brandId === brandId);
   const brandName = brands.find((b) => b.id === brandId)?.name ?? "";
   const modelName = models.find((m) => m.id === productModelId)?.name ?? "";
@@ -203,7 +248,25 @@ export function PortableListingForm({
     // required field trống ở bước ẩn sẽ CHẶN submit với lỗi "not focusable" im
     // lặng (không bubble được). Server validation (zod + typed code tiếng Việt)
     // là gate thật (spec §4.5) — lỗi hiển thị qua banner state.error.
-    <form action={formAction} noValidate className="space-y-5">
+    //
+    // KHÔNG có action prop (b4-holistic round-1 MEDIUM): action prop → React 19
+    // requestFormReset sau MỌI action (kể cả {error}) → form.reset() (xem
+    // comment startTransition ở trên). Dispatch thủ công qua onSubmit +
+    // startTransition; FormData build với submitter để name="intent"
+    // value="draft" của nút Lưu nháp không bị rơi (Enter key: submitter null →
+    // intent rỗng → dispatcher route theo isDraftEdit như trước).
+    <form
+      noValidate
+      onSubmit={(e) => {
+        e.preventDefault();
+        const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+        const fd = new FormData(e.currentTarget, submitter ?? undefined);
+        startTransition(() => {
+          void formAction(fd);
+        });
+      }}
+      className="space-y-5"
+    >
       {edit && <input type="hidden" name="listingId" value={edit.listingId} />}
 
       {/* Tiến độ + lỗi form (luôn hiển thị — lỗi có thể đến từ intent ở bất kỳ bước) */}
@@ -429,6 +492,11 @@ export function PortableListingForm({
           Thêm ảnh theo từng mục dưới đây — cần ít nhất 1 ảnh để gửi duyệt. Ảnh
           được máy chủ xử lý lại (mã hóa lại WebP, bỏ dữ liệu EXIF/vị trí) trước khi lưu.
         </p>
+        {/* b4-holistic: counter TOÀN TIN — cap là tổng MỌI slot (server cap
+            LISTING_MAX_IMAGES/tin), không phải 8 cho từng mục. */}
+        <p className="text-xs font-medium text-[var(--ink-2)]">
+          {totalImages}/{maxImages} ảnh (tổng toàn tin)
+        </p>
         {photoSlots.map((slot) => (
           <div key={slot.value}>
             <p className="label mb-1.5">{slot.label}</p>
@@ -441,8 +509,9 @@ export function PortableListingForm({
               name="images"
               slotName="imageSlots"
               slotValue={slot.value}
-              max={8}
+              max={slotBudget(slot.value)}
               initialUrls={imagesBySlot(slot.value)}
+              onCountChange={onSlotCountChange(slot.value)}
             />
           </div>
         ))}
@@ -453,8 +522,9 @@ export function PortableListingForm({
               name="images"
               slotName="imageSlots"
               slotValue={null}
-              max={8}
+              max={slotBudget("")}
               initialUrls={unslottedImages}
+              onCountChange={onSlotCountChange("")}
             />
           </div>
         )}
@@ -489,7 +559,8 @@ export function PortableListingForm({
             rows={6}
             className="input resize-y"
             maxLength={4000}
-            defaultValue={edit?.description}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
             required
             placeholder="Nguồn gốc, thời gian sử dụng, tình trạng thực tế, lý do bán…"
           />
@@ -502,7 +573,8 @@ export function PortableListingForm({
             rows={3}
             className="input resize-y"
             maxLength={2000}
-            defaultValue={edit?.includedAccessories ?? undefined}
+            value={includedAccessories}
+            onChange={(e) => setIncludedAccessories(e.target.value)}
             placeholder="Sạc, cáp, hộp, tài liệu… (nếu có)"
           />
         </div>
@@ -514,7 +586,8 @@ export function PortableListingForm({
             rows={3}
             className="input resize-y"
             maxLength={2000}
-            defaultValue={edit?.knownDefects ?? undefined}
+            value={knownDefects}
+            onChange={(e) => setKnownDefects(e.target.value)}
             placeholder="Nêu rõ vết xước, lỗi đang có, bộ phận bị ảnh hưởng…"
           />
         </div>
@@ -526,7 +599,8 @@ export function PortableListingForm({
             rows={3}
             className="input resize-y"
             maxLength={2000}
-            defaultValue={edit?.repairHistory ?? undefined}
+            value={repairHistory}
+            onChange={(e) => setRepairHistory(e.target.value)}
             placeholder="Đã sửa ở đâu, thay linh kiện gì, thời gian… (nếu có)"
           />
         </div>

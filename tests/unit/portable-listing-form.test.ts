@@ -153,3 +153,61 @@ describe("PortableListingForm — 7 bước §6.3 (source-contract)", () => {
     expect(source).toMatch(/\{!isDraftEdit && \(\s*<button type="submit"/);
   });
 });
+
+// ─── b4-holistic round-1 (MEDIUM form-action-contract + LOW 8-per-slot) ────────
+
+describe("PortableListingForm — React 19 form reset + cap ảnh toàn tin (b4-holistic)", () => {
+  it("KHÔNG có action prop trên <form> — dispatch thủ công qua onSubmit + startTransition (KHÔNG requestFormReset)", () => {
+    // React 19 gọi requestFormReset trên MỌI form action không throw (kể cả
+    // {error}) → form.reset() wipe textarea + revert DOM select/checkbox.
+    // Hợp đồng: form KHÔNG gắn action prop; dispatch qua onSubmit với
+    // preventDefault + startTransition (isPending của useActionState vẫn
+    // track đúng khi gọi trong transition — React docs).
+    expect(source).not.toMatch(/<form\s[^>]*action=\{formAction\}/);
+    expect(source).toContain("onSubmit={(e) => {");
+    expect(source).toContain("e.preventDefault()");
+    expect(source).toContain("startTransition(() => {");
+    expect(source).toContain("void formAction(fd)");
+  });
+
+  it("FormData build với submitter — name=intent value=draft của nút Lưu nháp KHÔNG bị rơi", () => {
+    // new FormData(e.currentTarget, submitter) — thiếu submitter thì giá trị
+    // name="intent" của nút bấm không vào FormData → lưu nháp trên create
+    // rơi vào createListingAction.
+    expect(source).toMatch(/new FormData\(e\.currentTarget, submitter \?\? undefined\)/);
+    expect(source).toContain(`name="intent"`);
+  });
+
+  it("4 textarea free-text CONTROLLED — giá trị sống qua form.reset()/action response (KHÔNG defaultValue)", () => {
+    // description/includedAccessories/knownDefects/repairHistory: value= +
+    // onChange= (useState) — uncontrolled defaultValue bị form.reset() wipe
+    // sau MỌI action response kể cả {error} (silent data loss).
+    const s6 = stepSource(6);
+    for (const field of ["description", "includedAccessories", "knownDefects", "repairHistory"]) {
+      expect(s6).toContain(`id="${field}"`);
+      expect(s6).toMatch(new RegExp(`value=\\{${field}\\}`));
+      expect(s6).toMatch(new RegExp(`onChange=\\{\\(e\\) => set${field.replace(/^./, (c) => c.toUpperCase())}\\(e\\.target\\.value\\)\\}`));
+      expect(s6).not.toMatch(new RegExp(`defaultValue=\\{[^}]*${field}`));
+    }
+    // state khởi tạo từ edit prop — SSR draft edit giữ nội dung DB row
+    expect(source).toMatch(/useState\(edit\?\.description \?\? ""\)/);
+    expect(source).toMatch(/useState\(edit\?\.knownDefects \?\? ""\)/);
+  });
+
+  it("cap ảnh TOÀN TIN: maxImages prop (KHÔNG hardcode 8/picker) + budget từng slot + counter tổng", () => {
+    // server cap LISTING_MAX_IMAGES/tin (8) — trước fix mỗi picker max=8
+    // (8 slot × 8 = 64 ảnh) → mọi save IMAGE_TOO_MANY sau khi đốt budget upload.
+    // maxImages là PROP (page truyền LISTING_MAX_IMAGES) — component vẫn
+    // KHÔNG import listing-schema (§4.5 props only, pin ở test khác).
+    expect(source).toContain("maxImages = 8");
+    expect(source).toContain("const slotBudget = (slotKey: string): number =>");
+    expect(source).toMatch(/max=\{slotBudget\(slot\.value\)\}/);
+    expect(source).toMatch(/max=\{slotBudget\(""\)\}/);
+    const s5 = stepSource(5);
+    // counter tổng thay cho x/8 per-slot
+    expect(s5).toContain("{totalImages}/{maxImages} ảnh (tổng toàn tin)");
+    // count lift lên parent qua callback
+    expect(source).toContain("onCountChange={onSlotCountChange(slot.value)}");
+    expect(source).toContain(`onCountChange={onSlotCountChange("")}`);
+  });
+});

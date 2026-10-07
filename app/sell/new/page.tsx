@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { BETA_PUBLICATION_CATEGORIES } from "@/src/lib/beta-categories";
-import { LISTING_FULFILLMENT_METHODS, PHOTO_CHECKLIST_SLOTS } from "@/src/lib/listing-schema";
+import {
+  LISTING_FULFILLMENT_METHODS,
+  LISTING_MAX_IMAGES,
+  PHOTO_CHECKLIST_SLOTS,
+} from "@/src/lib/listing-schema";
 import { labelOf } from "@/src/lib/listing-error-text";
 import { PROVINCES } from "@/src/lib/provinces";
 import {
@@ -45,13 +49,16 @@ export default async function SellNewPage() {
   const [brands, models, verification] = await Promise.all([
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
     // model chuẩn: approved + thuộc các category allowlist (canonical-model gate)
+    // b4-holistic (round-1 LOW): KHÔNG .limit(200) — model là field BẮT BUỘC của
+    // beta (MODEL_REQUIRED); seed cho phép tới ~500 model nên cap 200 chặn
+    // model #201+ khỏi được chọn (không có cách nào đăng tin cho model đó).
+    // Allowlist có 1 category → danh sách vẫn bounded bởi seed script.
     categoryIds.length > 0
       ? db.orm.public.ProductModel
           .where({ status: "approved" })
           .where((m) => m.categoryId.in(categoryIds))
           .select("id", "name", "brandId")
           .orderBy((m) => m.name.asc())
-          .limit(200)
           .all()
       : Promise.resolve([]),
     // Bước 7 — trạng thái từng yêu cầu publication (đọc FRESH từ DB, kể cả suspension)
@@ -86,6 +93,7 @@ export default async function SellNewPage() {
           }))}
           requirementLabels={SELLER_PUBLICATION_REQUIREMENT_LABELS}
           verification={{ ok: verification.ok, missing: verification.missing }}
+          maxImages={LISTING_MAX_IMAGES}
         />
       </div>
     </main>

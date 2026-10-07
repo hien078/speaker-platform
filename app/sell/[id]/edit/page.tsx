@@ -3,7 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { BETA_PUBLICATION_CATEGORIES, listingRegimeForCategorySlug } from "@/src/lib/beta-categories";
-import { LISTING_FULFILLMENT_METHODS, PHOTO_CHECKLIST_SLOTS } from "@/src/lib/listing-schema";
+import {
+  LISTING_FULFILLMENT_METHODS,
+  LISTING_MAX_IMAGES,
+  PHOTO_CHECKLIST_SLOTS,
+} from "@/src/lib/listing-schema";
 import { labelOf, submitErrorText } from "@/src/lib/listing-error-text";
 import { isModerationLocked } from "@/src/lib/moderation";
 import { PROVINCES } from "@/src/lib/provinces";
@@ -106,20 +110,29 @@ export default async function EditListingPage({
 
   const [brands, models, verification, legacyCategories, legacyModels] = await Promise.all([
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
+    // b4-holistic (round-1 LOW): KHÔNG .limit(200) — model là field BẮT BUỘC của
+    // beta (MODEL_REQUIRED); cap 200 chặn model #201+ (seed cho phép ~500) và
+    // LÀM TRỐNG select của listing đang giữ model đó (controlled select không
+    // có option khớp → React chọn placeholder → save gửi productModelId="" →
+    // MODEL_REQUIRED, blanking model của tin đang sửa).
     categoryIds.length > 0
       ? db.orm.public.ProductModel
           .where({ status: "approved" })
           .where((m) => m.categoryId.in(categoryIds))
           .select("id", "name", "brandId")
           .orderBy((m) => m.name.asc())
-          .limit(200)
           .all()
       : Promise.resolve([]),
     // Bước 7 — trạng thái từng yêu cầu publication (đọc FRESH từ DB)
     checkSellerPublicationRequirements(user.id),
-    // legacy regime: giữ nguyên dữ liệu form hiện tại (grandfathered)
+    // legacy regime (b4-holistic round-1 LOW): CHỈ category HIỆN TẠI của tin —
+    // ListingForm không có input structured (inventoryContext/fulfillment/
+    // province/location) nên chọn category khác là ngõ cụt vĩnh viễn: beta →
+    // các code REQUIRED cho field form không có; legacy khác → CATEGORY_NOT_
+    // PUBLICATION_ALLOWED. Chuyển danh mục = tạo tin mới (A10). Server vẫn
+    // assertCategoryPublicationAllowed (allowlist hoặc giữ nguyên category).
     regime === "legacy"
-      ? db.orm.public.Category.where({ isActive: true }).orderBy((c) => c.sortOrder.asc()).all()
+      ? db.orm.public.Category.where({ id: listing.categoryId }).all()
       : Promise.resolve([]),
     regime === "legacy"
       ? db.orm.public.ProductModel
@@ -130,6 +143,22 @@ export default async function EditListingPage({
           .all()
       : Promise.resolve([]),
   ]);
+
+  // b4-holistic (round-1 LOW): model của tin ĐANG SỬA mà không nằm trong danh
+  // sách loaded (không còn approved — pending/merged) → fetch riêng và APPEND
+  // — controlled select có option khớp, save không blanking model; badge
+  // "Model chờ duyệt/đã gộp" ở /admin/listings vẫn cảnh báo moderator.
+  if (
+    regime === "beta" &&
+    listing.productModelId != null &&
+    !models.some((m) => m.id === listing.productModelId)
+  ) {
+    const own = await db.orm.public.ProductModel
+      .where({ id: listing.productModelId })
+      .select("id", "name", "brandId")
+      .first();
+    if (own !== null) models.push(own);
+  }
 
   // b4-holistic (LOW form-action-contract): banner ?error= CHỈ hiển thị khi
   // listing VẪN là draft — ?error= là đích redirect của submitListingAction
@@ -191,6 +220,7 @@ export default async function EditListingPage({
             }))}
             requirementLabels={SELLER_PUBLICATION_REQUIREMENT_LABELS}
             verification={{ ok: verification.ok, missing: verification.missing }}
+            maxImages={LISTING_MAX_IMAGES}
             edit={{
               listingId: listing.id,
               status: listing.status,

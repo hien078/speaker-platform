@@ -75,7 +75,25 @@ export async function captureTargetSnapshot(
         categoryId: listing.categoryId,
         brandId: listing.brandId,
         sellerId: listing.sellerId,
+        // ─── Batch 4 public fields (b4-holistic round-1 MEDIUM — spec §5.5.1):
+        // các field này render CÔNG KHAI trên /listings/<slug> (knownDefects,
+        // repairHistory, includedAccessories, locationDisplayName,
+        // inventoryContext, fulfillmentMethods) nên là moderation material —
+        // thiếu chúng, seller edit field sau khi bị báo cáo thì nội dung vi
+        // phạm (PII/spam/harassment) không còn ở DB LẪN evidence. CHỈ field
+        // công khai — không PII từ cột private. Case page render missing-key
+        // = rỗng (snapshot cũ không có).
+        productModelId: listing.productModelId,
+        inventoryContext: listing.inventoryContext,
+        includedAccessories: listing.includedAccessories,
+        knownDefects: listing.knownDefects,
+        repairHistory: listing.repairHistory,
+        fulfillmentMethods: listing.fulfillmentMethods,
+        provinceLevelCode: listing.provinceLevelCode,
+        locationDisplayName: listing.locationDisplayName,
+        // Ảnh kèm checklistSlot (Batch 4) — imageUrls giữ cho row cũ (back-compat).
         imageUrls: images.map((i) => i.url),
+        images: images.map((i) => ({ url: i.url, checklistSlot: i.checklistSlot ?? null })),
         capturedAt,
       },
       subjectUserId: listing.sellerId,
