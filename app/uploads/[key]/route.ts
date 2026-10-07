@@ -1,4 +1,3 @@
-import { createReadStream } from "node:fs";
 import { open } from "node:fs/promises";
 import { Readable } from "node:stream";
 import path from "node:path";
@@ -32,8 +31,10 @@ import { captureError } from "@/src/lib/observability";
  *    sandbox (chặn mọi thực thi/nhúng — polyglot đã bị re-encode neutralize
  *    ở tầng upload, đây là lớp hai cho file pre-Batch-4 còn trên đĩa),
  *    Cache-Control immutable (key là uuid ngẫu nhiên — không bao giờ ghi đè).
- *  - Stream từ fd (open → fstat → createReadStream(fd)): KHÔNG readFile cả
- *    file vào bộ nhớ, KHÔNG TOCTOU giữa stat và open.
+ *  - Stream từ FileHandle (open → fstat → handle.createReadStream()): KHÔNG
+ *    readFile cả file vào bộ nhớ, KHÔNG TOCTOU giữa stat và open. FileHandle
+ *    SỞ HỮU fd — stream end/destroy/error tự close handle (b4-holistic
+ *    round-4 HIGH: raw fd + autoClose để GC đóng fd đã tái sử dụng → EBADF).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -75,9 +76,24 @@ export async function GET(
   }
   try {
     const st = await handle.stat();
-    if (!st.isFile()) return notFound(); // directory/đường dẫn lạ → 404
-    // Stream từ fd đã mở — không đọc cả file vào bộ nhớ, không TOCTOU stat↔open.
-    const nodeStream = createReadStream(filePath, { fd: handle.fd, autoClose: true });
+    if (!st.isFile()) {
+      // directory/đường dẫn lạ → 404 — CLOSE handle trước khi rời route
+      // (b4-holistic round-4 HIGH: mọi path không stream đều phải close,
+      // không chờ GC).
+      await handle.close().catch(() => {});
+      return notFound();
+    }
+    // Stream từ FileHandle — b4-holistic round-4 (HIGH regression): FileHandle
+    // SỞ HỮU fd (handle.createReadStream() đóng handle khi stream end/destroy/
+    // error — kể cả client abort giữa chừng). Trước fix: truyền RAW fd number
+    // của handle vào createReadStream kèm autoClose — stream tự đóng fd trong
+    // khi FileHandle vẫn "sở hữu" fd đó và KHÔNG BAO GIỜ được close → GC sau
+    // này đóng lại fd đã bị kernel TÁI SỬ DỤNG (socket DB, file upload khác)
+    // → cắt connection/hỏng ghi/EBADF; Node ≥24 còn throw ERR_INVALID_STATE
+    // "closed during garbage collection" crash cả process (đã reproduce:
+    // tests/unit/uploads-serve-route.test.ts gc leak test).
+    // Vẫn KHÔNG readFile cả file vào bộ nhớ, KHÔNG TOCTOU stat↔open.
+    const nodeStream = handle.createReadStream();
     return new Response(Readable.toWeb(nodeStream) as ReadableStream, {
       status: 200,
       headers: {

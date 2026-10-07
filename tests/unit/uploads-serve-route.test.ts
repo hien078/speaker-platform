@@ -13,11 +13,21 @@
  *    default-src 'none'; sandbox + Cache-Control immutable (key uuid —
  *    không bao giờ ghi đè).
  *  - ENOENT/thiếu file → 404 (KHÔNG 500).
+ *
+ * b4-holistic round-4 (HIGH regression — FileHandle owns the fd): stream qua
+ * `handle.createReadStream()` (KHÔNG `createReadStream(path, {fd: handle.fd})`
+ * — raw fd + autoClose đóng fd bằng stream trong khi FileHandle vẫn "sở hữu"
+ * fd đó; GC sau này đóng lại fd ĐÃ TÁI SỬ DỤNG → cắt socket DB / hỏng ghi
+ * upload khác / EBADF crash — đã reproduce trên Node 26: uncaught
+ * "Closing file descriptor N on garbage collection failed"). Mọi path rời
+ * route (kể cả !isFile) PHẢI close handle.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 vi.mock("server-only", () => ({}));
 
@@ -107,5 +117,77 @@ describe("GET /uploads/[key] — serve file đọc đĩa mỗi request (b4-holis
     await mkdir(path.join(tmpState.dir, `${UUID}.webp`));
     const res = await GET(new Request("http://localhost/uploads/x"), ctxOf(`${UUID}.webp`));
     expect(res.status).toBe(404);
+  });
+});
+
+// ─── b4-holistic round-4 (HIGH) — FileHandle owns the fd ──────────────────────
+
+describe("GET /uploads/[key] — FileHandle không leak fd (b4-holistic round-4 HIGH)", () => {
+  /** Source route — pin hợp đồng stream/close (deterministic mọi môi trường). */
+  const routeSource = readFileSync(
+    path.join(fileURLToPath(new URL("../..", import.meta.url)), "app/uploads/[key]/route.ts"),
+    "utf8",
+  );
+
+  it("stream qua handle.createReadStream() — FileHandle sở hữu fd, KHÔNG raw fd", async () => {
+    // Trước fix: truyền raw fd number của handle vào createReadStream kèm
+    // autoClose — stream tự đóng fd, FileHandle không bao giờ close → GC đóng
+    // lại fd đã bị kernel tái sử dụng (EBADF crash / cắt socket DB —
+    // reproduce Node 26). Sau fix: FileHandle owns the fd.
+    expect(routeSource).toContain("handle.createReadStream()");
+    expect(routeSource).not.toMatch(/\bfd:\s*handle\.fd\b/);
+    expect(routeSource).not.toMatch(/\bfd:\s*handle\b/);
+  });
+
+  it("mọi path rời route KHÔNG stream đều close handle (ENOENT-open, !isFile, error)", () => {
+    // !isFile (directory) → close TRƯỚC khi 404; error path → close trong catch.
+    // Hai chỗ close (nhánh !isFile + catch) — KHÔNG path nào rời route để
+    // handle chờ GC.
+    const closes = routeSource.match(/await handle\.close\(\)\.catch\(\(\) => \{\}\);/g) ?? [];
+    expect(closes.length).toBe(2);
+    // nhánh !isFile close TRƯỚC khi return notFound
+    const notFileIdx = routeSource.indexOf("!st.isFile()");
+    const closeIdx = routeSource.indexOf("await handle.close().catch(() => {});", notFileIdx);
+    const notFoundIdx = routeSource.indexOf("return notFound();", notFileIdx);
+    expect(notFileIdx).toBeGreaterThanOrEqual(0);
+    expect(closeIdx).toBeGreaterThan(notFileIdx);
+    expect(closeIdx).toBeLessThan(notFoundIdx);
+  });
+
+  it("serve xong + force GC → KHÔNG 'Closing file descriptor' warning/EBADF (leak reproduce)", async () => {
+    // Reproduce leak thật: serve file, consume response ĐẦY ĐỦ (client thật),
+    // drop mọi reference, gc (vitest.config.ts execArgv --expose-gc) →
+    // FileHandle bị GC mà chưa close → uncaught EBADF "Closing file descriptor
+    // N on garbage collection failed" (đã quan sát trên Node 26 trước fix).
+    // Sau fix: stream end → FileHandle đã close → GC no-op, KHÔNG event nào.
+    if (typeof globalThis.gc !== "function") {
+      throw new Error("thiếu --expose-gc (vitest.config.ts execArgv) — test leak fd không chạy được");
+    }
+    const GET = await loadRoute();
+    await writeFile(path.join(tmpState.dir, `${UUID}.webp`), Buffer.alloc(4096, 0x61));
+
+    const events: string[] = [];
+    const onWarning = (w: Error) => events.push(`WARNING: ${w.message}`);
+    const onUncaught = (e: Error) => events.push(`UNCAUGHT: ${(e as NodeJS.ErrnoException).code ?? ""} ${e.message}`);
+    process.on("warning", onWarning);
+    process.on("uncaughtException", onUncaught);
+    try {
+      const res = await GET(new Request("http://localhost/uploads/x"), ctxOf(`${UUID}.webp`));
+      expect(res.status).toBe(200);
+      // consume TOÀN BỘ body — autoClose/end chạy như client thật
+      await res.arrayBuffer();
+
+      // drop reference + force GC lặp (finalizer close là async — cho nó thì giờ)
+      for (let i = 0; i < 4; i++) {
+        globalThis.gc();
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    } finally {
+      process.off("warning", onWarning);
+      process.off("uncaughtException", onUncaught);
+    }
+    // Trước fix: ["UNCAUGHT: EBADF EBADF: Closing file descriptor N on garbage
+    // collection failed …"] — đã reproduce. Sau fix: [] (handle đã đóng).
+    expect(events).toEqual([]);
   });
 });
