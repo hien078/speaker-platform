@@ -49,8 +49,17 @@
  *
  * NODE_ENV=production: từ chối trừ khi --allow-production tường minh (seed
  * catalog vào DB thật phải là hành động có chủ đích — fail closed).
+ * b4-holistic round-3: --apply vào DB NON-LOCAL (host ≠ localhost/127.0.0.1/
+ * ::1 — vd compose migrate → db:5432) cũng từ chối trừ khi --allow-production
+ * — guard quyết từ ĐÍCH, không chỉ từ NODE_ENV (stage migrate không set
+ * NODE_ENV nên guard cũ không bao giờ cháy trên VPS).
  *
- * Usage:
+ * Usage (trên VPS chạy qua image migrate — xem docs/deployment.md §2):
+ *   docker compose -f docker-compose.prod.yml run --rm \
+ *     -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+ *     migrate npx tsx scripts/seed-beta-catalog.ts                       # dry-run
+ *   … scripts/seed-beta-catalog.ts --apply --allow-production            # chạy thật
+ * Local dev/test (DATABASE_URL 127.0.0.1):
  *   DATABASE_URL=… npx tsx scripts/seed-beta-catalog.ts                              # dry-run (mặc định)
  *   DATABASE_URL=… npx tsx scripts/seed-beta-catalog.ts --apply                     # chạy thật
  *   DATABASE_URL=… npx tsx scripts/seed-beta-catalog.ts --apply --models founder.json
@@ -296,6 +305,21 @@ export async function seedBetaCatalog(
   options?: SeedBetaCatalogOptions,
 ): Promise<SeedBetaCatalogReport> {
   // Fail closed: seed catalog vào DB production phải là hành động có chủ đích.
+  // b4-holistic round-3: guard quyết từ ĐÍCH (DATABASE_URL host) — --apply vào
+  // DB NON-LOCAL (vd compose migrate → db:5432, host "db") yêu cầu
+  // --allow-production tường minh. Guard NODE_ENV cũ không bao giờ cháy trên
+  // VPS (stage migrate không set NODE_ENV) — giữ làm belt-and-braces bên dưới.
+  if (
+    isApply &&
+    !options?.allowProduction &&
+    !isLocalSeedTarget(process.env.DATABASE_URL ?? "")
+  ) {
+    throw new Error(
+      "SEED_REFUSED_NONLOCAL: --apply vào DB non-local phải là hành động có chủ đích — truyền --allow-production.",
+    );
+  }
+  // Belt-and-braces giữ nguyên (CẢ dry-run lẫn --apply — review fix L10):
+  // NODE_ENV=production → từ chối trừ khi --allow-production.
   if (process.env.NODE_ENV === "production" && !options?.allowProduction) {
     throw new Error(
       "SEED_REFUSED_PRODUCTION: từ chối seed khi NODE_ENV=production — truyền --allow-production để chạy thật.",
@@ -551,6 +575,23 @@ function describeTarget(dbUrl: string): string {
   }
 }
 
+/**
+ * b4-holistic round-3 (LOW — guard không bao giờ cháy): host đích có local
+ * không (localhost/127.0.0.1/::1). Guard --apply quyết từ ĐÍCH, KHÔNG từ
+ * NODE_ENV — trên VPS production, seed CHỈ chạy được trong container migrate
+ * (db không publish port) và stage migrate KHÔNG set NODE_ENV (chỉ runner
+ * stage) nên guard NODE_ENV cũ KHÔNG BAO GIỜ cháy đúng nơi nó cần bảo vệ.
+ * Parse fail → non-local (fail closed).
+ */
+export function isLocalSeedTarget(dbUrl: string): boolean {
+  try {
+    const host = new URL(dbUrl).hostname.toLowerCase();
+    return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 async function main(): Promise<void> {
   // L3 — kiểm tra process.env TRƯỚC khi db.client/dotenv được nạp: script phải
   // được TRỎ ĐÍCH TƯỜNG MINH, không âm thầm lấy .env của repo làm đích.
@@ -570,6 +611,15 @@ async function main(): Promise<void> {
   }
   if (process.env.NODE_ENV === "production" && !args.allowProduction) {
     console.error("✗ SEED_REFUSED_PRODUCTION: NODE_ENV=production — truyền --allow-production để seed thật.");
+    process.exit(1);
+  }
+  // b4-holistic round-3: guard từ ĐÍCH — --apply vào DB non-local (compose
+  // migrate → db:5432) yêu cầu --allow-production; local (127.0.0.1/::1) thoải
+  // mái (dev/test scratch).
+  if (args.isApply && !args.allowProduction && !isLocalSeedTarget(process.env.DATABASE_URL)) {
+    console.error(
+      `✗ SEED_REFUSED_NONLOCAL: --apply vào đích non-local ${describeTarget(process.env.DATABASE_URL)} — truyền --allow-production (hành động có chủ đích).`,
+    );
     process.exit(1);
   }
   if (!args.isApply) {

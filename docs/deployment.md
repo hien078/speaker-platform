@@ -37,12 +37,19 @@ Dọn ảnh mồ côi (upload chưa gắn vào tin nào): `scripts/cleanup-uploa
 | Thông số | Tối thiểu | Khuyến nghị |
 |---|---|---|
 | CPU | 1 vCPU | 2 vCPU |
-| RAM | 1 GB | **2 GB** (xem budget bên dưới) |
+| RAM | **2 GB** | 2 GB+ (xem budget bên dưới) |
 | Disk | 10 GB | 20 GB (ảnh upload + DB) |
 | OS | Ubuntu 22.04+ | Ubuntu 24.04 |
 | Docker | 24+ | 24+ |
 
-### Bộ nhớ (RAM) — budget chi tiết (Batch 4 Task 3 review fix 2)
+> **2 GB là TỐI THIỂU thực tế** (b4-holistic round-3): budget worst-case dưới
+> đã gồm app container ≈ 550-600MB + db 512m — trên host 1 GB, hai container
+> này đã vượt RAM trước khi tính nginx + OS (OOM-kill ngẫu nhiên). Không còn
+> khuyến nghị "hạ 512m trên host 1 GB": cap ảnh là hằng số trong
+> `src/lib/image-process.ts` (không cấu hình qua env) và 512m thấp hơn
+> worst-case decode 50MP đã ghi nhận.
+
+### Bộ nhớ (RAM) — budget chi tiết (Batch 4 Task 3 review fix 2 + b4-holistic round-3)
 
 Khuyến nghị **2GB RAM cho production** — budget worst-case của stack
 (1 container app + 1 container db + nginx trên cùng host):
@@ -50,22 +57,22 @@ Khuyến nghị **2GB RAM cho production** — budget worst-case của stack
 | Thành phần | Đỉnh bộ nhớ | Vì sao bounded |
 |---|---|---|
 | Next.js baseline (server + SSR) | ~250MB | — |
-| 1 re-encode ảnh 50MP progressive JPEG + EXIF rotate | ~300MB transient (decode RGBA + buffer xoay) | Semaphore **1 re-encode đồng thời** + hàng chờ **bounded 2** (`REENCODE_MAX_QUEUE` — đầy → 503 ngay, không cho 20 waiter giữ ~300MB body buffer) + **1 upload in-flight/user** (`src/lib/image-process.ts`, `app/api/upload/route.ts`) |
-| Body buffer của 2 waiter trong hàng | ~15MB | Hàng chờ bounded 2 × ~5.5MB/request |
+| 1 re-encode ảnh 50MP progressive JPEG + EXIF rotate | ~300MB transient (decode RGBA + buffer xoay) | Semaphore **1 re-encode đồng thời** + hàng chờ **bounded 2** (`REENCODE_MAX_QUEUE` — đầy → 503 ngay) + **1 upload in-flight/user** + **`uploadBodiesInFlight` process-wide** (b4-holistic round-3: N user đồng thời không cùng pass pre-check rồi buffer hết body ~11-15MB/request — budget tính theo body đang giữ, không chỉ queue waiter) (`src/lib/image-process.ts`, `app/api/upload/route.ts`) |
+| Body buffer của tối đa 3 request đồng thời (slot + hàng chờ + body) | ~45MB | Cùng ngân sách bounded 3 (CONCURRENT + QUEUE) |
 | Container app (`mem_limit: 768m`) | ≈ 550-600MB worst case | OOM-kill land vào container (`restart: unless-stopped`), không lan sang db/host |
 | Container db (`mem_limit: 512m`) | ~128MB shared_buffers + working set | Postgres 16 mặc định; bound chặn query lớn kéo host |
 
 Lưu ý ngoài budget trên: **Next image optimizer (`next/image`) dùng sharp
 NGOÀI semaphore re-encode** — nếu bật optimization cho ảnh remote/inline thì
-cộng thêm bộ nhớ decode của nó vào budget (hiện `/uploads` được serve tĩnh,
-không qua optimizer).
+cộng thêm bộ nhớ decode của nó vào budget (hiện `/uploads` được serve qua
+route handler đọc đĩa, không qua optimizer).
 
 **Quyết định ghi nhận (recorded decision):** cap JPEG giữ **50MP**
 (`IMAGE_MAX_PIXELS` — admitting cảm biến 48MP phone). Một decode 50MP
 progressive JPEG ~300MB transient là trần CHẤP NHẬN được vì đã bounded bởi
-semaphore 1-đồng-thời + hàng chờ bounded + 1 in-flight/user trên host 2GB;
-PNG/GIF/WebP 8-bit 24MP, interlaced/>8-bit 12MP (xem `src/lib/image-process.ts`).
-Host 1GB (tối thiểu): hạ `mem_limit` app xuống 512m + hạ cap ảnh theo runbook.
+semaphore 1-đồng-thời + hàng chờ bounded + body counter process-wide +
+1 in-flight/user trên host 2GB; PNG/GIF/WebP 8-bit 24MP, interlaced/>8-bit
+12MP (xem `src/lib/image-process.ts`).
 
 ## 2. Các bước triển khai
 
@@ -96,15 +103,34 @@ docker compose -f docker-compose.prod.yml up -d --build
 # 4. (Tuỳ chọn) Chạy tay migration khi cần — idempotent, chạy lại không áp lại
 docker compose -f docker-compose.prod.yml run --rm migrate
 
-# 5. Kiểm tra sức khoẻ
+# 5. Seed beta catalog (BẮT BUỘC lần đầu sau Batch 4 — xem chú ý dưới)
+cd /opt/loaviet   # gốc repo trên VPS
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/seed-beta-catalog.ts            # dry-run trước (xem plan)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  -v "$PWD/founder.json:/app/founder.json:ro" `# chỉ khi có file model founder` \
+  migrate npx tsx scripts/seed-beta-catalog.ts --apply --models /app/founder.json --allow-production
+
+# 6. Duyệt model pending trong /admin/catalog (founder) — seed tạo model ở
+#    status "pending"; model CHỈ hiện trong form đăng tin sau khi được duyệt.
+# 7. Kiểm tra sức khoẻ
 curl http://localhost:3000/api/health
 # → {"ok":true,"db":"up",...}
 ```
 
 > ⚠️ **KHÔNG chạy `prisma db update` trên DB production** — nó diff trực tiếp
 > và không để lại lịch sử migration. Luôn đi qua graph: `db migrate --to production`.
-> Seed dữ liệu mẫu cũng KHÔNG chạy ở production (script tự từ chối khi
-> NODE_ENV=production) — danh mục/hoa hồng cấu hình qua admin UI.
+> Seed dữ liệu MẪU (tài khoản demo) KHÔNG chạy ở production (script tự từ chối);
+> seed **beta catalog** thì BẮT BUỘC (bước 5 trên): category
+> `portable_bluetooth_speaker` + model chuẩn CHỈ được tạo qua
+> `scripts/seed-beta-catalog.ts` — không có admin action nào tạo Category, và
+> admin UI chỉ sửa hoa hồng trên category đã có. Không seed → `/sell/new`
+> không có danh mục, mọi seller bị chặn đăng tin. Script tự từ chối `--apply`
+> vào DB non-local khi thiếu `--allow-production` (guard quyết từ ĐÍCH —
+> migrate container giờ set `NODE_ENV=production` làm belt-and-braces).
+> Rollback: script in ra danh sách slug đã tạo — chỉ xoá những slug đó.
 
 ## 3. Nginx reverse-proxy + SSL (Let's Encrypt)
 

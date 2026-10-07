@@ -4,7 +4,10 @@
 # service 'migrate' trước khi app start (app depends_on migrate completed).
 # Chạy tay khi cần:  docker compose -f docker-compose.prod.yml run --rm migrate
 # KHÔNG dùng 'prisma db update' trên DB production — không để lại lịch sử migration.
-# Seed (chỉ dev/test): seed từ chối chạy ở production (NODE_ENV=production).
+# Seed beta catalog (BẮT BUỘC sau deploy Batch 4 — category portable_bluetooth_
+# speaker không có trong migration): chạy qua service migrate + mount repo —
+# xem docs/deployment.md §2 (dry-run trước, --apply --allow-production sau;
+# script tự từ chối --apply vào DB non-local khi thiếu --allow-production).
 
 services:
   db:
@@ -48,6 +51,11 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+      # b4-holistic round-3: migrate stage không set NODE_ENV (chỉ runner stage)
+      # nên guard NODE_ENV của seed script không bao giờ cháy đúng nơi nó chạy —
+      # set tường minh để belt-and-braces guard hoạt động (seed vẫn cần
+      # --allow-production vì guard quyết từ ĐÍCH: host db ≠ local).
+      NODE_ENV: production
       # Task 11 runbook §0: admin bootstrap (tsx trong container migrate) cần
       # key mã hóa TOTP secret + AUTH_SECRET (hash mã khôi phục derive HKDF).
       # Compose nội suy từ .env — operator KHÔNG phải `set -a; source .env`.
@@ -61,15 +69,18 @@ services:
     # M1 (Batch 4 Task 3 review + fix 2): bound bộ nhớ app — sharp re-encode
     # decode theo định dạng (PNG interlaced/16-bit ~200-400MB/lần nếu không
     # bound). Trong app đã có semaphore 1-re-encode-đồng-thời + HÀNG CHỜ
-    # BOUNDED (REENCODE_MAX_QUEUE=2 — đầy reject ngay, không cho 20 waiter giữ
-    # ~300MB body buffer) + 1 upload in-flight/user + sharp.cache(false) +
+    # BOUNDED (REENCODE_MAX_QUEUE=2 — đầy reject ngay) + 1 upload in-flight/user
+    # + uploadBodiesInFlight process-wide (b4-holistic round-3: N user đồng thời
+    # không cùng pass pre-check rồi buffer hết body — budget giờ tính theo body
+    # ĐANG GIỮ, không chỉ queue waiter) + sharp.cache(false) +
     # sharp.concurrency(1) (src/lib/image-process.ts, app/api/upload/route.ts)
     # nên worst-case process ≈ baseline Next ~250MB + 1 decode 50MP JPEG
-    # progressive + EXIF rotate ~300MB transient + ~15MB body buffer của 2
-    # waiter ≈ 550-600MB. 768m chặn OOM lan sang db/host; OOM-kill land vào
-    # container (restart tự lên lại). Budget chi tiết + khuyến nghị RAM host
-    # (2GB cho production): docs/deployment.md §1. Host 1GB: hạ xuống 512m +
-    # hạ cap ảnh (image-process.ts) theo runbook.
+    # progressive + EXIF rotate ~300MB transient + ~15MB body buffer của tối đa
+    # 3 request đồng thời ≈ 550-600MB. 768m chặn OOM lan sang db/host; OOM-kill
+    # land vào container (restart tự lên lại). Budget chi tiết + khuyến nghị RAM
+    # host (2GB TỐI THIỂU cho production — b4-holistic round-3: xóa khuyến nghị
+    # 1GB/512m: 512m app + 512m db đã vượt RAM host trước nginx + OS):
+    # docs/deployment.md §1.
     mem_limit: 768m
     ports:
       # CHỈ bind loopback — nginx (cùng host) proxy sang đây; KHÔNG expose
