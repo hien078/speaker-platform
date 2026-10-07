@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { LoaderCircle, ImagePlus, X } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 
@@ -8,10 +8,21 @@ export function ImagePicker({
   name = "images",
   max = 8,
   initialUrls = [],
+  slotName,
+  slotValue,
 }: {
   name?: string;
   max?: number;
   initialUrls?: string[];
+  /**
+   * Batch 4 Task 5 — slot-aware variant: khi có slotName, MỖI ảnh post kèm một
+   * hidden input song song (giá trị slotValue hoặc "" = không gán slot) để
+   * formData.getAll("images") zip theo index với getAll(slotName) — action
+   * đọc hai mảng song song (imageSlots lệch độ dài → IMAGE_SLOT_MISMATCH).
+   */
+  slotName?: string;
+  /** Giá trị slot gắn cho MỌI ảnh của picker này (null/"" = không gán slot). */
+  slotValue?: string | null;
 }) {
   const [urls, setUrls] = useState<string[]>(initialUrls);
   const [uploading, setUploading] = useState(false);
@@ -87,7 +98,12 @@ export function ImagePicker({
 
       <input ref={inputRef} type="file" accept="image/*" multiple hidden onChange={onPick} />
       {urls.map((u) => (
-        <input key={u} type="hidden" name={name} value={u} />
+        <Fragment key={u}>
+          <input type="hidden" name={name} value={u} />
+          {slotName !== undefined && (
+            <input type="hidden" name={slotName} value={slotValue ?? ""} />
+          )}
+        </Fragment>
       ))}
       {error && <p className="mt-2 text-xs text-[var(--red)]">{error}</p>}
       <p className="mt-2 text-[11px] text-[var(--muted)]">
