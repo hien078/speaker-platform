@@ -330,6 +330,21 @@ vi.mock("@/src/lib/listing-publication", async (importOriginal) => {
   };
 });
 
+/** Side-effect khi assertListingImagesOwned chạy — mô phỏng status đổi giữa
+ *  read và CAS của saveListingDraftAction (draft path không gọi publication gate). */
+const imagesHook = vi.hoisted(() => ({ onOwned: null as null | (() => void) }));
+
+vi.mock("@/src/lib/listing-images", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/src/lib/listing-images")>();
+  return {
+    ...actual,
+    assertListingImagesOwned: async (...args: Parameters<typeof actual.assertListingImagesOwned>) => {
+      imagesHook.onOwned?.();
+      return actual.assertListingImagesOwned(...args);
+    },
+  };
+});
+
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { SESSION_COOKIE } from "@/src/lib/session";
 import {
@@ -601,6 +616,7 @@ beforeEach(() => {
   gateState.contentValidCalls = 0;
   gateState.failPublishWith = null;
   gateState.onPublishable = null;
+  imagesHook.onOwned = null;
   dbState.categories.push({ ...CAT_BETA }, { ...CAT_LEGACY });
   dbState.brands.push({ ...BRAND });
   dbState.models.push({ ...MODEL });
@@ -615,6 +631,19 @@ afterEach(() => {
 
 // ─── 1. saveListingDraftAction — draft TRƯỚC verification (spec §4.4) ─────────
 
+/** Tạo draft MỚI: action redirect sang /sell/<id>/edit?saved=draft (NGOÀI try) —
+ *  trả url redirect để test assert; draft update trả { ok: true } (không redirect). */
+async function createDraftExpectRedirect(form: FormData): Promise<string> {
+  try {
+    await saveListingDraftAction({}, form);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.startsWith("NEXT_REDIRECT:")) return msg.slice("NEXT_REDIRECT:".length);
+    throw e;
+  }
+  throw new Error("expected NEXT_REDIRECT from draft create");
+}
+
 describe("saveListingDraftAction — draft được phép trước verification", () => {
   it("seller CHƯA xác minh VẪN tạo được draft — KHÔNG gọi seller gate (0 assertSellerPublicationAllowed)", async () => {
     const seller = mkUser({ id: "seller-fresh", role: "seller" });
@@ -622,10 +651,10 @@ describe("saveListingDraftAction — draft được phép trước verification"
     seedUpload(seller.id); // ảnh upload thuộc seller — rule (1) pass
     login(seller);
 
-    const state = await saveListingDraftAction({}, betaForm());
+    const url = await createDraftExpectRedirect(betaForm());
 
-    expect(state.error).toBeUndefined();
     expect(dbState.listings).toHaveLength(1);
+    expect(url).toBe(`/sell/${dbState.listings[0]!.id}/edit?saved=draft`);
     expect(dbState.listings[0]).toMatchObject({
       sellerId: seller.id,
       status: "draft",
@@ -655,7 +684,7 @@ describe("saveListingDraftAction — draft được phép trước verification"
     seedUpload(seller.id);
     login(seller);
 
-    await saveListingDraftAction({}, betaForm());
+    await createDraftExpectRedirect(betaForm());
 
     // (action-level) draft row mang status "draft" — KHÔNG phải pending/approved
     expect(dbState.listings[0]).toMatchObject({ status: "draft" });
@@ -696,7 +725,9 @@ describe("saveListingDraftAction — draft được phép trước verification"
       betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
     );
     expect(state1.error).toBeUndefined();
+    expect(state1.ok).toBe(true); // banner "Đã lưu nháp" chỉ khi ghi thật
     expect(draft.title).toBe("Loa JBL Charge 5 chính hãng SỬA NHÁP");
+    expect(dbState.listings).toHaveLength(1); // update — KHÔNG tạo draft trùng
     expect(draft.status).toBe("draft");
     expect(auditsOf("listing.draft_updated")).toHaveLength(1);
 
@@ -707,6 +738,28 @@ describe("saveListingDraftAction — draft được phép trước verification"
     );
     expect(state2.error).toContain("CATEGORY_NOT_PUBLICATION_ALLOWED");
     expect(draft.categoryId).toBe(CAT_BETA.id); // KHÔNG write
+  });
+
+  it("draft UPDATE thua CAS (status đổi giữa read và write) → typed LISTING_CONCURRENT_CHANGE, KHÔNG write, KHÔNG ok", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    seedUpload(seller.id);
+    login(seller);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    imagesHook.onOwned = () => {
+      (draft as Row).status = "pending";
+    };
+
+    const state = await saveListingDraftAction(
+      {},
+      betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+    );
+
+    expect(state.error).toContain("LISTING_CONCURRENT_CHANGE");
+    expect(state.ok).toBeUndefined();
+    expect(draft.title).toBe("Loa JBL Charge 5 chính hãng");
+    expect(auditsOf("listing.draft_updated")).toHaveLength(0);
   });
 
   it("draft UPDATE trên listing của seller KHÁC → silent return (IDOR — không write, không audit)", async () => {
@@ -723,6 +776,7 @@ describe("saveListingDraftAction — draft được phép trước verification"
 
     // silent return — KHÔNG error (form state rỗng), KHÔNG write, KHÔNG audit
     expect(state.error).toBeUndefined();
+    expect(state.ok).toBeUndefined(); // KHÔNG banner "Đã lưu nháp" giả
     expect(victim.title).toBe("Loa JBL Charge 5 chính hãng");
     expect(auditsOf("listing.draft_updated")).toHaveLength(0);
   });
@@ -740,6 +794,7 @@ describe("saveListingDraftAction — draft được phép trước verification"
     );
 
     expect(state.error).toBeUndefined();
+    expect(state.ok).toBeUndefined();
     expect(approved.status).toBe("approved");
     expect(approved.title).toBe("Loa JBL Charge 5 chính hãng");
     expect(auditsOf("listing.draft_updated")).toHaveLength(0);
@@ -774,12 +829,10 @@ describe("saveListingDraftAction — draft được phép trước verification"
     dbState.users.push(seller);
     login(seller);
 
-    const state = await saveListingDraftAction(
-      {},
+    await createDraftExpectRedirect(
       betaForm({ images: [] as string[], imageSlots: [] as string[] }),
     );
 
-    expect(state.error).toBeUndefined();
     expect(dbState.listings).toHaveLength(1);
     expect(dbState.images).toHaveLength(0);
   });
@@ -1141,7 +1194,7 @@ describe("rate limit — listing mutation (§7.1)", () => {
     login(seller);
 
     for (let i = 0; i < 20; i++) {
-      await saveListingDraftAction({}, betaForm());
+      await createDraftExpectRedirect(betaForm());
     }
     expect(dbState.listings).toHaveLength(20);
 

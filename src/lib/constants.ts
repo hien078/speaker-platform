@@ -9,6 +9,8 @@ import type {
   ModerationActionType,
   SuspensionReasonCode,
 } from "@/src/lib/moderation-vocab";
+// type-only (xoá khi compile) — constants.ts vẫn client-safe; map thiếu key fail typecheck.
+import type { InventoryContext, ListingFulfillmentMethod, PhotoChecklistSlot } from "@/src/lib/listing-schema";
 
 export const ROLE_LABELS: Record<string, string> = {
   buyer: "Người mua",
@@ -129,7 +131,7 @@ export const CITIES = [...PROVINCES.map((p) => p.displayName), "Khác"];
  * additive trước beta. Định nghĩa từng grade (và chồng lấn new/open_box với
  * product_condition) = A1 — KHÔNG bịa ở đây.
  */
-export const INVENTORY_CONTEXT_LABELS: Record<string, string> = {
+export const INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string> = {
   new: "Mới / nguyên seal",
   open_box: "Mở hộp chưa dùng",
   used: "Đã qua sử dụng",
@@ -140,7 +142,7 @@ export const INVENTORY_CONTEXT_LABELS: Record<string, string> = {
  * decision A7; nhãn tiếng Việt là founder-authored content pending (Batch 8
  * Founder Decision Register).
  */
-export const FULFILLMENT_METHOD_LABELS: Record<string, string> = {
+export const FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string> = {
   meetup: "Gặp trực tiếp",
   seller_delivery: "Người bán giao đến",
   carrier: "Gửi qua đơn vị vận chuyển",
@@ -152,7 +154,7 @@ export const FULFILLMENT_METHOD_LABELS: Record<string, string> = {
  * pending (Batch 8 Founder Decision Register); requiredness từng slot = A2
  * (KHÔNG slot nào bắt buộc — chỉ rule ≥1 ảnh hiện có).
  */
-export const PHOTO_CHECKLIST_SLOT_LABELS: Record<string, string> = {
+export const PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string> = {
   front: "Mặt trước",
   back: "Mặt sau",
   control_panel: "Bảng điều khiển",

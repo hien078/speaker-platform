@@ -38,15 +38,16 @@ const PAGE = "app/admin/listings/page.tsx";
 // ─── Structured fields (spec §5.6) — typed maps + usage call sites ──────────
 
 describe("admin listings review card — structured fields (spec §5.6)", () => {
-  it("label maps TYPED theo union Task 2 (L1) — thiếu key fail typecheck", () => {
+  it("label maps: MỘT nguồn constants.ts, TYPED theo union Task 2 (L1) — thiếu key fail typecheck", () => {
     const src = read(PAGE);
-    expect(src).toMatch(/INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string>/);
-    expect(src).toMatch(/FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string>/);
-    expect(src).toMatch(/PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string>/);
-    // union type import từ listing-schema (Task 2) — KHÔNG định nghĩa lại local
-    expect(src).toMatch(
-      /import type \{\s*InventoryContext,\s*ListingFulfillmentMethod,\s*PhotoChecklistSlot,\s*\} from "@\/src\/lib\/listing-schema"/,
-    );
+    // page KHÔNG định nghĩa lại map — import từ constants (seller + moderator cùng nhãn)
+    expect(src).not.toMatch(/const (INVENTORY_CONTEXT|FULFILLMENT_METHOD|PHOTO_CHECKLIST_SLOT)_LABELS/);
+    expect(src).toMatch(/PHOTO_CHECKLIST_SLOT_LABELS,[\s\S]*\} from "@\/src\/lib\/constants"/);
+    const constants = read("src/lib/constants.ts");
+    expect(constants).toMatch(/INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string>/);
+    expect(constants).toMatch(/FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string>/);
+    expect(constants).toMatch(/PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string>/);
+    expect(constants).toMatch(/import type \{ InventoryContext, ListingFulfillmentMethod, PhotoChecklistSlot \} from "@\/src\/lib\/listing-schema"/);
   });
 
   it("lookup qua Object.hasOwn + raw fallback (L4) — call site, không tên trong comment", () => {

@@ -396,7 +396,7 @@ describe("admin listings review card — render beta fixture (M1c — spec §5.6
     // giá trị structured theo label maps (L1) — đúng thứ tự đọc
     expect(text.indexOf("Nguồn hàng")).toBeLessThan(text.indexOf("Đã qua sử dụng"));
     expect(text.indexOf("Cách giao hàng")).toBeLessThan(
-      text.indexOf("Gặp trực tiếp · Đơn vị vận chuyển"),
+      text.indexOf("Gặp trực tiếp · Gửi qua đơn vị vận chuyển"),
     );
     expect(text.indexOf("Vị trí")).toBeLessThan(text.indexOf("Quận 1 · TP. Hồ Chí Minh"));
     expect(text).toContain("Cáp sạc, hộp");

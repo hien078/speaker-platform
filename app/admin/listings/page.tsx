@@ -1,57 +1,23 @@
 import { db } from "@/src/prisma/db.client";
 import { requireCapability } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
-import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE, CONDITION_LABELS } from "@/src/lib/constants";
+import {
+  CONDITION_LABELS,
+  FULFILLMENT_METHOD_LABELS,
+  INVENTORY_CONTEXT_LABELS,
+  LISTING_STATUS_BADGE,
+  LISTING_STATUS_LABELS,
+  PHOTO_CHECKLIST_SLOT_LABELS,
+} from "@/src/lib/constants";
 import { listingRegimeForCategorySlug } from "@/src/lib/beta-categories";
 import { isVerifiedSellerStatus } from "@/src/lib/seller-verification-status";
 import { PROVINCE_CODES } from "@/src/lib/provinces";
-import type {
-  InventoryContext,
-  ListingFulfillmentMethod,
-  PhotoChecklistSlot,
-} from "@/src/lib/listing-schema";
 import { ATTACHED_IMAGE_PATH_PATTERN } from "@/src/lib/listing-images";
 import { approveListingAction, rejectListingAction } from "@/src/lib/actions/admin";
 import { FileSearch, CheckCircle2, XCircle } from "lucide-react";
 
-// ─── Label maps (PROVISIONAL — FD-3) ─────────────────────────────────────────
-// Plan Task 6 consume INVENTORY_CONTEXT_LABELS / FULFILLMENT_METHOD_LABELS /
-// PHOTO_CHECKLIST_SLOT_LABELS từ src/lib/constants.ts (Task 5) — nhưng Task 5
-// chạy SONG SONG trong batch này và là chủ sở hữu constants.ts (file-conflict
-// rule), exports chưa tồn tại ở tree này. Labels sống cục bộ với giá trị theo
-// comment contract.prisma + spec §5.2/§5.6.3. PROVISIONAL (FD-3): label copy là
-// founder-authored content pending — Batch 8 Founder Decision Register.
-// TODO(L1): unify with constants.ts after Task 5 merges.
-//
-// L1 (review fix): map TYPED theo union Task 2 (listing-schema.ts) — thiếu key
-// fail typecheck, Record<string, string> rỗng không lọt nữa.
-
-/** Enum `inventory_context` (contract.prisma — spec §5.6): new/open_box/used. */
-const INVENTORY_CONTEXT_LABELS: Record<InventoryContext, string> = {
-  new: "Mới / nguyên seal",
-  open_box: "Mở hộp chưa dùng",
-  used: "Đã qua sử dụng",
-};
-
-/** §5.2 fulfillment methods (mapping A7): meetup/seller_delivery/carrier/other. */
-const FULFILLMENT_METHOD_LABELS: Record<ListingFulfillmentMethod, string> = {
-  meetup: "Gặp trực tiếp",
-  seller_delivery: "Người bán tự giao",
-  carrier: "Đơn vị vận chuyển",
-  other: "Khác",
-};
-
-/** 8 slot ảnh §5.6.3 — nhãn caption cho gallery duyệt. */
-const PHOTO_CHECKLIST_SLOT_LABELS: Record<PhotoChecklistSlot, string> = {
-  front: "Mặt trước",
-  back: "Mặt sau",
-  control_panel: "Bảng điều khiển",
-  ports: "Cổng sạc / kết nối",
-  damage: "Vết xước / hư hại",
-  accessories: "Phụ kiện",
-  box: "Hộp đựng",
-  label_serial: "Nhãn / serial",
-};
+// Label maps: MỘT nguồn — src/lib/constants.ts (PROVISIONAL — FD-3, Batch 8
+// register), typed theo union listing-schema.ts → seller và moderator thấy cùng nhãn.
 
 /** NULL/blank → "—" (legacy "not captured" — spec §8.3, KHÔNG backfill). */
 const orDash = (v: string | null | undefined): string =>

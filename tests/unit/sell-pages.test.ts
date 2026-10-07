@@ -599,6 +599,28 @@ describe("app/sell/[id]/edit — sold + regime switch + draft flow (behavior)", 
     expect(hasFormWithAction(tree, submitListingAction)).toBe(true);
   });
 
+  it("?saved=draft trên draft → banner 'Đã lưu nháp'; trên approved hoặc giá trị khác → không banner", async () => {
+    seedCatalog();
+    dbState.listings.push(listingRow({ status: "draft" }));
+    const saved = await EditPage({
+      params: Promise.resolve({ id: "listing-1" }),
+      searchParams: Promise.resolve({ saved: "draft" }),
+    });
+    expect(textOf(saved)).toContain("Đã lưu nháp");
+    const forged = await EditPage({
+      params: Promise.resolve({ id: "listing-1" }),
+      searchParams: Promise.resolve({ saved: "<b>x</b>" }),
+    });
+    expect(textOf(forged)).not.toContain("Đã lưu nháp");
+    expect(textOf(forged)).not.toContain("<b>x</b>");
+    dbState.listings[0]!.status = "approved";
+    const approved = await EditPage({
+      params: Promise.resolve({ id: "listing-1" }),
+      searchParams: Promise.resolve({ saved: "draft" }),
+    });
+    expect(textOf(approved)).not.toContain("Đã lưu nháp");
+  });
+
   it("approved → KHÔNG form Gửi duyệt (chỉ draft có submit)", async () => {
     seedCatalog();
     dbState.listings.push(listingRow({ status: "approved" }));

@@ -40,7 +40,7 @@ export default async function EditListingPage({
   searchParams,
 }: PageProps<"/sell/[id]/edit">) {
   const { id } = await params;
-  const sp = (await searchParams) as { error?: string };
+  const sp = (await searchParams) as { error?: string; saved?: string };
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
@@ -132,6 +132,9 @@ export default async function EditListingPage({
   ]);
 
   const submitError = sp.error != null && sp.error !== "" ? sp.error : null;
+  // ?saved=draft — saveListingDraftAction redirect sau khi TẠO draft (so sánh
+  // literal, không echo query); chỉ hiện khi tin vẫn là draft.
+  const draftJustSaved = sp.saved === "draft" && listing.status === "draft" && submitError === null;
 
   return (
     <main className="mx-auto max-w-2xl px-4 py-10 lg:px-8">
@@ -155,6 +158,12 @@ export default async function EditListingPage({
           {/* LOW-1: lookup own-property-safe — code lạ/prototype key (?error=__proto__)
               → generic, KHÔNG crash (map + helper sống ở src/lib/listing-error-text.ts) */}
           {submitErrorText(submitError)}
+        </div>
+      )}
+
+      {draftJustSaved && (
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
+          ✓ Đã lưu nháp — tiếp tục hoàn thiện rồi gửi duyệt khi sẵn sàng.
         </div>
       )}
 

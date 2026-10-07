@@ -36,7 +36,9 @@ import { listingPublicationInputFromRow } from "@/src/lib/actions/helpers";
 import type { Models } from "@/src/prisma/contract";
 import type { Scalars } from "@prisma/orm-postgres/family-contract/types";
 
-export type ListingFormState = { error?: string };
+/** ok=true CHỈ khi saveListingDraftAction thực sự ghi (update draft) — form dùng để
+ *  hiện "Đã lưu nháp"; các silent return (IDOR / không còn draft) trả {} → không banner. */
+export type ListingFormState = { error?: string; ok?: boolean };
 
 /** Tx context của db.transaction — cùng shape src/lib/actions/helpers.ts. */
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -504,8 +506,11 @@ export async function saveListingDraftAction(
   if (slugTaken) slug = `${slug}-${Date.now().toString(36)}`;
 
   // ─── MỘT tx: Listing + ListingImage + audit (auditEventTx — sống chết cùng tx) ───
+  // Trả id draft MỚI tạo (null khi update) — redirect sang trang sửa NGOÀI try,
+  // để "Lưu nháp" lần 2 cập nhật cùng draft thay vì tạo draft trùng.
+  let createdId: string | null = null;
   try {
-    await db.transaction(async (tx) => {
+    createdId = await db.transaction(async (tx): Promise<string | null> => {
       if (existing !== null) {
         // CAS theo draft — 0 rows → THROW ra khỏi callback, classify NGOÀI tx
         // (status đổi tay giữa read và write — Global Constraints).
@@ -539,6 +544,7 @@ export async function saveListingDraftAction(
           resourceType: "Listing",
           resourceId: existing.id,
         });
+        return null;
       } else {
         const listing = await tx.orm.public.Listing.create({
           sellerId: user.id,
@@ -578,19 +584,27 @@ export async function saveListingDraftAction(
           resourceType: "Listing",
           resourceId: listing.id,
         });
+        return listing.id;
       }
     });
   } catch (e) {
     // Classify NGOÀI tx (Global Constraints): 23505 Listing.slug → typed
-    // slug-collision; lỗi khác ném tiếp (fail closed).
+    // slug-collision; CAS draft thua (status đổi giữa read và write) → typed
+    // conflict; lỗi khác ném tiếp (fail closed).
     if (isListingSlugCollision(e)) {
       return { error: "Tiêu đề đã trùng — chọn tiêu đề khác (LISTING_SLUG_COLLISION)" };
+    }
+    if (e instanceof Error && e.message === "LISTING_CONCURRENT_CHANGE") {
+      return { error: "Tin vừa thay đổi trạng thái — tải lại trang rồi thử lại (LISTING_CONCURRENT_CHANGE)" };
     }
     throw e;
   }
 
   revalidatePath("/sell/my");
-  return {};
+  if (createdId !== null) {
+    redirect(`/sell/${createdId}/edit?saved=draft`);
+  }
+  return { ok: true };
 }
 
 /** Ẩn / hiện lại tin */

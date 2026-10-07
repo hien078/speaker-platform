@@ -219,7 +219,7 @@ export function PortableListingForm({
           {state.error}
         </p>
       )}
-      {lastIntent === "draft" && !state.error && (
+      {lastIntent === "draft" && state.ok === true && (
         <p className="rounded-lg border border-[var(--green)]/35 bg-[var(--green-soft)] px-3.5 py-2.5 text-sm text-[var(--green)]">
           ✓ Đã lưu nháp — bạn có thể tiếp tục chỉnh sửa.
         </p>
