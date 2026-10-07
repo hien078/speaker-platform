@@ -1,5 +1,6 @@
 import "server-only";
 import { isValidAdminMfaKeyEnv } from "@/src/lib/admin-mfa-key";
+import { isValidProductEventKeyEnv } from "@/src/lib/product-event-key";
 
 /**
  * Production env validation — fail-fast khi server start (gọi từ instrumentation.ts).
@@ -24,6 +25,7 @@ const REQUIRED_KEYS = [
   "NEXT_PUBLIC_APP_URL",
   "CRON_SECRET",
   "ADMIN_MFA_ENCRYPTION_KEY",
+  "PRODUCT_EVENT_PSEUDONYM_KEY",
 ] as const;
 
 const isProduction = (env: NodeJS.ProcessEnv): boolean =>
@@ -105,6 +107,25 @@ export function validateEnv(env: NodeJS.ProcessEnv): EnvValidationResult {
       key: "ADMIN_MFA_ENCRYPTION_KEY",
       problem:
         "phải là base64 của đúng 32 byte — sinh bằng: openssl rand -base64 32 (key dedicated cho MFA, KHÔNG dùng AUTH_SECRET)",
+    });
+  }
+
+  // PRODUCT_EVENT_PSEUDONYM_KEY (Batch 5 Task 6): key dedicated HMAC pseudonym
+  // cho product telemetry (src/lib/product-event-key.ts) — base64 của ĐÚNG 32
+  // byte, KHÔNG derive từ AUTH_SECRET (S-11: rotate AUTH_SECRET không phá
+  // pseudonym/join analytics). Bắt buộc ở production (REQUIRED_KEYS — emit
+  // KHÔNG bao giờ ghi id thô thay thế); dev/test có thể bỏ trống (emit
+  // fail-open silent no-op) nhưng set sai thì phải báo ngay (fail closed).
+  const productEventKey = env.PRODUCT_EVENT_PSEUDONYM_KEY;
+  if (
+    productEventKey !== undefined &&
+    productEventKey !== "" &&
+    !isValidProductEventKeyEnv(productEventKey)
+  ) {
+    issues.push({
+      key: "PRODUCT_EVENT_PSEUDONYM_KEY",
+      problem:
+        "phải là base64 của đúng 32 byte — sinh bằng: openssl rand -base64 32 (key dedicated cho telemetry pseudonym, KHÔNG dùng AUTH_SECRET)",
     });
   }
 

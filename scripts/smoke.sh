@@ -105,6 +105,11 @@ export CRON_SECRET="smoke-$(openssl rand -hex 32)"
 # 32 byte (openssl rand -base64 32) — KHÔNG tiền tố "smoke-" như các key trên:
 # admin-mfa-key.ts validate strict RFC 4648 → 32 byte, prefix sẽ fail validation.
 export ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+# Batch 5 (Task 6): PRODUCT_EVENT_PSEUDONYM_KEY cũng bắt buộc ở production (env.ts
+# REQUIRED_KEYS → instrumentation fail-fast exit(1) khi thiếu — corrections #8).
+# Giá trị TEST sinh random: base64 THUẦN của ĐÚNG 32 byte (openssl rand -base64 32)
+# — product-event-key.ts validate strict RFC 4648 → 32 byte, prefix sẽ fail.
+export PRODUCT_EVENT_PSEUDONYM_KEY="$(openssl rand -base64 32)"
 # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong cấu hình beta.
 # NODE_ENV=production đã hard-off ở src/lib/financial-features.ts — set
 # explicit để hợp đồng beta được liệt kê đầy đủ trong cấu hình smoke.

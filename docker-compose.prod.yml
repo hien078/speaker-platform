@@ -109,6 +109,11 @@ services:
       # Thiếu → compose từ chối start (lỗi hiện ngay khi up) + validateEnv
       # fail-fast trong app (Batch 2 Task 8 — MFA bắt buộc cho admin).
       ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?đặt ADMIN_MFA_ENCRYPTION_KEY trong .env (openssl rand -base64 32)}
+      # Key HMAC pseudonym cho product telemetry (Batch 5 Task 6) — DÀNH RIÊNG,
+      # không derive từ AUTH_SECRET (S-11). Base64 của đúng 32 byte. Thiếu →
+      # compose từ chối start + validateEnv fail-fast trong app (telemetry
+      # pseudonym bắt buộc ở production — emit KHÔNG bao giờ ghi id thô).
+      PRODUCT_EVENT_PSEUDONYM_KEY: ${PRODUCT_EVENT_PSEUDONYM_KEY:?đặt PRODUCT_EVENT_PSEUDONYM_KEY trong .env (openssl rand -base64 32)}
       NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:?đặt NEXT_PUBLIC_APP_URL trong .env}
       # Private beta (spec §4.1/§5.1): tài chính TẮT — mọi entry point finance
       # (escrow/thanh toán/ví/rút tiền/hoa hồng) deny server-side với mã
