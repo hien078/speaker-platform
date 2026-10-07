@@ -705,4 +705,16 @@ describe("source-contract (S-13)", () => {
     const src = read("../../src/lib/product-events.ts");
     expect(src).not.toMatch(/AuditEvent|auditEvent/);
   });
+
+  it("seam sessionId THÔ (b5-review T6): input CHỈ có sessionId — KHÔNG input sessionPseudonym (HMAC kép)", () => {
+    // Plan Task 6 (L650): `sessionId?: string | null; // UserSession.id — tự
+    // pseudonymize thành sessionPseudonym (S-10)` + corrections #15 (emitters
+    // dùng getCurrentUser().sessionId — KHÔNG lookup session lần hai). Emitters
+    // Task 7/8 KHÔNG được truyền pseudonym precomputed: emit input không có
+    // field sessionPseudonym, và pseudonym hóa xảy ra MỘT lớp trong emit core.
+    const src = read("../../src/lib/product-events.ts");
+    expect(src).toMatch(/sessionId\?: string \| null/); // input là session id thô
+    expect(src).not.toMatch(/sessionPseudonym\?:/); // KHÔNG có input pseudonym precomputed
+    expect(src).toMatch(/sessionPseudonymFor\(sessionId\)/); // MỘT lớp HMAC, trong emit core
+  });
 });

@@ -359,7 +359,15 @@ export type ProductEventInput = {
   name: ProductEventName;
   /** Raw user id — emit core tự pseudonymize, KHÔNG lưu id thô (S-10). */
   actorId?: string | null;
-  /** UserSession.id — tự pseudonymize thành sessionPseudonym (S-10). */
+  /**
+   * UserSession.id THÔ (getCurrentUser().sessionId — corrections #15) — emit
+   * core TỰ pseudonymize thành sessionPseudonym (S-10). Emitters (Tasks 7/8)
+   * LUÔN truyền session id thô trong field này, KHÔNG BAO GIỜ pseudonym đã
+   * tính sẵn (sessionPseudonymFor): HMAC kép (HMAC(HMAC(id))) cho cùng một
+   * session HAI giá trị sessionPseudonym khác nhau qua các loại event và phá
+   * join search→click→chat của Task 9/10 (b5-review T6 — plan Task 7/8 gọi
+   * field caller-side là "sessionPseudonym"; emit input CHỈ có sessionId).
+   */
   sessionId?: string | null;
   searchSessionId?: string | null;
   listingId?: string | null;
