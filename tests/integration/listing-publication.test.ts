@@ -543,7 +543,7 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
 
   // ─── 3. Suspended cohort membership → toggle hidden→approved blocked ──────
 
-  it("suspended founding_seller membership: toggle hidden→approved blocked (silent), status GIỮ hidden + audit; re-activate → toggle passes", async () => {
+  it("suspended founding_seller membership: toggle hidden→approved blocked → redirect /sell/verification (b4-holistic-2: KHÔNG silent), status GIỮ hidden + audit; re-activate → toggle vào review (pending)", async () => {
     const sellerId = await mkVerifiedSeller();
     created.users.push(sellerId);
     const cat = await mkBetaCatalog();
@@ -559,8 +559,10 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
       .where({ userId: sellerId, cohort: "founding_seller" })
       .updateAll({ status: "suspended" });
 
-    // hidden → approved: BLOCKED qua wrapper — silent return (form void), status GIỮ hidden
-    await toggleListingVisibilityAction(fd({ listingId }));
+    // hidden → approved: BLOCKED qua wrapper — b4-holistic-2: redirect typed
+    // (/sell/verification như submitListingAction) thay vì silent return, status GIỮ hidden
+    const blockedUrl = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
+    expect(blockedUrl).toBe("/sell/verification");
     expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
     const blocked = await db.orm.public.AuditEvent
       .where({ action: "listing.submit_blocked", resourceId: listingId })
@@ -568,12 +570,16 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     expect(blocked).toHaveLength(1);
     expect(String(blocked[0]!.reason)).toContain("founding_seller_membership_active");
 
-    // re-activate → toggle passes (membership là điều kiện — đọc FRESH từ DB)
+    // re-activate → toggle passes (membership là điều kiện — đọc FRESH từ DB).
+    // b4-holistic-2: row này CHƯA bao giờ được admin duyệt (seed trực tiếp,
+    // approvedContentAt NULL) → gate pass nhưng vào REVIEW (pending), KHÔNG
+    // thẳng approved — admin duyệt content một lần rồi mới công khai.
     await db.orm.public.BetaCohortMembership
       .where({ userId: sellerId, cohort: "founding_seller" })
       .updateAll({ status: "active" });
-    await toggleListingVisibilityAction(fd({ listingId }));
-    expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("approved");
+    const reshowUrl = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
+    expect(reshowUrl).toBe("/sell/my?submitted=1");
+    expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("pending");
   });
 
   // ─── 4. Active UserSuspension (Batch 3 — account_not_suspended) ───────────
@@ -624,8 +630,10 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     expect(submitBlocked).toHaveLength(1);
     expect(String(submitBlocked[0]!.reason)).toContain("account_not_suspended");
 
-    // toggle hidden→approved → silent block, status GIỮ hidden
-    await toggleListingVisibilityAction(fd({ listingId: hiddenId }));
+    // toggle hidden→approved → b4-holistic-2: block hiển thị qua redirect typed
+    // (/sell/verification — KHÔNG còn silent return), status GIỮ hidden
+    const toggleUrl = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: hiddenId })));
+    expect(toggleUrl).toBe("/sell/verification");
     expect((await db.orm.public.Listing.first({ id: hiddenId }))!.status).toBe("hidden");
     const toggleBlocked = await db.orm.public.AuditEvent
       .where({ action: "listing.submit_blocked", resourceId: hiddenId })

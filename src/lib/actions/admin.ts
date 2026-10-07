@@ -124,7 +124,12 @@ export async function approveListingAction(formData: FormData): Promise<void> {
   // membership (suspended) / đang bị đình chỉ → KHÔNG approve; content sai
   // (category/schema/model/ảnh) → KHÔNG approve. Input TỪ DB ROW (trust
   // boundary), đọc FRESH từ DB.
+  // b4-holistic-2 (LOW — legacy bounds): admin approve của row KHÔNG đổi
+  // content → HAI upper bound lưu-trữ (description ≤4000, ảnh ≤8) được
+  // grandfather — row legacy hợp lệ dưới luật cũ không kẹt approve_blocked
+  // mãi mãi. Đường formData KHÔNG bao giờ grandfather (xem listing-schema.ts).
   const input = await listingPublicationInputFromRow(listing, listing.sellerId);
+  input.grandfatherStoredBounds = true;
   const check = await checkListingPublication(input);
   if (!check.ok) {
     // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
@@ -159,12 +164,19 @@ export async function approveListingAction(formData: FormData): Promise<void> {
   // (Batch 4 holistic — LOW tx-concurrency: claim + AdminAuditLog +
   // AuditEvent sống chết cùng tx; audit fail → rollback → KHÔNG approve).
   // 0 rows → sentinel THROW ra khỏi callback, classify NGOÀI tx.
+  // b4-holistic-2 (LOW — review backfill): approvedContentAt ghi trong CÙNG
+  // tx với claim — review version của content (toggle hidden→show đọc cột
+  // này: SET ⇒ content hiện tại đã được duyệt; NULL ⇒ vào pending).
   let claimLost = false;
   try {
     await db.transaction(async (tx) => {
       const claimed = await tx.orm.public.Listing
         .where({ id: listingId, status: "pending", updatedAt: versionRaw })
-        .updateAll({ status: "approved", rejectionReason: null });
+        .updateAll({
+          status: "approved",
+          rejectionReason: null,
+          approvedContentAt: new Date().toISOString(),
+        });
       if (claimed.length === 0) throw new Error("LISTING_APPROVE_CLAIM_LOST");
       await auditTx(tx, admin.user.id, "approve_listing", "Listing", listingId, listing.title);
       await auditEventTx(tx, {

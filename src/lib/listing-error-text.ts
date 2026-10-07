@@ -30,8 +30,9 @@
  *    ?error=CONCURRENT_CHANGE (typed code); updateListingAction/
  *    saveListingDraftAction trả CÙNG text qua form error (b4-holistic —
  *    KHÔNG throw ra error boundary).
- *  - LISTING_HAS_ORDERS: deleteListingAction (có đơn + status ≠ approved)
- *    redirect /sell/my?error=LISTING_HAS_ORDERS (b4-holistic — KHÔNG throw);
+ *  - LISTING_HAS_ORDERS: deleteListingAction (có đơn HOẶC ExchangeOffer
+ *    trao đổi tham chiếu + status ≠ approved — b4-holistic-2) redirect
+ *    /sell/my?error=LISTING_HAS_ORDERS (b4-holistic — KHÔNG throw);
  *    banner /sell/my đọc qua submitErrorText (allowlist này).
  */
 export const SUBMIT_ERROR_TEXT: Record<string, string> = {

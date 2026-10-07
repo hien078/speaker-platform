@@ -49,6 +49,16 @@ export type ListingPublicationInput = ListingSubmissionInput & {
   listingId?: string;
   /** Category slug HIỆN TẠI của listing (từ DB row — KHÔNG formData). */
   currentCategorySlug?: string;
+  /**
+   * b4-holistic-2 (LOW — legacy bounds): bỏ qua HAI upper bound lưu-trữ
+   * (description ≤ DESCRIPTION_MAX, ảnh ≤ LISTING_MAX_IMAGES) — cho row legacy
+   * hợp lệ dưới luật cũ trên transition KHÔNG đổi content. CHỈ caller của
+   * listingPublicationInputFromRow trên toggle hidden→approved|pending và
+   * admin approve được set; đường formData (create/draft/submit/update)
+   * KHÔNG bao giờ — mọi edit buộc vào compliance. Xem listing-schema.ts
+   * ValidateListingSubmissionOptions.
+   */
+  grandfatherStoredBounds?: boolean;
 };
 
 export type ListingPublicationCheck = {
@@ -197,9 +207,13 @@ const collectListingContentIssues = async (
 
   // (2) schema theo regime của target slug; (3) model; (4) images — chỉ chạy
   //     khi category resolve được regime (category sai đã được thu ở trên).
+  //     b4-holistic-2: grandfatherStoredBounds (nếu caller set — chỉ toggle/
+  //     approve của row không đổi content) bỏ qua HAI upper bound lưu-trữ.
   if (regime !== null) {
     try {
-      validateListingSubmission(input, regime);
+      validateListingSubmission(input, regime, {
+        grandfatherStoredBounds: input.grandfatherStoredBounds === true,
+      });
     } catch (e) {
       if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
       issues.push(codeOf(e));

@@ -45,11 +45,13 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   trước verification, KHÔNG seller gate); listing.submitted — MỌI đường
  *   vào review (Batch 4 holistic): submit-ngay create (detail via=create),
  *   edit-resubmit update→pending (detail via=edit_resubmit), draft-submit
- *   submitListingAction — đều auditEventTx trong cùng tx với CAS claim,
- *   policyVersion = SELLER_RULES_POLICY_VERSION (§4.6); listing.submit_blocked —
- *   submit/toggle bị gate chặn (reason = typed code: SELLER_PUBLICATION_BLOCKED:…
- *   hoặc content code từ allowlist, KHÔNG free text — §4.8);
- *   beta_catalog.seeded — Task 7 seed script (actor null, offline script).
+ *   submitListingAction, hidden→pending review backfill của toggle hiện lại
+ *   (b4-holistic-2 — detail via=show_again) — đều auditEventTx trong cùng tx
+ *   với CAS claim, policyVersion = SELLER_RULES_POLICY_VERSION (§4.6);
+ *   listing.submit_blocked — submit/toggle bị gate chặn (reason = typed code:
+ *   SELLER_PUBLICATION_BLOCKED:… hoặc content code từ allowlist, KHÔNG free
+ *   text — §4.8); beta_catalog.seeded — Task 7 seed script (actor null,
+ *   offline script).
  *   (Batch 4 holistic review): listing.reject_blocked — rejectListingAction
  *   bị chặn (reason typed: listing_version_missing / listing_changed_during_
  *   review — KHÔNG free text); listing.approve_blocked thêm reason

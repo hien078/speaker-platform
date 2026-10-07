@@ -85,6 +85,7 @@ const dbState = vi.hoisted(() => ({
   adminAudits: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
   orderItems: [] as Array<Record<string, unknown>>,
+  exchangeOffers: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -289,6 +290,14 @@ vi.mock("@/src/prisma/db.client", () => {
       id: `oi-${dbState.orderItems.length + 1}`,
       quantity: 1,
       price: 0,
+    })),
+    // b4-holistic-2 (LOW — ExchangeOffer FK): deleteListingAction pre-check
+    // myListingId — mock cùng shape các model khác.
+    ExchangeOffer: makeModel(dbState.exchangeOffers, () => ({
+      id: `eo-${dbState.exchangeOffers.length + 1}`,
+      status: "proposed",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })),
   };
   const orm = { public: models };
@@ -791,25 +800,28 @@ describe("updateListingAction — gate trước transition vào pending (spec §
 // ─── 3. toggleListingVisibilityAction ────────────────────────────────────────
 
 describe("toggleListingVisibilityAction — gate hidden → approved (spec §4.4)", () => {
-  it("hidden → approved BỊ CHẶN cho seller membership SUSPENDED (silent return, status unchanged)", async () => {
+  it("hidden → approved BỊ CHẶN cho seller membership SUSPENDED → redirect /sell/verification (b4-holistic-2: KHÔNG còn silent), status unchanged", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id, { membershipStatus: "suspended" });
     const listing = seedListing(seller.id, "hidden");
     login(seller);
 
-    // silent return — KHÔNG throw, KHÔNG transition
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    // b4-holistic-2 (LOW form-action-contract): block PHẢI hiển thị — seller
+    // thấy lý do (redirect /sell/verification như submitListingAction), KHÔNG
+    // còn silent return "tin không hiện lại mà không biết vì sao".
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
+    expect(url).toBe("/sell/verification");
     expect(listing.status).toBe("hidden");
   });
 
-  it("hidden → approved pass khi seller đủ policy", async () => {
+  it("hidden → approved pass khi seller đủ policy (approvedContentAt ĐÃ SET — content đã được admin duyệt)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     seedUpload(seller.id); // input từ DB row — ảnh gắn phải owned
-    const listing = seedListing(seller.id, "hidden");
+    const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
     login(seller);
 
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
@@ -954,7 +966,7 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     expect(listing.title).toBe("Loa JBL Charge 5 chính hãng"); // KHÔNG ghi đè nội dung
   });
 
-  it("toggleListingVisibilityAction: hidden → approved BỊ CHẶN cho suspended seller (silent return, status unchanged)", async () => {
+  it("toggleListingVisibilityAction: hidden → approved BỊ CHẶN cho suspended seller → redirect /sell/verification + audit listing.submit_blocked (b4-holistic-2: KHÔNG silent)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -962,10 +974,13 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     const listing = seedListing(seller.id, "hidden");
     login(seller);
 
-    // silent return — KHÔNG throw, KHÔNG transition (form void không error surface)
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
+    expect(url).toBe("/sell/verification");
     expect(listing.status).toBe("hidden");
+    const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
+    expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id });
+    expect(String(evt!.reason)).toContain("account_not_suspended");
   });
 
   it("approveListingAction (admin): duyệt tin của suspended seller → KHÔNG approve + audit 'listing.approve_blocked' (defense-in-depth)", async () => {
@@ -1292,12 +1307,12 @@ describe("per-path gate pins — create/submit/update-into-pending/toggle gọi 
     expect(listing.status).toBe("pending");
   });
 
-  it("toggleListingVisibilityAction hidden→approved → assertListingPublishable ĐÚNG 1 lần", async () => {
+  it("toggleListingVisibilityAction hidden→approved → assertListingPublishable ĐÚNG 1 lần (approvedContentAt SET — fast path)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     seedUpload(seller.id);
-    const listing = seedListing(seller.id, "hidden");
+    const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
     login(seller);
 
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
@@ -1420,7 +1435,7 @@ describe("item 14 — suspended seller bị chặn trên submitListingAction (đ
     expect(String(evt!.reason)).toContain("account_not_suspended");
   });
 
-  it("toggleListingVisibilityAction: hidden → approved blocked cho suspended seller → silent return + audit listing.submit_blocked", async () => {
+  it("toggleListingVisibilityAction: hidden → approved blocked cho suspended seller → redirect /sell/verification + audit listing.submit_blocked (b4-holistic-2: KHÔNG silent)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -1429,8 +1444,9 @@ describe("item 14 — suspended seller bị chặn trên submitListingAction (đ
     const listing = seedListing(seller.id, "hidden");
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
+    expect(url).toBe("/sell/verification");
     expect(listing.status).toBe("hidden");
     const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
     expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id });
@@ -1854,5 +1870,229 @@ describe("create/update — province lạ/thiếu → typed PROVINCE_INVALID/PRO
     expect(state.error).toContain("PROVINCE_INVALID");
     expect(listing.status).toBe("approved"); // KHÔNG transition
     expect(listing.provinceLevelCode).toBe("ha-noi"); // KHÔNG write
+  });
+});
+
+// ─── 13. b4-holistic-2 — hidden→show review backfill (approvedContentAt) ──────
+
+/**
+ * CONFIRMED LOW "Hidden listings edited before Batch 4 can be republished by
+ * the seller with content no admin reviewed": Batch ≤3 cho phép edit listing
+ * hidden (content-change KHÔNG vào review) và deleteListingAction cũ hide cả
+ * pending/rejected/draft có đơn — những row đó nằm hidden với content CHƯA
+ * BAO GIỜ được admin duyệt. toggleListingVisibilityAction hidden→approved chỉ
+ * chạy gate tự động → content đó lên công khai không qua review.
+ *
+ * Fix (recorded decision — fail-closed cho visibility): cột Listing.approvedContentAt
+ * (additive migration) ghi trong tx của approveListingAction. Hiện lại:
+ *  - approvedContentAt SET (content hiện tại đã được admin duyệt — Batch 4
+ *    mọi content-change trên hidden đều chuyển pending) → CAS hidden→approved
+ *    như trước (fast path).
+ *  - approvedContentAt NULL (legacy row pre-Batch-4 / chưa bao giờ approved) →
+ *    CAS hidden→PENDING + audit listing.submitted (policyVersion) trong cùng
+ *    tx — admin duyệt lại một lần rồi mới công khai.
+ */
+describe("toggleListingVisibilityAction — hidden→show review backfill (b4-holistic-2 LOW)", () => {
+  it("hidden + approvedContentAt NULL (legacy row pre-Batch-4) → PENDING (KHÔNG approved) + audit listing.submitted policyVersion + redirect ?submitted=1", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    // seed trực tiếp (KHÔNG qua approveListingAction) — mô phỏng row Batch ≤3
+    const listing = seedListing(seller.id, "hidden"); // approvedContentAt: undefined
+    login(seller);
+
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
+
+    expect(url).toBe("/sell/my?submitted=1"); // seller thấy "đã gửi duyệt" — KHÔNG im lặng
+    expect(listing.status).toBe("pending"); // vào review — KHÔNG thẳng approved
+    const evt = dbState.audits.find((r) => r.action === "listing.submitted");
+    expect(evt).toMatchObject({
+      actorId: seller.id,
+      subjectId: seller.id,
+      resourceType: "Listing",
+      resourceId: listing.id,
+    });
+    expect(evt!.policyVersion).toBeTruthy(); // §4.6 — cùng event mọi đường vào review
+    expect(String(evt!.detail)).toContain("via=show_again"); // typed value — KHÔNG free text
+  });
+
+  it("hidden + approvedContentAt SET → approved (fast path — content đã được duyệt, hide/show không đụng cột)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
+    login(seller);
+
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("approved");
+    expect(dbState.audits.filter((r) => r.action === "listing.submitted")).toHaveLength(0);
+  });
+
+  it("approveListingAction ghi approvedContentAt trong tx (review version của content)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+
+    await approveListingAction(approveFd(listing));
+
+    expect(listing.status).toBe("approved");
+    expect(typeof listing.approvedContentAt).toBe("string"); // SET trong cùng tx với CAS
+    expect(listing.approvedContentAt).toBeTruthy();
+  });
+
+  it("vòng đời đầy đủ: approve (approvedContentAt) → hide → show lại approved → hide → show lại approved (KHÔNG vào review lặp)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+    await approveListingAction(approveFd(listing));
+    expect(listing.status).toBe("approved");
+
+    login(seller);
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("hidden");
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("approved"); // fast path — approvedContentAt còn nguyên
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("hidden");
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("approved");
+    // KHÔNG audit submit nào — không có content-change, không vào review
+    expect(dbState.audits.filter((r) => r.action === "listing.submitted")).toHaveLength(0);
+  });
+});
+
+// ─── 14. b4-holistic-2 — grandfather stored bounds trên transition không đổi content ──
+
+/**
+ * CONFIRMED LOW "Batch 4 gate now blocks older legacy listings that the old
+ * rules allowed (more than 8 images or a description over 4000 chars)":
+ * pre-Batch-4 update KHÔNG cap ảnh / KHÔNG upper bound description → row
+ * legacy hợp lệ dưới luật cũ có thể 9 ảnh / 4.001 ký tự. Batch 4 schema chặn
+ * → toggle hidden→approved silent-block (KHÔNG bao giờ hiện lại), admin
+ * approve cũng approve_blocked mãi mãi.
+ *
+ * Fix (recorded decision — grandfathering cho legacy data hợp lệ dưới luật cũ):
+ * `grandfatherStoredBounds` — CHỈ set khi input từ DB ROW trên transition
+ * KHÔNG đổi content (toggle hidden→approved|pending, admin approve). Bỏ qua
+ * ĐÚNG hai upper bound (DESCRIPTION_MAX, LISTING_MAX_IMAGES); mọi lower bound
+ * + requiredness + check khác giữ nguyên. Đường formData (create/draft/submit/
+ * update) KHÔNG bao giờ grandfather — edit nào cũng buộc vào compliance.
+ */
+describe("grandfatherStoredBounds — toggle/approve của legacy row không đổi content (b4-holistic-2 LOW)", () => {
+  /** Listing legacy (category loa-bluetooth) với N ảnh + description dài — hợp lệ dưới luật cũ. */
+  const seedLegacyOverBounds = (sellerId: string, status: string, imageCount: number, descLength: number) => {
+    const listing = seedListing(sellerId, status, {
+      categoryId: CAT_LEGACY.id,
+      brandId: null,
+      productModelId: null,
+      inventoryContext: null,
+      fulfillmentMethods: null,
+      provinceLevelCode: null,
+      locationDisplayName: null,
+      description: "L".repeat(descLength),
+      approvedContentAt: "2026-09-01T00:00:00.000Z",
+    });
+    // seedListing đã gắn 1 ảnh — thay bằng đúng imageCount ảnh (không slot)
+    dbState.images.length = 0;
+    for (let i = 0; i < imageCount; i++) {
+      seedImage(listing.id, `/uploads/legacy-${i}.jpg`, null, i);
+    }
+    return listing;
+  };
+
+  it("hidden legacy 9 ảnh + description 4.001 ký tự + approvedContentAt SET → hiện lại APPROVED (bounds grandfathered)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedLegacyOverBounds(seller.id, "hidden", 9, 4_001);
+    login(seller);
+
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("approved"); // KHÔNG silent-block — luật cũ cho phép row này
+  });
+
+  it("hidden legacy 9 ảnh + approvedContentAt NULL → vào PENDING (grandfather cho qua gate, review backfill quyết định)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedLegacyOverBounds(seller.id, "hidden", 9, 100);
+    (listing as Row).approvedContentAt = null;
+    login(seller);
+
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
+
+    expect(url).toBe("/sell/my?submitted=1");
+    expect(listing.status).toBe("pending"); // gate PASS nhờ grandfather — KHÔNG IMAGE_TOO_MANY
+  });
+
+  it("admin approve legacy PENDING row 4.001 ký tự + 9 ảnh → APPROVED (grandfather tại approve — row không kẹt mãi mãi)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedLegacyOverBounds(seller.id, "pending", 9, 4_001);
+    login(ADMIN_OPS, { isAdmin: true });
+
+    await approveListingAction(approveFd(listing));
+
+    expect(listing.status).toBe("approved");
+    expect(listing.approvedContentAt).toBeTruthy();
+    // KHÔNG approve_blocked — bounds không còn chặn duyệt legacy
+    expect(dbState.audits.filter((r) => r.action === "listing.approve_blocked")).toHaveLength(0);
+  });
+
+  it("grandfather KHÔNG áp cho đường formData — edit legacy 9 ảnh qua updateListingAction vẫn IMAGE_TOO_MANY (edit buộc compliance)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedLegacyOverBounds(seller.id, "approved", 9, 100);
+    login(seller);
+
+    const state = await updateListingAction(
+      {},
+      listingForm({
+        listingId: listing.id,
+        categoryId: CAT_LEGACY.id,
+        brandId: "",
+        productModelId: "",
+        inventoryContext: "",
+        fulfillmentMethods: [],
+        provinceLevelCode: "",
+        locationDisplayName: "",
+        images: Array.from({ length: 9 }, (_, i) => `/uploads/legacy-${i}.jpg`),
+        imageSlots: [],
+        description: "L".repeat(100),
+      }),
+    );
+
+    expect(String(state.error)).toContain("IMAGE_TOO_MANY");
+    expect(listing.status).toBe("approved"); // KHÔNG transition — edit phải vào compliance trước
+  });
+
+  it("block vì lý do KHÁC bounds (model không còn approved) → redirect /sell/my?error=<typed code> (KHÔNG silent)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
+    // model bị downgrade pending (merge/withdraw) — canonical check fail
+    (dbState.models[0] as Row).status = "pending";
+    login(seller);
+
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
+
+    expect(url).toBe("/sell/my?error=MODEL_INVALID"); // typed code trong allowlist banner
+    expect(listing.status).toBe("hidden");
+    const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
+    expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id, reason: "MODEL_INVALID" });
   });
 });

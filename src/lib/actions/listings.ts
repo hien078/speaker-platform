@@ -672,7 +672,19 @@ export async function saveListingDraftAction(
   return { ok: true };
 }
 
-/** Ẩn / hiện lại tin */
+/**
+ * Ẩn / hiện lại tin.
+ *
+ * b4-holistic-2: hiện lại hidden KHÔNG còn luôn → approved:
+ *  - approvedContentAt SET (content đã được admin duyệt) → gate (với
+ *    grandfatherStoredBounds — upper bound legacy không chặn transition không
+ *    đổi content) → CAS hidden→approved như trước;
+ *  - approvedContentAt NULL (row pre-Batch-4 edit-while-hidden / hidden từ
+ *    pending-rejected-draft) → CAS hidden→PENDING + audit listing.submitted —
+ *    admin duyệt lại một lần (fail-closed cho visibility);
+ *  - gate block → redirect typed code (?error= / /sell/verification) — KHÔNG
+ *    còn silent return.
+ */
 export async function toggleListingVisibilityAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const listingId = String(formData.get("listingId") ?? "");
@@ -705,6 +717,12 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
     // seller gate + category + schema + model + images) với input TỪ DB ROW
     // (trust boundary — KHÔNG tin formData cho trường gate).
     const input = await listingPublicationInputFromRow(listing, user.id);
+    // b4-holistic-2 (LOW — legacy bounds): transition KHÔNG đổi content với
+    // input TỪ DB ROW → HAI upper bound lưu-trữ (description ≤ DESCRIPTION_MAX,
+    // ảnh ≤ LISTING_MAX_IMAGES) được grandfather — row legacy hợp lệ dưới luật
+    // cũ (pre-Batch-4 update KHÔNG cap) không bị chặn im lặng mãi mãi. Đường
+    // formData (create/draft/submit/update) KHÔNG bao giờ grandfather.
+    input.grandfatherStoredBounds = true;
     let blocked: string | null = null;
     try {
       await assertListingPublishable(input);
@@ -728,7 +746,49 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
         /* fail-open: audit lỗi không mở đường hiện lại */
       }
     }
-    if (blocked !== null) return; // silent return — seller thấy tin không hiện lại
+    // b4-holistic-2 (LOW form-action-contract): block PHẢI hiển thị — trước
+    // fix silent return, seller không biết vì sao tin không hiện lại (vd legacy
+    // 9 ảnh bị IMAGE_TOO_MANY chặn im lặng). Redirect typed code trong allowlist
+    // banner /sell/my (giống submitListingAction) — NGOÀI catch (Global
+    // Constraints — redirect() KHÔNG BAO GIỜ trong catch).
+    if (blocked !== null) {
+      if (blocked.startsWith("SELLER_PUBLICATION_BLOCKED")) {
+        redirect("/sell/verification");
+      }
+      redirect(`/sell/my?error=${encodeURIComponent(submitErrorParam(blocked))}`);
+    }
+    // b4-holistic-2 (LOW — review backfill): approvedContentAt NULL = content
+    // hiện tại CHƯA BAO GIỜ được admin duyệt — row pre-Batch-4 edit-while-hidden
+    // (base update KHÔNG gửi hidden vào review) hoặc hidden từ pending/rejected/
+    // draft qua deleteListingAction cũ. Hiện lại → PENDING (admin duyệt lại một
+    // lần), KHÔNG thẳng approved. approvedContentAt SET ⇒ Batch 4 đảm bảo mọi
+    // content-change trên hidden đều chuyển pending ⇒ content hiện tại chính
+    // là content đã duyệt → fast path approved như trước.
+    if (listing.approvedContentAt == null) {
+      // CAS hidden→pending + audit listing.submitted trong MỘT tx (mọi path
+      // vào review ghi cùng một event §4.6 — auditEventTx sống chết với claim).
+      // 0 rows → THROW ra khỏi callback (row đổi tay giữa read và write).
+      await db.transaction(async (tx) => {
+        const claimed = await tx.orm.public.Listing
+          .where({ id: listingId, status: "hidden" })
+          .updateAll({ status: "pending" });
+        if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+        await auditEventTx(tx, {
+          actorId: user.id,
+          subjectId: user.id,
+          action: "listing.submitted",
+          resourceType: "Listing",
+          resourceId: listingId,
+          policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+          detail: "via=show_again", // typed value — KHÔNG free text (spec §4.8)
+        });
+      });
+      revalidatePath("/sell/my");
+      revalidatePath("/admin/listings");
+      // Seller thấy "Đã gửi duyệt" — KHÔNG im lặng (trạng thái badge đổi sang
+      // Chờ duyệt; banner ?submitted=1 cùng text submitListingAction).
+      redirect("/sell/my?submitted=1");
+    }
     // CAS như trên — 0 rows → typed error (row đổi tay giữa read và write).
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "hidden" })
@@ -1117,7 +1177,11 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   redirect("/sell/my?submitted=1");
 }
 
-/** Xóa tin (chỉ khi chưa bán / không có đơn) */
+/**
+ * Xóa tin (chỉ khi chưa bán / không có đơn HOẶC offer trao đổi tham chiếu).
+ * b4-holistic-2: pre-check cả ExchangeOffer.myListingId (FK NO ACTION) — có
+ * tham chiếu → approved chỉ ẩn, status khác redirect LISTING_HAS_ORDERS.
+ */
 export async function deleteListingAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const listingId = String(formData.get("listingId") ?? "");
@@ -1136,20 +1200,31 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
   }
   if (listing.status === "sold") return;
 
-  const orderItems = await db.orm.public.OrderItem.where({ listingId }).all();
-  if (orderItems.length > 0) {
+  // b4-holistic-2 (LOW — ExchangeOffer FK): pre-check CẢ HAI nguồn tham chiếu
+  // giữ listing sống — OrderItem (đơn hàng) VÀ ExchangeOffer.myListingId
+  // (offer trao đổi cũ từ thời finance còn bật — FK NO ACTION mặc định, offer
+  // MỚI bị assertFinancialFeaturesEnabled chặn nên chỉ dữ liệu TỒN TẠI). Thiếu
+  // check offer: deleteAll Listing đâm FK 23503 → action crash 500 (raw DB
+  // error ra error boundary) thay vì typed code.
+  const [orderItems, exchangeOffer] = await Promise.all([
+    db.orm.public.OrderItem.where({ listingId }).all(),
+    db.orm.public.ExchangeOffer.where({ myListingId: listingId }).first(),
+  ]);
+  if (orderItems.length > 0 || exchangeOffer !== null) {
     // MEDIUM 2 (review fix — review bypass via hidden): đường ẩn chỉ áp dụng
     // cho approved. Trước đây hide BẤT KỲ status nào khi có đơn — pending/
     // rejected/draft bị hide xong seller toggle hidden→approved (chỉ qua
     // seller gate, KHÔNG qua admin review) → review bypass. Status khác +
-    // có đơn → typed error, status GIỮ NGUYÊN.
+    // có tham chiếu (đơn HOẶC offer) → typed error, status GIỮ NGUYÊN.
     if (listing.status !== "approved") {
       // b4-holistic (LOW form-action-contract): void form action KHÔNG throw
       // expected condition ra error boundary — redirect typed code trong
-      // allowlist banner của /sell/my (fixed code, KHÔNG free text).
+      // allowlist banner của /sell/my (fixed code, KHÔNG free text). Cùng
+      // code cho OrderItem VÀ ExchangeOffer (recorded decision — "có bản ghi
+      // nghiệp vụ liên quan, không thể xóa").
       redirect("/sell/my?error=LISTING_HAS_ORDERS");
     }
-    // đã nằm trong đơn — chỉ cho ẩn (approved → hidden). CAS theo approved
+    // đã nằm trong đơn/offer — chỉ cho ẩn (approved → hidden). CAS theo approved
     // (SHOULD-FIX 3): 0 rows = row đổi tay giữa read và write → typed error,
     // KHÔNG clobber.
     const claimed = await db.orm.public.Listing

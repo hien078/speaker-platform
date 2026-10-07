@@ -750,3 +750,155 @@ describe("LOW 3 — lỗi infra (db/network) được NÉM TIẾP, KHÔNG masque
     expect(check.listingIssues.every((c) => !c.includes("SELECT"))).toBe(true);
   });
 });
+
+// ─── 8. b4-holistic-2 — grandfatherStoredBounds (legacy bounds trên transition không đổi content) ──
+
+/**
+ * CONFIRMED LOW "Batch 4 gate now blocks older legacy listings that the old
+ * rules allowed (more than 8 images or a description over 4000 chars)":
+ * pre-Batch-4 update KHÔNG cap ảnh / KHÔNG upper bound description → row
+ * legacy hợp lệ dưới luật cũ có thể 9 ảnh / 4.001 ký tự. Batch 4 schema chặn
+ * → toggle hidden→approved silent-block, admin approve approve_blocked mãi.
+ *
+ * Hợp đồng grandfather (recorded decision): `grandfatherStoredBounds` trên
+ * ListingPublicationInput — CHỈ caller của listingPublicationInputFromRow
+ * trên transition KHÔNG đổi content (toggle hidden→approved|pending, admin
+ * approve) được set. Bỏ qua ĐÚNG HAI upper bound (DESCRIPTION_MAX,
+ * LISTING_MAX_IMAGES); MỌI lower bound (description ≥20, ≥1 ảnh) + mọi check
+ * khác giữ nguyên. Đường formData KHÔNG bao giờ grandfather.
+ */
+describe("grandfatherStoredBounds — upper bound legacy được bỏ qua, lower bound giữ nguyên (b4-holistic-2 LOW)", () => {
+  /** Ảnh ĐÃ GẮN vào listing (rule 2 — ownership pass không cần upload row). */
+  const seedAttachedImages = (urls: string[]): void => {
+    dbState.listings.push({ id: "listing-1", sellerId: SELLER });
+    urls.forEach((url, i) =>
+      dbState.images.push({
+        id: `img-gf-${i}`,
+        listingId: "listing-1",
+        url,
+        sortOrder: i,
+        checklistSlot: null,
+      }),
+    );
+  };
+  const legacyUrls = (n: number): string[] =>
+    Array.from({ length: n }, (_, i) => `/uploads/legacy-${i}.jpg`);
+
+  const legacyInput = (over?: Partial<ListingPublicationInput>): ListingPublicationInput =>
+    publicationInput({
+      categoryId: CAT_LEGACY.id,
+      currentCategorySlug: CAT_LEGACY.slug,
+      brandId: null,
+      productModelId: null,
+      inventoryContext: null,
+      fulfillmentMethods: null,
+      provinceLevelCode: null,
+      locationDisplayName: null,
+      ...over,
+    });
+
+  it("legacy 9 ảnh + description 4.001 ký tự, KHÔNG flag → DESCRIPTION_INVALID (upper bound chặn như trước)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      legacyInput({ description: "L".repeat(4_001) }),
+      "LISTING_VALIDATION_FAILED:DESCRIPTION_INVALID",
+    );
+  });
+
+  it("legacy 9 ảnh (description hợp lệ), KHÔNG flag → IMAGE_TOO_MANY", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      legacyInput({ imageUrls: Array.from({ length: 9 }, (_, i) => `/uploads/legacy-${i}.jpg`) }),
+      "LISTING_VALIDATION_FAILED:IMAGE_TOO_MANY",
+    );
+  });
+
+  it("legacy 9 ảnh + description 4.001 ký tự, CÓ flag → PASS (bounds grandfathered — row hợp lệ dưới luật cũ)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    const urls = legacyUrls(9);
+    seedAttachedImages(urls);
+    await expect(
+      assertListingPublishable(
+        legacyInput({
+          description: "L".repeat(4_001),
+          imageUrls: urls,
+          imageSlots: urls.map(() => null), // 9 slot null — khớp 9 ảnh (legacy không slot)
+          grandfatherStoredBounds: true,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("flag KHÔNG bỏ lower bound: 0 ảnh → IMAGE_REQUIRED kể cả khi grandfather", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      legacyInput({ imageUrls: [], grandfatherStoredBounds: true }),
+      "LISTING_VALIDATION_FAILED:IMAGE_REQUIRED",
+    );
+  });
+
+  it("flag KHÔNG bỏ lower bound: description 19 ký tự → DESCRIPTION_INVALID kể cả khi grandfather", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      legacyInput({ description: "L".repeat(19), grandfatherStoredBounds: true }),
+      "LISTING_VALIDATION_FAILED:DESCRIPTION_INVALID",
+    );
+  });
+
+  it("flag KHÔNG bỏ check khác: ảnh duplicate vẫn IMAGE_DUPLICATE với grandfather", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      legacyInput({ imageUrls: [IMG_URL, IMG_URL], grandfatherStoredBounds: true }),
+      "LISTING_VALIDATION_FAILED:IMAGE_DUPLICATE",
+    );
+  });
+
+  it("beta regime CŨNG grandfather upper bound (flag là của transition, không phải của regime)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    const urls = legacyUrls(9);
+    seedAttachedImages(urls);
+    await expect(
+      assertListingPublishable(
+        publicationInput({
+          description: "L".repeat(4_001),
+          imageUrls: urls,
+          imageSlots: urls.map(() => null), // 9 slot null — khớp 9 ảnh
+          grandfatherStoredBounds: true,
+        }),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it("beta regime với flag VẪN giữ requiredness (BRAND_REQUIRED) — grandfather chỉ là upper bound", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    await expectPublishError(
+      publicationInput({ brandId: null, productModelId: null, grandfatherStoredBounds: true }),
+      "LISTING_VALIDATION_FAILED:BRAND_REQUIRED",
+    );
+  });
+
+  it("checkListingPublication (admin approve) thu issues=… KHÔNG còn chứa bound codes khi flag SET", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    const urls = legacyUrls(9);
+    seedAttachedImages(urls);
+    const check = await checkListingPublication(
+      legacyInput({
+        description: "L".repeat(4_001),
+        imageUrls: urls,
+        imageSlots: urls.map(() => null), // 9 slot null — khớp 9 ảnh
+        grandfatherStoredBounds: true,
+      }),
+    );
+    expect(check.ok).toBe(true);
+    expect(check.listingIssues).toEqual([]);
+  });
+});

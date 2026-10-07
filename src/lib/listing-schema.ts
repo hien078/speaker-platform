@@ -222,16 +222,20 @@ const checkImageDuplicates = (v: ListingBase, ctx: RefineCtx): void => {
   }
 };
 
-/** Rule CHUNG: ≤ 8 ảnh (rule hiện có của create). */
-const checkImageCount = (v: ListingBase, ctx: RefineCtx): void => {
-  if (v.imageUrls.length > LISTING_MAX_IMAGES) {
+/** Rule CHUNG: ≤ 8 ảnh (rule hiện có của create) — b4-holistic-2: upper bound
+ *  này được grandfather (bỏ qua) trên transition không đổi content của row
+ *  legacy hợp lệ dưới luật cũ (grandfatherStoredBounds). */
+const checkImageCount = (v: ListingBase, ctx: RefineCtx, grandfatherUpper = false): void => {
+  if (!grandfatherUpper && v.imageUrls.length > LISTING_MAX_IMAGES) {
     issue(ctx, "imageUrls", "IMAGE_TOO_MANY");
   }
 };
 
-/** Rule beta/draft: description ≥20 (≤ DESCRIPTION_MAX — bound chống unbounded rows). */
-const checkDescription = (v: ListingBase, ctx: RefineCtx): void => {
-  if (v.description.length < 20 || v.description.length > DESCRIPTION_MAX) {
+/** Rule beta/draft: description ≥20 (≤ DESCRIPTION_MAX — bound chống unbounded rows).
+ *  b4-holistic-2: upper bound được grandfather (bỏ qua) khi
+ *  grandfatherStoredBounds — LOWER bound (≥20) KHÔNG bao giờ bỏ. */
+const checkDescription = (v: ListingBase, ctx: RefineCtx, grandfatherUpper = false): void => {
+  if (v.description.length < 20 || (!grandfatherUpper && v.description.length > DESCRIPTION_MAX)) {
     issue(ctx, "description", "DESCRIPTION_INVALID");
   }
 };
@@ -385,15 +389,32 @@ const checkStructuredWhenPresent = (v: ListingBase, ctx: RefineCtx): void => {
 // ─── Ba regime schema ─────────────────────────────────────────────────────────
 
 /**
+ * b4-holistic-2 (CONFIRMED LOW — legacy bounds): option của regime schema.
+ * `grandfatherStoredBounds: true` bỏ qua ĐÚNG HAI upper bound lưu-trữ
+ * (description ≤ DESCRIPTION_MAX, ảnh ≤ LISTING_MAX_IMAGES) — cho row legacy
+ * HỢP LỆ DƯỚI LUẬT CŨ (pre-Batch-4 update KHÔNG cap ảnh/KHÔNG upper bound
+ * description) trên transition KHÔNG đổi content (toggle hidden→approved|
+ * pending, admin approve — input từ DB row). MỌI lower bound (description ≥20,
+ * ≥1 ảnh) + requiredness + mọi check khác GIỮ NGUYÊN. Đường formData
+ * (create/draft/submit/update) KHÔNG bao giờ set — edit nào cũng buộc seller
+ * vào compliance (spec §8/§8.3 legacy giữ nguyên hành vi, KHÔNG kẹt mãi mãi).
+ */
+export type ValidateListingSubmissionOptions = {
+  grandfatherStoredBounds?: boolean;
+};
+
+/**
  * Regime "beta" — requiredness đầy đủ (spec §6.3). Thứ tự check cố định:
  * title → description → price → category → condition → brand → model →
  * brand/model bound (L4) → inventoryContext → free-text → fulfillment →
  * province → location → images.
  */
-export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
+const buildBetaListingSubmissionSchema = (
+  opts: ValidateListingSubmissionOptions = {},
+): z.ZodType<ListingSubmissionInput> =>
   listingBaseObject.superRefine((v, ctx) => {
     checkTitle(v, ctx);
-    checkDescription(v, ctx);
+    checkDescription(v, ctx, opts.grandfatherStoredBounds === true);
     checkPrice(v, ctx);
     checkCategory(v, ctx);
     checkCondition(v, ctx);
@@ -406,10 +427,14 @@ export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
     checkProvince(v, ctx);
     checkLocationDisplay(v, ctx);
     if (v.imageUrls.length === 0) issue(ctx, "imageUrls", "IMAGE_REQUIRED");
-    checkImageCount(v, ctx);
+    checkImageCount(v, ctx, opts.grandfatherStoredBounds === true);
     checkImageDuplicates(v, ctx);
     checkSlots(v, ctx);
   });
+
+/** Schema beta mặc định (KHÔNG grandfather) — pin bởi listing-schema.test.ts. */
+export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
+  buildBetaListingSubmissionSchema();
 
 /**
  * Regime "legacy" — CHỈ rule đang chạy trong createListingAction/
@@ -427,22 +452,29 @@ export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
  *
  * L4 (review fix 2): description ≤ DESCRIPTION_MAX (CÙNG bound draft/beta —
  * checkDescription) + brandId/productModelId ≤ FOREIGN_ID_MAX khi có — upper
- * bounds KHÔNG thêm requiredness gì mới.
+ * bounds KHÔNG thêm requiredness gì mới. b4-holistic-2: hai upper bound này
+ * grandfather được (ValidateListingSubmissionOptions).
  */
-export const legacyListingEditSchema: z.ZodType<ListingSubmissionInput> =
+const buildLegacyListingEditSchema = (
+  opts: ValidateListingSubmissionOptions = {},
+): z.ZodType<ListingSubmissionInput> =>
   listingBaseObject.superRefine((v, ctx) => {
     checkTitle(v, ctx);
     // L4: ≥20 (rule hiện có) + ≤ DESCRIPTION_MAX — cùng checkDescription
     // draft/beta dùng, cùng code DESCRIPTION_INVALID.
-    checkDescription(v, ctx);
+    checkDescription(v, ctx, opts.grandfatherStoredBounds === true);
     checkPrice(v, ctx);
     checkCategory(v, ctx);
     checkStructuredWhenPresent(v, ctx);
     if (v.imageUrls.length === 0) issue(ctx, "imageUrls", "IMAGE_REQUIRED");
-    checkImageCount(v, ctx);
+    checkImageCount(v, ctx, opts.grandfatherStoredBounds === true);
     checkImageDuplicates(v, ctx);
     checkSlots(v, ctx);
   });
+
+/** Schema legacy mặc định (KHÔNG grandfather) — pin bởi listing-schema.test.ts. */
+export const legacyListingEditSchema: z.ZodType<ListingSubmissionInput> =
+  buildLegacyListingEditSchema();
 
 /**
  * Draft (spec §4.4/§5.6.2 — draft được phép TRƯỚC verification): base
@@ -474,12 +506,20 @@ export const draftListingSchema: z.ZodType<ListingSubmissionInput> =
  * Validate submission theo regime — throw Error("LISTING_VALIDATION_FAILED:<code>")
  * với code ĐẦU TIÊN sai (thứ tự deterministic của schema). Fail closed: mọi
  * input không hợp lệ bị chặn trước khi action write bất kỳ row nào.
+ *
+ * b4-holistic-2: opts.grandfatherStoredBounds — CHỈ cho transition KHÔNG đổi
+ * content với input TỪ DB ROW (toggle hidden→approved|pending, admin approve);
+ * đường formData KHÔNG bao giờ truyền (xem ValidateListingSubmissionOptions).
  */
 export function validateListingSubmission(
   input: ListingSubmissionInput,
   regime: ListingRegime,
+  opts: ValidateListingSubmissionOptions = {},
 ): void {
-  const schema = regime === "beta" ? betaListingSubmissionSchema : legacyListingEditSchema;
+  const schema =
+    regime === "beta"
+      ? buildBetaListingSubmissionSchema(opts)
+      : buildLegacyListingEditSchema(opts);
   const result = schema.safeParse(input);
   if (!result.success) {
     const first = result.error.issues[0]?.message ?? "SCHEMA_INVALID";

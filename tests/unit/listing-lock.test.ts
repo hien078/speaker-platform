@@ -88,6 +88,7 @@ const dbState = vi.hoisted(() => ({
   images: [] as Array<Record<string, unknown>>,
   cartItems: [] as Array<Record<string, unknown>>,
   orderItems: [] as Array<Record<string, unknown>>,
+  exchangeOffers: [] as Array<Record<string, unknown>>,
   categories: [] as Array<Record<string, unknown>>,
   verifications: [] as Array<Record<string, unknown>>,
   acceptances: [] as Array<Record<string, unknown>>,
@@ -255,6 +256,14 @@ vi.mock("@/src/prisma/db.client", () => {
     OrderItem: makeModel(dbState.orderItems, () => ({
       id: `oi-${dbState.orderItems.length + 1}`,
       quantity: 1,
+    })),
+    // b4-holistic-2 (LOW — ExchangeOffer FK): deleteListingAction pre-check
+    // myListingId — mock cùng shape các model khác (first/all theo filter).
+    ExchangeOffer: makeModel(dbState.exchangeOffers, () => ({
+      id: `eo-${dbState.exchangeOffers.length + 1}`,
+      status: "proposed",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })),
     Category: makeModel(dbState.categories, () => ({
       id: `cat-${dbState.categories.length + 1}`,
@@ -523,6 +532,7 @@ beforeEach(() => {
   dbState.images.length = 0;
   dbState.cartItems.length = 0;
   dbState.orderItems.length = 0;
+  dbState.exchangeOffers.length = 0;
   dbState.categories.length = 0;
   dbState.verifications.length = 0;
   dbState.acceptances.length = 0;
@@ -807,13 +817,16 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
     expect(listingRow(listing.id)).toMatchObject({ status: "pending", title: "Loa JBL ĐỔI TIÊU ĐỀ" });
   });
 
-  it("toggle approved → hidden → approved (gate pass) — luồng ẩn/hiện nguyên vẹn", async () => {
+  it("toggle approved → hidden → approved (gate pass, approvedContentAt SET — b4-holistic-2) — luồng ẩn/hiện nguyên vẹn", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
     // (Batch 4 Task 4 fixture) ảnh ĐÃ GẮN — hidden→approved build input TỪ DB
     // ROW (imageUrls từ ListingImage rows); không ảnh → IMAGE_REQUIRED → gate
     // block → silent return (test cũ sẽ fail vì status giữ hidden).
     dbState.images.push({ id: "img-toggle-ok", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0, checklistSlot: null });
+    // b4-holistic-2: content ĐÃ được admin duyệt (approvedContentAt) — hiện lại
+    // thẳng approved; NULL thì chuyển pending (xem describe b4-holistic-2 dưới).
+    listing.approvedContentAt = "2026-10-01T00:00:00.000Z";
 
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
@@ -842,6 +855,97 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
 
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
     expect(dbState.listings).toHaveLength(1); // KHÔNG xóa
+  });
+});
+
+// ─── 4b. b4-holistic-2 — deleteListingAction vs ExchangeOffer.myListingId FK ──
+
+/**
+ * CONFIRMED LOW "Seller hard-delete fails with an unhandled FK violation
+ * when the listing is referenced as ExchangeOffer.myListingId": offer cũ
+ * (finance đã tắt — chỉ dữ liệu tồn tại) giữ FK NO ACTION → deleteAll Listing
+ * đâm 23503 → action crash 500 (raw DB error ra error boundary) thay vì typed
+ * code. Pre-check chỉ nhìn OrderItem.
+ *
+ * Fix (recorded decision — đối xử NHƯ OrderItem): có offer tham chiếu →
+ * approved → ẩn (CAS approved→hidden); status khác → redirect typed
+ * LISTING_HAS_ORDERS (cùng allowlist banner /sell/my — KHÔNG throw ra error
+ * boundary). SetNull FK (migration cùng batch) là belt-and-braces cho race
+ * offer-xen-giữa-check-và-DELETE — unreachable hôm nay nhờ flag finance off.
+ */
+describe("b4-holistic-2 — deleteListingAction pre-check ExchangeOffer.myListingId (LOW)", () => {
+  const seedOffer = (myListingId: string): void => {
+    dbState.exchangeOffers.push({
+      id: `eo-${dbState.exchangeOffers.length + 1}`,
+      listingId: "listing-cua-nguoi-khac", // target listing (của seller khác)
+      buyerId: "buyer-khac",
+      myListingId, // listing CỦA seller này đưa ra đổi
+      status: "proposed",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  it("approved + ExchangeOffer.myListingId → CHỈ ẨN (hidden), KHÔNG hard-delete (như OrderItem)", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "approved");
+    seedOffer(listing.id);
+
+    await deleteListingAction(fd({ listingId: listing.id }));
+
+    expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
+    expect(dbState.listings).toHaveLength(1); // row SỐNG — FK không bị đâm
+    expect(dbState.exchangeOffers).toHaveLength(1); // offer nguyên vẹn
+  });
+
+  it("hidden + ExchangeOffer.myListingId → redirect LISTING_HAS_ORDERS (KHÔNG hard-delete, KHÔNG throw 23503)", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "hidden");
+    seedOffer(listing.id);
+
+    // redirect typed code — KHÔNG throw Error ra error boundary
+    let redirected = false;
+    try {
+      await deleteListingAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=LISTING_HAS_ORDERS");
+    }
+    expect(redirected).toBe(true);
+
+    expect(listingRow(listing.id)).toMatchObject({ status: "hidden" }); // GIỮ NGUYÊN
+    expect(dbState.exchangeOffers).toHaveLength(1);
+  });
+
+  it("pending + ExchangeOffer.myListingId (KHÔNG có đơn) → redirect LISTING_HAS_ORDERS, row SỐNG SÓT", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "pending");
+    seedOffer(listing.id);
+
+    let redirected = false;
+    try {
+      await deleteListingAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=LISTING_HAS_ORDERS");
+    }
+    expect(redirected).toBe(true);
+
+    expect(listingRow(listing.id)).toMatchObject({ status: "pending" }); // KHÔNG xóa, KHÔNG ẩn
+  });
+
+  it("KHÔNG có offer (chỉ dữ liệu mình tạo) → hard-delete như trước — pre-check KHÔNG over-block", async () => {
+    const seller = setupVerifiedSeller();
+    const listing = seedListing(seller.id, "pending");
+    dbState.images.push({ id: "img-1", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0 });
+
+    await deleteListingAction(fd({ listingId: listing.id }));
+
+    expect(listingRow(listing.id)).toBeUndefined();
   });
 });
 
