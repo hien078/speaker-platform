@@ -21,9 +21,13 @@ import { UPLOADS_DIR } from "@/src/lib/uploads-storage";
  *   (chunked/stream) → 411 (L1 — không có precheck thì formData() buffer vô hạn
  *   body không khai dài; nginx client_max_body_size 10M — docs/deployment.md §3
  *   — là defense-in-depth ở layer proxy trước khi request tới đây);
- * - rate limit IP (hiện có) + rate limit PER-USER ≤ per-IP (§7.1);
+ * - rate limit IP (hiện có) + rate limit PER-USER ≤ per-IP (§7.1) — per-user
+ *   SAU các check rẻ (b4-holistic round-3: busy/in-progress/quota không tốn
+ *   token user);
  * - user đang bị đình chỉ (Batch 3 isUserSuspended — đọc FRESH từ DB) →
  *   403 ACCOUNT_SUSPENDED (L4);
+ * - b4-holistic round-3 (LOW): per-user storage quota 24h (UPLOAD_DAILY_MAX)
+ *   → 429 UPLOAD_QUOTA — một account không fill được đĩa Postgres đang chia sẻ;
  * - H1 (review fix 2 — bound bộ nhớ body-buffer + hàng chờ re-encode):
  *   (a) hàng chờ re-encode BOUNDED (REENCODE_MAX_QUEUE — image-process.ts):
  *       đầy → TOO_BUSY NGAY, không cho 20 request xếp hàng giữ ~300MB buffer;
@@ -64,6 +68,26 @@ const CONTENT_LENGTH_GRACE = 512 * 1024;
  */
 const uploadsInFlightByUser = new Set<string>();
 
+/**
+ * b4-holistic round-3 (LOW — capacity pre-check không bound memory): số
+ * request đang GIỮ body (đã qua các check, sắp/sđang buffer formData +
+ * Buffer copy ~11-15MB) — process-wide, đếm chung ngân sách với slot +
+ * hàng chờ re-encode (reencodeQueueHasCapacity(extraBodies)). Tăng đồng bộ
+ * ngay sau per-user Set add (không await giữa hai lệnh), giảm trong finally.
+ */
+let uploadBodiesInFlight = 0;
+
+/**
+ * b4-holistic round-3 (LOW — per-user storage quota): cap số upload MỖI USER
+ * mỗi 24h (rolling, đếm ListingImageUpload theo @@index([ownerUserId,
+ * createdAt])). Trước fix: throttle duy nhất là 20/10 phút — 2.8MB webp ×
+ * 2880 upload/ngày ≈ 8GB/ngày/user làm đầy đĩa Postgres đang CHIA SẺ
+ * (ENOSPC → toàn marketplace sập, không chỉ upload). 60 ≈ 3× cap ảnh một
+ * tin × vài tin — đủ cho seller beta hoạt động bình thường. POLICY: số này
+ * là quyết định sản phẩm — ghi nhận cùng A8 (retention) trong register.
+ */
+const UPLOAD_DAILY_MAX = 60;
+
 export async function POST(request: Request) {
   // 0. Early body reject — KHÔNG buffer body quá lớn (spec §7.5 encoded-size limit)
   //    L1: Content-Length là BẮT BUỘC — HTTP framing đảm bảo server chỉ đọc đúng
@@ -81,7 +105,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Ảnh tối đa 5MB" }, { status: 413 });
   }
 
-  // 1. Rate limit IP (hiện có)
+  // 1. Rate limit IP (hiện có) — flood guard CHƯA đăng nhập, giữ ĐẦU TIÊN
   const limited = await rateLimitRequest(request, "upload", {
     limit: 20,
     windowMs: 10 * 60_000,
@@ -94,37 +118,52 @@ export async function POST(request: Request) {
     return Response.json({ error: "UNAUTHENTICATED" }, { status: 401 });
   }
 
-  // 3. Per-USER limit ≤ per-IP (§7.1) — một user không vượt được bucket IP của chính mình
-  const userLimit = checkRateLimit(`upload:user:${user.id}`, {
-    limit: 20,
-    windowMs: 10 * 60_000,
-  });
-  if (!userLimit.allowed) {
-    return tooManyRequestsResponse(userLimit.retryAfterSec);
-  }
-
-  // 4. L4 — suspended user không được upload (Batch 3 isUserSuspended: episode
+  // 3. L4 — suspended user không được upload (Batch 3 isUserSuspended: episode
   //    active đọc FRESH từ DB mỗi request; lifted không chặn). Chặn TRƯỚC khi
   //    buffer file — không ghi file/row cho user bị đình chỉ.
   if (await isUserSuspended(user.id)) {
     return Response.json({ error: "ACCOUNT_SUSPENDED" }, { status: 403 });
   }
 
-  // 5. H1b — capacity pre-check TRƯỚC formData()/arrayBuffer: server đang bận
-  //    (slot + hàng chờ re-encode đầy) → 503 NGAY, KHÔNG đọc body. Mỗi request
-  //    nếu đi tiếp sẽ buffer ~10-15MB (formData + Buffer copy) trước khi tới
-  //    lượt acquire — từ chối sớm ở đây là tầng chặn OOM thật sự. Pre-check chỉ
-  //    là early-exit: cap vẫn do acquireReencodeSlot enforce (bên dưới).
-  if (!reencodeQueueHasCapacity()) {
+  // 3b. b4-holistic round-3 (LOW — per-user storage quota): đếm upload 24h của
+  //     user (ListingImageUpload theo @@index([ownerUserId, createdAt]) —
+  //     rẻ). Vượt cap → 429 typed, KHÔNG đọc body, KHÔNG ghi file/row. Đặt
+  //     TRƯỚC per-user rate limit để bị từ chối vì quota KHÔNG tốn token
+  //     20/10 phút của user (giữ budget cho lần thử hợp lệ ngày mai).
+  const dayAgoIso = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const quota = await db.orm.public.ListingImageUpload
+    .where({ ownerUserId: user.id })
+    .where((u) => u.createdAt.gt(dayAgoIso))
+    .aggregate((a) => ({ c: a.count() }));
+  if (quota.c >= UPLOAD_DAILY_MAX) {
+    return Response.json(
+      { error: "UPLOAD_QUOTA", message: `Bạn đã tải tối đa ${UPLOAD_DAILY_MAX} ảnh trong 24 giờ.` },
+      { status: 429, headers: { "Retry-After": "3600" } },
+    );
+  }
+
+  // 4. H1b — capacity pre-check TRƯỚC formData()/arrayBuffer: server đang bận
+  //    (slot + hàng chờ re-encode + body đang giữ đầy) → 503 NGAY, KHÔNG đọc
+  //    body. Mỗi request nếu đi tiếp sẽ buffer ~10-15MB (formData + Buffer
+  //    copy) trước khi tới lượt acquire — từ chối sớm ở đây là tầng chặn OOM
+  //    thật sự. Pre-check chỉ là early-exit: cap vẫn do acquireReencodeSlot
+  //    enforce (bên dưới). extraBodies = uploadBodiesInFlight (đếm process-wide
+  //    — N user đồng thời không còn cùng pass pre-check rồi buffer hết body).
+  if (!reencodeQueueHasCapacity(uploadBodiesInFlight)) {
     return Response.json(
       { error: "TOO_BUSY" },
       { status: 503, headers: { "Retry-After": "5" } },
     );
   }
 
-  // 6. H1c — tối đa 1 upload in-flight mỗi user: has+add đồng bộ (không await
+  // 5. H1c — tối đa 1 upload in-flight mỗi user: has+add đồng bộ (không await
   //    giữa hai lệnh) nên 2 request song song không lọt cả hai; slot trả trong
   //    finally bên dưới trên MỌI path (kể cả throw bên trong ingestUpload).
+  //    b4-holistic round-3: các check RẺ (suspension/quota/capacity/in-flight)
+  //    chạy TRƯỚC per-user rate limit — bị từ chối vì busy/in-progress là
+  //    kết quả BÌNH THƯỜNG của form 8 picker (client serialize + retry), không
+  //    nên tốn 20/10 phút budget của user (trước fix: retry qua lúc bận →
+  //    RATE_LIMITED 10 phút mà chưa lưu được ảnh nào).
   if (uploadsInFlightByUser.has(user.id)) {
     return Response.json(
       { error: "UPLOAD_IN_PROGRESS" },
@@ -132,9 +171,25 @@ export async function POST(request: Request) {
     );
   }
   uploadsInFlightByUser.add(user.id);
+  // Body counter tăng ĐỒNG BỘ ngay sau Set add (không await giữa hai lệnh) —
+  // mọi request có thể buffer body đếm chung ngân sách capacity (bước 4);
+  // giảm trong finally cùng slot per-user.
+  uploadBodiesInFlight++;
   try {
+    // 6. Per-USER limit ≤ per-IP (§7.1) — một user không vượt được bucket IP
+    //    của chính mình. SAU các check rẻ ở trên: request bị từ chối vì
+    //    busy/in-progress/quota KHÔNG tốn token user (chỉ request thực sự
+    //    đọc body mới vào bucket).
+    const userLimit = checkRateLimit(`upload:user:${user.id}`, {
+      limit: 20,
+      windowMs: 10 * 60_000,
+    });
+    if (!userLimit.allowed) {
+      return tooManyRequestsResponse(userLimit.retryAfterSec);
+    }
     return await ingestUpload(request, user);
   } finally {
+    uploadBodiesInFlight--;
     uploadsInFlightByUser.delete(user.id);
   }
 }

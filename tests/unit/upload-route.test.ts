@@ -76,6 +76,15 @@ vi.mock("@/src/prisma/db.client", () => ({
               );
               return before - dbState.uploads.length;
             }),
+            // b4-holistic round-3 quota: .where({ownerUserId}).where(fn).aggregate(cb)
+            // — mock đếm row khớp pred (createdAt filter bỏ qua: row mock đều "mới")
+            where: (_fn: unknown) => ({
+              aggregate: vi.fn(async () => ({
+                c: dbState.uploads.filter((r) =>
+                  Object.entries(pred).every(([k, v]) => r[k] === v),
+                ).length,
+              })),
+            }),
           }),
         },
         // Batch 3 isUserSuspended đọc UserSuspension active (L4)
@@ -425,6 +434,189 @@ describe("POST /api/upload — H1: capacity pre-check + per-user in-flight", () 
       obsState.errors.some((e) => e.scope === "upload" && e.message.includes("EBUSY")),
     ).toBe(true);
     expect(dbState.deletes).toEqual([{ storageKey: dbState.createdKeys[0] }]);
+  });
+});
+
+// ─── b4-holistic round-3 — quota 24h + check order (busy/in-progress không tốn token) ──
+
+describe("POST /api/upload — per-user storage quota 24h (b4-holistic round-3)", () => {
+  it("user đã upload ≥ UPLOAD_DAILY_MAX (60) trong 24h → 429 UPLOAD_QUOTA, KHÔNG đọc body/không ghi gì", async () => {
+    for (let i = 0; i < 60; i++) {
+      dbState.uploads.push({ id: `q-${i}`, ownerUserId: "user-1", storageKey: `q-${i}.webp` });
+    }
+    const request = uploadRequest(pngFile(await tinyPng()));
+    const formDataSpy = vi.spyOn(request, "formData");
+
+    const res = await POST(request);
+
+    expect(res.status).toBe(429);
+    expect(((await res.json()) as { error: string }).error).toBe("UPLOAD_QUOTA");
+    expect(res.headers.get("retry-after")).toBeDefined();
+    expect(formDataSpy).not.toHaveBeenCalled(); // chặn TRƯỚC khi buffer body
+    expect(fsState.writes.length).toBe(60 - 60); // 0 file mới
+    expect(dbState.createdKeys.length).toBe(0); // 0 row mới
+  });
+
+  it("user dưới cap → upload bình thường (quota không over-block)", async () => {
+    for (let i = 0; i < 59; i++) {
+      dbState.uploads.push({ id: `q-${i}`, ownerUserId: "user-1", storageKey: `q-${i}.webp` });
+    }
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+    expect(res.status).toBe(200);
+    expect(fsState.writes.length).toBe(1);
+  });
+
+  it("quota của user KHÁC không chặn mình (đếm theo ownerUserId)", async () => {
+    for (let i = 0; i < 60; i++) {
+      dbState.uploads.push({ id: `q-${i}`, ownerUserId: "user-khac", storageKey: `q-${i}.webp` });
+    }
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/upload — check order: busy/in-progress KHÔNG tốn per-user token (b4-holistic round-3)", () => {
+  // Pattern chung: bucket per-user 20/10 phút — đếm token bằng cách fill bucket
+  // GẦN đầy bằng upload THÀNH CÔNG (mỗi lần 1 token), chèn MỘT lần bị từ chối
+  // (503/429), rồi chứng minh request kế tiếp VẪN được (token bị từ chối
+  // KHÔNG được đếm). TRUST_PROXY_HEADERS + x-real-ip khác nhau mỗi request —
+  // nếu không bucket per-IP (20) chặn trước che mất bucket per-user.
+  const stubProxy = () => vi.stubEnv("TRUST_PROXY_HEADERS", "true");
+  const ipOf = (i: number) => `10.9.${Math.floor(i / 250)}.${i % 250}`;
+
+  it("bị TOO_BUSY (queue đầy) → KHÔNG tốn token user: request kế (token 20) vẫn 200, token 21 mới 429", async () => {
+    stubProxy();
+    const input = await tinyPng();
+    // 19 upload thành công — token 1..19 (per-user bucket 19/20)
+    for (let i = 0; i < 19; i++) {
+      const res = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(i) }));
+      expect(res.status, `upload #${i + 1}`).toBe(200);
+    }
+    // queue đầy → 503 TOO_BUSY — bị từ chối TRƯỚC per-user rate limit
+    await acquireReencodeSlot(60_000);
+    void acquireReencodeSlot(60_000).catch(() => {});
+    void acquireReencodeSlot(60_000).catch(() => {});
+    try {
+      const busy = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(50) }));
+      expect(busy.status).toBe(503);
+      expect(((await busy.json()) as { error: string }).error).toBe("TOO_BUSY");
+    } finally {
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+    }
+    // token 20 → 200 (nếu 503 ở trên TÓN token thì đây đã 429)
+    const res20 = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(51) }));
+    expect(res20.status).toBe(200);
+    // token 21 → 429 RATE_LIMITED
+    const res21 = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(52) }));
+    expect(res21.status).toBe(429);
+    expect(((await res21.json()) as { error: string }).error).toBe("RATE_LIMITED");
+  });
+
+  it("bị UPLOAD_IN_PROGRESS (2 request cùng user) → 429 KHÔNG tốn token: request kế (token 20) vẫn 200", async () => {
+    stubProxy();
+    const input = await tinyPng();
+    // 18 upload thành công — token 1..18
+    for (let i = 0; i < 18; i++) {
+      const res = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(i) }));
+      expect(res.status, `upload #${i + 1}`).toBe(200);
+    }
+    // request 19 treo giữa chừng (giữ slot in-flight user) — token 19
+    let finishHang!: (value: Awaited<ReturnType<typeof reencodeImage>>) => void;
+    let reencodeEntered!: () => void;
+    const entered = new Promise<void>((r) => {
+      reencodeEntered = r;
+    });
+    vi.mocked(reencodeImage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          reencodeEntered();
+          finishHang = resolve;
+        }),
+    );
+    const hang = POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(40) }));
+    await entered;
+    // request song song CÙNG user → 429 UPLOAD_IN_PROGRESS (bị từ chối TRƯỚC
+    // per-user rate limit — KHÔNG tốn token 20)
+    const second = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(41) }));
+    expect(second.status).toBe(429);
+    expect(((await second.json()) as { error: string }).error).toBe("UPLOAD_IN_PROGRESS");
+    // hoàn tất request treo → 200 (token 19)
+    finishHang({ ok: true, buffer: Buffer.from(input), width: 1, height: 1 });
+    expect((await hang).status).toBe(200);
+    // token 20 → 200 (nếu 429 ở trên TÓN token thì đây đã 429)
+    const res20 = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(42) }));
+    expect(res20.status).toBe(200);
+    // token 21 → 429
+    const res21 = await POST(uploadRequest(pngFile(input), { "x-real-ip": ipOf(43) }));
+    expect(res21.status).toBe(429);
+  });
+});
+
+describe("POST /api/upload — reencodeQueueHasCapacity(extraBodies) bound body toàn process (b4-holistic round-3)", () => {
+  it("3 body đang giữ (không trong reencode) cũng làm capacity pre-check fail → request thứ 4 bị 503 TRƯỚC formData", async () => {
+    const input = await tinyPng();
+    // 3 request treo giữa chừng — mỗi request đã buffer body (~11-15MB thật)
+    // và đang "trong reencode" (mock treo, KHÔNG qua semaphore thật — nên
+    // reencodeInFlight/waiters = 0, CHỈ uploadBodiesInFlight = 3 đếm). Đây chính
+    // là lỗ của finding: pre-check cũ chỉ đếm slot/waiter → cả 3 cùng pass.
+    const finishers: Array<(v: Awaited<ReturnType<typeof reencodeImage>>) => void> = [];
+    vi.mocked(reencodeImage).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishers.push(resolve);
+        }),
+    );
+    /** Trả implementation THẬT cho mock (idempotent — chạy 2 lần vẫn đúng). */
+    const restoreRealReencode = async (): Promise<void> => {
+      vi.mocked(reencodeImage).mockReset();
+      // vi.importActual — import THẬT (import() thường trả về module đã mock —
+      // mockImplementation(bản thân mock) = đệ quy vô hạn).
+      const real = await vi.importActual<typeof import("@/src/lib/image-process")>(
+        "@/src/lib/image-process",
+      );
+      vi.mocked(reencodeImage).mockImplementation(real.reencodeImage);
+    };
+    try {
+      const pend: Promise<Response>[] = [];
+      for (let i = 1; i <= 3; i++) {
+        authState.user = { id: `user-body-${i}` };
+        pend.push(POST(uploadRequest(pngFile(input))));
+        // cho POST này chạy qua bước auth (getCurrentUser đọc authState.user
+        // KHI được gọi — đổi user ngay sau POST() khiến request trước đọc nhầm
+        // user của request sau → 429 UPLOAD_IN_PROGRESS sai lệch).
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      // đợi cả 3 vào reencode (mỗi cái đang giữ body)
+      for (let t = 0; t < 20 && finishers.length < 3; t++) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      expect(finishers.length).toBe(3);
+      // request thứ 4: 0 slot + 0 waiter + 3 body = 3 ≥ CONCURRENT+QUEUE → 503
+      authState.user = { id: "user-body-4" };
+      const request4 = uploadRequest(pngFile(input));
+      const formDataSpy = vi.spyOn(request4, "formData");
+      const res4 = await POST(request4);
+      expect(res4.status).toBe(503);
+      expect(((await res4.json()) as { error: string }).error).toBe("TOO_BUSY");
+      expect(formDataSpy).not.toHaveBeenCalled(); // KHÔNG buffer body thứ 4
+      // dọn: hoàn tất 3 request treo — counter trả về 0 qua finally
+      for (const f of finishers) {
+        f({ ok: true, buffer: Buffer.from(input), width: 1, height: 1 });
+      }
+      for (const p of pend) expect((await p).status).toBe(200);
+      // TRẢ mock thật TRƯỚC request "counter đã hồi phục" — nếu không request
+      // này dính mock treo → hang vĩnh viễn + leak slot in-flight user-body-5.
+      restoreRealReencode();
+      // counter đã trả hết → request kế tiếp pass pre-check trở lại
+      authState.user = { id: "user-body-5" };
+      const res5 = await POST(uploadRequest(pngFile(input)));
+      expect(res5.status).toBe(200);
+    } finally {
+      // idempotent — restore chạy 2 lần vẫn đúng (an toàn khi test fail giữa chừng)
+      restoreRealReencode();
+    }
   });
 });
 

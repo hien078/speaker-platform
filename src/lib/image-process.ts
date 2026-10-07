@@ -125,11 +125,21 @@ export function releaseReencodeSlot(): void {
  * acquire sẽ (a) lấy slot NGAY hoặc (b) còn chỗ xếp hàng. CHỈ là early-exit
  * cho route từ chối KHÔNG đọc body (~10-15MB/request) khi server bận —
  * bản thân acquireReencodeSlot vẫn enforce cap (pre-check không thay thế).
+ *
+ * b4-holistic round-3 (LOW — capacity pre-check không bound memory): N user
+ * đồng thời đều pass pre-check rồi MỚI buffer body (~11-15MB mỗi request:
+ * formData + Buffer copy + sharp metadata NGOÀI semaphore) → peak ~15MB × N
+ * ngoài budget 768m; ~30 uploader đồng thời OOM-kill container. `extraBodies`
+ * = số request ĐANG giữ body (upload route đếm process-wide, tăng đồng bộ
+ * với per-user Set add, giảm trong finally) — cap chung một ngân sách:
+ * slot + hàng chờ + body đang giữ < CONCURRENT + QUEUE. Đếm đôi (request
+ * trong reencodeImage đếm cả body lẫn slot) là conservative — từ chối sớm
+ * hơn, an toàn hướng còn lại.
  */
-export function reencodeQueueHasCapacity(): boolean {
+export function reencodeQueueHasCapacity(extraBodies = 0): boolean {
   return (
-    reencodeInFlight < REENCODE_MAX_CONCURRENT ||
-    reencodeWaiters.length < REENCODE_MAX_QUEUE
+    reencodeInFlight + reencodeWaiters.length + extraBodies <
+    REENCODE_MAX_CONCURRENT + REENCODE_MAX_QUEUE
   );
 }
 
