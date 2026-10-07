@@ -116,6 +116,8 @@ async function cleanupUser(userId: string): Promise<void> {
 
 beforeEach(() => {
   vi.stubEnv("NODE_ENV", "test");
+  // HKDF (src/lib/hkdf.ts) derive từ AUTH_SECRET — không phụ thuộc .env của worktree.
+  vi.stubEnv("AUTH_SECRET", "integration-test-auth-secret-0123456789abcdef");
   resetRateLimits();
   cookieState.store.clear();
 });
