@@ -13,16 +13,24 @@ import { AlertTriangle, RotateCcw } from "lucide-react";
  * boundary này là DEFENSE-IN-DEPTH cho mọi thứ còn lọt (lỗi infra, action
  * mới tương lai) — seller thấy tiếng Việt + nút thử lại thay vì trang trắng.
  *
+ * b4-holistic round-4 SPLIT (finding THẬT — đã check docs Next 16.3):
+ * "Thử lại" gọi retry (stable v16.3 — error.md: "try to RE-FETCH and
+ * RE-RENDER the error boundary's children"), KHÔNG còn prop reset — reset
+ * chỉ clear error state + re-render children KHÔNG re-fetch (docs: "In most
+ * cases, you should use retry instead") → lỗi SERVER-RENDER (lỗi infra DB
+ * khi render /sell/my, /sell/[id]/edit — Server Component) render lại từ
+ * payload ĐÃ LỖI, nút không làm gì; retry mới fetch RSC payload mới.
+ *
  * KHÔNG echo error.message (production đã sanitize; message có thể chứa SQL
  * text từ lỗi DB — không phản chiếu ra UI). KHÔNG log thêm (captureError đã
  * chạy ở seam observability của action).
  */
 export default function SellErrorBoundary({
   error,
-  reset,
+  retry,
 }: {
   error: Error & { digest?: string };
-  reset: () => void;
+  retry: () => void;
 }) {
   void error; // KHÔNG hiển thị message — chỉ digest (id để truy vết log)
   return (
@@ -35,7 +43,7 @@ export default function SellErrorBoundary({
           chưa được lưu — vui lòng kiểm tra lại trong <b>Tin đăng của tôi</b>.
         </p>
         <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-          <button type="button" onClick={() => reset()} className="btn-primary h-10 px-4 text-sm">
+          <button type="button" onClick={() => retry()} className="btn-primary h-10 px-4 text-sm">
             <RotateCcw className="size-4" />
             Thử lại
           </button>
