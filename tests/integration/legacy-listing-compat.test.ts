@@ -373,7 +373,9 @@ d("legacy listing compatibility (Batch 4 Task 8 — spec §8/§8.3)", () => {
     const listingId = await seedLegacyListing({ sellerId, categoryId: legacyCat, brandId, status: "pending" });
 
     await login(adminId, { isAdmin: true });
-    await approveListingAction(fd({ listingId }));
+    // Batch 4 holistic: review card post version (updatedAt) đã render
+    const cardRow = await db.orm.public.Listing.first({ id: listingId });
+    await approveListingAction(fd({ listingId, version: cardRow!.updatedAt }));
 
     const row = await db.orm.public.Listing.first({ id: listingId });
     expect(row!.status).toBe("approved");
@@ -490,7 +492,9 @@ d("legacy listing compatibility (Batch 4 Task 8 — spec §8/§8.3)", () => {
     });
 
     await login(adminId, { isAdmin: true });
-    await approveListingAction(fd({ listingId })); // silent return — KHÔNG approve
+    // Batch 4 holistic: post version (updatedAt) — block đến từ GATE, không phải version
+    const cardRow7 = await db.orm.public.Listing.first({ id: listingId });
+    await approveListingAction(fd({ listingId, version: cardRow7!.updatedAt })); // silent return — KHÔNG approve
 
     const row = await db.orm.public.Listing.first({ id: listingId });
     expect(row!.status).toBe("pending"); // KHÔNG approve

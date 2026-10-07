@@ -26,6 +26,30 @@ export async function audit(
   });
 }
 
+/**
+ * Tx variant của `audit` (Batch 4 holistic review fix — LOW tx-concurrency):
+ * state change + audit row sống chết cùng MỘT transaction — audit fail →
+ * rollback TOÀN BỘ (không còn "approved nhưng thiếu audit" khi audit lỗi
+ * sau commit). Chỉ dùng BÊN TRONG db.transaction callback (tx.orm — KHÔNG
+ * bao giờ global db trong callback).
+ */
+export async function auditTx(
+  tx: TxContext,
+  adminId: string,
+  action: string,
+  entity: string,
+  entityId?: string,
+  detail?: string,
+): Promise<void> {
+  await tx.orm.public.AdminAuditLog.create({
+    adminId,
+    action,
+    entity,
+    entityId: entityId ?? null,
+    detail: detail ?? null,
+  });
+}
+
 /** Ghi lịch sử chuyển trạng thái đơn (§48) */
 export async function recordStatusChange(
   tx: TxContext,

@@ -685,7 +685,7 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     };
 
     // silent return (posture no-op của admin action) — KHÔNG throw, KHÔNG approve
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(fd({ listingId: listing.id, version: String(listing.updatedAt) }));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
     expect(auditsOf("listing.approved")).toHaveLength(0); // không resurrection audit
@@ -763,7 +763,7 @@ describe("R5/R7 — approveListingAction/rejectListingAction pending-only", () =
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "removed");
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(fd({ listingId: listing.id, version: String(listing.updatedAt) }));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
     expect(auditsOf("listing.approved")).toHaveLength(0);
@@ -777,7 +777,7 @@ describe("R5/R7 — approveListingAction/rejectListingAction pending-only", () =
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "removed");
 
-    await rejectListingAction(fd({ listingId: listing.id, reason: "Nội dung vi phạm" }));
+    await rejectListingAction(fd({ listingId: listing.id, reason: "Nội dung vi phạm", version: String(listing.updatedAt) }));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "removed", rejectionReason: null });
     expect(auditsOf("listing.rejected")).toHaveLength(0);
@@ -879,14 +879,15 @@ describe("R5 source contract — isModerationLocked consumed bởi cả ba guard
   });
 
   it("admin.ts approve/reject là CONDITIONAL pending-only writes (R5/R7 — .where({ id, status: \"pending\" }))", () => {
-    // reject: CAS pending-only giữ nguyên Batch 3
-    const rejectCas = adminSrc.match(/\.where\(\{ id: listingId, status: "pending" \}\)/g) ?? [];
-    expect(rejectCas).toHaveLength(1); // reject
-    // approve: CAS pending-only + updatedAt (MEDIUM 1 review fix — optimistic
-    // version đọc TRƯỚC review; status vẫn pending-only, KHÔNG bao giờ approve
-    // row không còn pending)
-    const approveCas =
-      adminSrc.match(/\.where\(\{ id: listingId, status: "pending", updatedAt: listing\.updatedAt \}\)/g) ?? [];
-    expect(approveCas).toHaveLength(1); // approve
+    // Batch 4 holistic review: CẢ HAI claim CAS theo `updatedAt: versionRaw` —
+    // version ĐÃ REVIEW (hidden input từ review card), KHÔNG còn updatedAt
+    // đọc tươi trong action (content đổi giữa render và click → 0 rows).
+    const cas =
+      adminSrc.match(
+        /\.where\(\{ id: listingId, status: "pending", updatedAt: versionRaw \}\)/g,
+      ) ?? [];
+    expect(cas).toHaveLength(2); // approve + reject
+    // KHÔNG còn CAS theo updatedAt đọc tươi trong action
+    expect(adminSrc).not.toMatch(/updatedAt: listing\.updatedAt/);
   });
 });

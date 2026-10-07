@@ -469,7 +469,9 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
 
     // approve → approved (admin qua checkListingPublication — defense-in-depth)
     await login(adminId, { isAdmin: true });
-    await approveListingAction(fd({ listingId: draftId }));
+    // Batch 4 holistic: review card post version (updatedAt) đã render
+    const cardRow = await db.orm.public.Listing.first({ id: draftId });
+    await approveListingAction(fd({ listingId: draftId, version: cardRow!.updatedAt }));
     row = await db.orm.public.Listing.first({ id: draftId });
     expect(row!.status).toBe("approved");
     expect(row!.rejectionReason).toBeNull();
@@ -622,7 +624,9 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     // approve (admin) → KHÔNG approve + audit publication_requirements_unmet missing=account_not_suspended
     // (defense-in-depth — spec §7.3: admin duyệt KHÔNG phải escape hatch)
     await login(adminId, { isAdmin: true });
-    await approveListingAction(fd({ listingId: pendingId }));
+    // Batch 4 holistic: post version (updatedAt) — block đến từ GATE (seller đình chỉ)
+    const cardRow4 = await db.orm.public.Listing.first({ id: pendingId });
+    await approveListingAction(fd({ listingId: pendingId, version: cardRow4!.updatedAt }));
     expect((await db.orm.public.Listing.first({ id: pendingId }))!.status).toBe("pending");
     const approveBlocked = await db.orm.public.AuditEvent
       .where({ action: "listing.approve_blocked", resourceId: pendingId })

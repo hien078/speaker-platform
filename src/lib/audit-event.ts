@@ -48,6 +48,10 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   submit/toggle bị gate chặn (reason = typed code: SELLER_PUBLICATION_BLOCKED:…
  *   hoặc content code từ allowlist, KHÔNG free text — §4.8);
  *   beta_catalog.seeded — Task 7 seed script (actor null, offline script).
+ *   (Batch 4 holistic review): listing.reject_blocked — rejectListingAction
+ *   bị chặn (reason typed: listing_version_missing / listing_changed_during_
+ *   review — KHÔNG free text); listing.approve_blocked thêm reason
+ *   moderator_conflict (recusal S9) + listing_version_missing.
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

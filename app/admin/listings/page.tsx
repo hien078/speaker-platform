@@ -24,6 +24,20 @@ const orDash = (v: string | null | undefined): string =>
   v != null && v.trim().length > 0 ? v : "—";
 
 /**
+ * Banner ?error= của queue (Batch 4 holistic review): CHỈ typed code cố định
+ * trong allowlist này được render — giá trị lạ/prototype key → KHÔNG banner
+ * (fail closed, KHÔNG phản chiếu query text — spec §4.8). Nguồn duy nhất hôm
+ * nay: approveListingAction recusal redirect (?error=MODERATOR_CONFLICT).
+ */
+const QUEUE_ERROR_TEXT: Record<string, string> = {
+  MODERATOR_CONFLICT:
+    "Bạn là người bán của tin này — không thể tự duyệt. Tin vẫn chờ moderator khác xử lý.",
+};
+
+const queueErrorText = (code: string | undefined): string | null =>
+  code != null && code !== "" && Object.hasOwn(QUEUE_ERROR_TEXT, code) ? QUEUE_ERROR_TEXT[code]! : null;
+
+/**
  * Label lookup an toàn (L4 — review fix): Object.hasOwn TRƯỚC khi tra map —
  * key lạ (dữ liệu legacy/dirty không qua enum) → raw value làm text, KHÔNG
  * undefined. Map TYPED (L1) + hasOwn = cả typecheck lẫn runtime đều khép.
@@ -60,9 +74,12 @@ export default async function AdminListingsPage({
 }: PageProps<"/admin/listings">) {
   // Guard server-side (spec §4.5/§4.9) — moderation queue cần listing.moderate;
   // requireAdminUser ở layout chỉ là cổng vào /admin, không phải quyền xem queue.
-  await requireCapability("listing.moderate");
-  const sp = (await searchParams) as { tab?: string };
+  // Context admin giữ lại cho recusal UI (moderator là seller của chính listing
+  // → KHÔNG render nút duyệt/từ chối — action tự enforce recusal).
+  const admin = await requireCapability("listing.moderate");
+  const sp = (await searchParams) as { tab?: string; error?: string };
   const tab = sp.tab === "all" ? "all" : "pending";
+  const queueError = queueErrorText(sp.error);
 
   const listings = await db.orm.public.Listing
     // L5 (review fix): draft là seller-private (chưa submit — spec §4.4) —
@@ -114,6 +131,12 @@ export default async function AdminListingsPage({
           </a>
         </div>
       </div>
+
+      {queueError !== null && (
+        <div className="mt-5 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
+          {queueError}
+        </div>
+      )}
 
       {listings.length === 0 ? (
         <div className="card mt-8 grid place-items-center gap-2 p-16 text-center">
@@ -263,25 +286,40 @@ export default async function AdminListingsPage({
                     </div>
                   </div>
 
-                  {l.status === "pending" && (
-                    <div className="flex shrink-0 gap-2 sm:flex-col">
-                      <form action={approveListingAction} className="flex-1">
-                        <input type="hidden" name="listingId" value={l.id} />
-                        <button type="submit" className="btn-primary h-10 w-full px-4 text-sm">
-                          <CheckCircle2 className="size-4" />
-                          Duyệt
-                        </button>
-                      </form>
-                      <form action={rejectListingAction} className="flex-1">
-                        <input type="hidden" name="listingId" value={l.id} />
-                        <input type="hidden" name="reason" value="Nội dung chưa rõ ràng, vui lòng bổ sung thông tin và hình ảnh thực tế" />
-                        <button type="submit" className="btn-danger h-10 w-full px-4 text-sm">
-                          <XCircle className="size-4" />
-                          Từ chối
-                        </button>
-                      </form>
-                    </div>
-                  )}
+                  {l.status === "pending" &&
+                    (l.sellerId === admin.user.id ? (
+                      /* Recusal (S9 — Batch 3 takedown pattern): moderator là
+                       * seller của CHÍNH listing → KHÔNG render nút duyệt/từ
+                       * chối (UI convenience — action tự enforce recusal +
+                       * audit moderator_conflict). */
+                      <p className="max-w-[11rem] shrink-0 rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--muted)]">
+                        Tin của bạn — moderator khác sẽ xử lý (tự duyệt bị chặn).
+                      </p>
+                    ) : (
+                      <div className="flex shrink-0 gap-2 sm:flex-col">
+                        <form action={approveListingAction} className="flex-1">
+                          <input type="hidden" name="listingId" value={l.id} />
+                          {/* Version ĐÃ REVIEW (Batch 4 holistic): approve/
+                              reject CAS theo updatedAt mà card render — seller
+                              edit content sau khi admin mở card → approval bị
+                              từ chối (content chưa review KHÔNG được duyệt). */}
+                          <input type="hidden" name="version" value={l.updatedAt} />
+                          <button type="submit" className="btn-primary h-10 w-full px-4 text-sm">
+                            <CheckCircle2 className="size-4" />
+                            Duyệt
+                          </button>
+                        </form>
+                        <form action={rejectListingAction} className="flex-1">
+                          <input type="hidden" name="listingId" value={l.id} />
+                          <input type="hidden" name="version" value={l.updatedAt} />
+                          <input type="hidden" name="reason" value="Nội dung chưa rõ ràng, vui lòng bổ sung thông tin và hình ảnh thực tế" />
+                          <button type="submit" className="btn-danger h-10 w-full px-4 text-sm">
+                            <XCircle className="size-4" />
+                            Từ chối
+                          </button>
+                        </form>
+                      </div>
+                    ))}
                 </div>
               </div>
             );

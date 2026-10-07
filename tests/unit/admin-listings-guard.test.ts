@@ -93,6 +93,7 @@ vi.mock("@/src/prisma/db.client", () => {
 });
 
 import * as listingsPage from "../../app/admin/listings/page";
+import { approveListingAction, rejectListingAction } from "@/src/lib/actions/admin";
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -123,14 +124,21 @@ const login = (adminRole: string | null): void => {
   sessionState.current = { session: { ...SESSION }, user: userWith(adminRole) };
 };
 
-type PageFn = (props: { searchParams: Promise<{ tab?: string }> }) => Promise<unknown>;
+type PageFn = (props: { searchParams: Promise<{ tab?: string; error?: string }> }) => Promise<unknown>;
 const AdminListingsPage = listingsPage.default as unknown as PageFn;
-const call = (tab?: string): Promise<unknown> =>
-  AdminListingsPage({ searchParams: Promise.resolve(tab === undefined ? {} : { tab }) });
+const call = (tab?: string, error?: string): Promise<unknown> =>
+  AdminListingsPage({
+    searchParams: Promise.resolve(
+      tab === undefined && error === undefined
+        ? {}
+        : { ...(tab !== undefined ? { tab } : {}), ...(error !== undefined ? { error } : {}) },
+    ),
+  });
 
 /** Listing legacy (category slug ngoài allowlist) — structured NULL, ảnh seed. */
 const LEGACY_LISTING = {
   id: "listing-1",
+  sellerId: "seller-other",
   title: "Loa JBL Charge 5 cũ",
   price: 1_800_000,
   status: "pending",
@@ -138,6 +146,7 @@ const LEGACY_LISTING = {
   city: "Hà Nội",
   description: "Loa bluetooth cũ còn tốt",
   createdAt: "2026-10-06T08:00:00.000Z",
+  updatedAt: "2026-10-06T09:00:00.000Z",
   inventoryContext: null,
   includedAccessories: null,
   knownDefects: null,
@@ -269,6 +278,28 @@ function hrefsOf(node: unknown): string[] {
     if (el.type === "a" && typeof el.props?.href === "string") hrefs.push(el.props.href);
   });
   return hrefs;
+}
+
+/** value của mọi <input name={name}> trong tree — assert hidden input review card post. */
+function inputValuesOf(node: unknown, name: string): string[] {
+  const values: string[] = [];
+  walk(node, (el) => {
+    const props = el.props as Record<string, unknown> | null | undefined;
+    if (el.type === "input" && props?.["name"] === name && typeof props?.["value"] === "string") {
+      values.push(props["value"]);
+    }
+  });
+  return values;
+}
+
+/** action của mọi <form> trong tree — assert nút nào được render (recusal UI). */
+function formActionsOf(node: unknown): unknown[] {
+  const actions: unknown[] = [];
+  walk(node, (el) => {
+    const props = el.props as Record<string, unknown> | null | undefined;
+    if (el.type === "form" && props != null) actions.push(props["action"]);
+  });
+  return actions;
 }
 
 /**
@@ -463,5 +494,50 @@ describe("admin listings page — query loại draft (L5 — spec §4.4)", () =>
 
     await call("all");
     expect(applyWhere(dbState.lastWhere)).toEqual({ op: "neq", value: "draft" });
+  });
+});
+
+// ─── Batch 4 holistic review — version ĐÃ REVIEW + recusal UI + ?error= banner ──
+
+describe("admin listings review card — version input + recusal + banner (Batch 4 holistic)", () => {
+  it("approve + reject form ĐỀU post hidden input version = updatedAt card đã render", async () => {
+    login("moderator");
+    dbState.rows = [{ ...LEGACY_LISTING }];
+    const tree = await call();
+    // HAI form (approve + reject) — mỗi form một version input
+    expect(inputValuesOf(tree, "version")).toEqual([
+      "2026-10-06T09:00:00.000Z",
+      "2026-10-06T09:00:00.000Z",
+    ]);
+  });
+
+  it("recusal UI: moderator là seller của CHÍNH listing → KHÔNG form approve/reject, notice thay thế", async () => {
+    login("moderator"); // session user-1
+    dbState.rows = [{ ...LEGACY_LISTING, sellerId: "user-1" }];
+    const tree = await call();
+    const actions = formActionsOf(tree);
+    expect(actions).not.toContain(approveListingAction);
+    expect(actions).not.toContain(rejectListingAction);
+    expect(textOf(tree)).toContain("Tin của bạn");
+  });
+
+  it("listing của seller KHÁC → form approve/reject render bình thường", async () => {
+    login("moderator");
+    dbState.rows = [{ ...LEGACY_LISTING, sellerId: "seller-other" }];
+    const tree = await call();
+    const actions = formActionsOf(tree);
+    expect(actions).toContain(approveListingAction);
+    expect(actions).toContain(rejectListingAction);
+  });
+
+  it("?error=MODERATOR_CONFLICT → banner tiếng Việt; code lạ/prototype key → KHÔNG banner (allowlist — fail closed)", async () => {
+    login("moderator");
+    dbState.rows = [{ ...LEGACY_LISTING }];
+    const tree = await call(undefined, "MODERATOR_CONFLICT");
+    expect(textOf(tree)).toContain("không thể tự duyệt");
+
+    const tree2 = await call(undefined, "__proto__");
+    expect(textOf(tree2)).not.toContain("__proto__"); // KHÔNG phản chiếu query
+    expect(textOf(tree2)).not.toContain("không thể tự duyệt"); // KHÔNG banner generic
   });
 });

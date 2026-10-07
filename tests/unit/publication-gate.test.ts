@@ -372,6 +372,9 @@ import { approveListingAction } from "@/src/lib/actions/admin";
 const sha256Hex = (v: string) => createHash("sha256").update(v).digest("hex");
 type Row = Record<string, unknown>;
 
+const root = fileURLToPath(new URL("../..", import.meta.url));
+const read = (p: string): string => readFileSync(join(root, p), "utf8");
+
 const mkUser = (over: Partial<Row>): Row & { id: string } => ({
   id: "user-x",
   email: "x@loaviet.test",
@@ -596,6 +599,14 @@ const fd = (entries: Record<string, string | string[]>): FormData => {
   }
   return form;
 };
+
+/**
+ * Approve/reject formData — post ĐÚNG `version` (updatedAt) mà review card đã
+ * render lúc admin đọc listing (Batch 4 holistic review fix: CAS theo version
+ * ĐÃ REVIEW, không phải updatedAt đọc tươi trong action).
+ */
+const approveFd = (listing: Row, over?: Record<string, string>): FormData =>
+  fd({ listingId: String(listing.id), version: String(listing.updatedAt), ...(over ?? {}) });
 
 /**
  * createListing/updateListing formData HỢP LỆ (beta structured đầy đủ —
@@ -829,7 +840,7 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending"); // KHÔNG approve
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -853,7 +864,7 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending");
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -868,7 +879,7 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("approved");
     expect(listing.rejectionReason).toBeNull();
@@ -890,7 +901,7 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     const listing = seedListing(seller.id, "approved"); // đã được duyệt bởi request khác
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("approved");
     expect(dbState.audits.filter((r) => r.action === "listing.approve_blocked")).toHaveLength(0);
@@ -965,7 +976,7 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending"); // KHÔNG approve
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -993,7 +1004,7 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
 
     // 2. admin approve → approved
     login(ADMIN_OPS, { isAdmin: true });
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
     expect(listing.status).toBe("approved");
 
     // 3. seller content-change → pending (transition vào review được phép)
@@ -1008,7 +1019,7 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
 
     // 4. admin approve lại → approved; seller toggle approved→hidden→approved
     login(ADMIN_OPS, { isAdmin: true });
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
     expect(listing.status).toBe("approved");
 
     login(seller);
@@ -1184,7 +1195,7 @@ describe("approveListingAction — content defense-in-depth (B1/B4 qua checkList
       checklistSlot: null,
     });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending"); // KHÔNG approve
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -1207,7 +1218,7 @@ describe("approveListingAction — content defense-in-depth (B1/B4 qua checkList
     dbState.models.push({ ...MODEL, id: "model-bad", ...over });
     (listing as Row).productModelId = "model-bad"; // row fixture mutate trực tiếp
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending");
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -1221,7 +1232,7 @@ describe("approveListingAction — content defense-in-depth (B1/B4 qua checkList
     dbState.models.push({ ...MODEL, id: "model-other-brand", brandId: "brand-2" });
     (listing as Row).productModelId = "model-other-brand";
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("pending");
     const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
@@ -1322,7 +1333,7 @@ describe("per-path gate pins — create/submit/update-into-pending/toggle gọi 
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(gateState.checkPublicationCalls).toBe(1);
     expect(gateState.publishableCalls).toBe(0); // approve KHÔNG dùng bản throw
@@ -1447,7 +1458,7 @@ describe("approveListingAction — CAS updatedAt: content đổi giữa review v
       (listing as Row).title = "Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW";
     };
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     // KHÔNG approve — admin đã review content CŨ, content MỚI chưa qua review
     expect(listing.status).toBe("pending");
@@ -1470,7 +1481,7 @@ describe("approveListingAction — CAS updatedAt: content đổi giữa review v
       (listing as Row).status = "approved"; // admin khác thắng race
     };
 
-    await approveListingAction(fd({ listingId: listing.id }));
+    await approveListingAction(approveFd(listing));
 
     expect(listing.status).toBe("approved");
     expect(dbState.audits.filter((r) => r.action === "listing.approve_blocked")).toHaveLength(0);
@@ -1484,12 +1495,170 @@ describe("approveListingAction — CAS updatedAt: content đổi giữa review v
     gateState.failCheckWith = "SqlQueryError: connection terminated (SELECT * FROM SellerVerification)";
 
     await expect(
-      approveListingAction(fd({ listingId: listing.id })),
+      approveListingAction(approveFd(listing)),
     ).rejects.toThrowError(/connection terminated/);
 
     expect(listing.status).toBe("pending"); // KHÔNG approve
     expect(dbState.audits).toHaveLength(0); // KHÔNG audit — SQL text KHÔNG vào issues=
     expect(dbState.adminAudits).toHaveLength(0);
+  });
+});
+
+// ─── 12b. Batch 4 holistic review — approve version ĐÃ REVIEW + recusal + 1 tx ──
+
+describe("approveListingAction — version ĐÃ REVIEW (hidden input từ review card) + recusal + audit cùng tx", () => {
+  const setupPending = () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+    return { seller, listing };
+  };
+
+  it("version THIẾU (form cũ/forged không post version) → KHÔNG approve + audit reason 'listing_version_missing' (typed — KHÔNG free text)", async () => {
+    const { listing } = setupPending();
+
+    await approveListingAction(fd({ listingId: listing.id })); // KHÔNG post version
+
+    expect(listing.status).toBe("pending");
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      resourceType: "Listing",
+      resourceId: listing.id,
+      reason: "listing_version_missing",
+    });
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+    expect(dbState.adminAudits).toHaveLength(0);
+  });
+
+  it("version MALFORMED (không parse được timestamp) → KHÔNG approve + audit reason 'listing_version_missing'", async () => {
+    const { listing } = setupPending();
+
+    await approveListingAction(fd({ listingId: listing.id, version: "not-a-timestamp <script>" }));
+
+    expect(listing.status).toBe("pending");
+    expect(
+      dbState.audits.find((r) => r.action === "listing.approve_blocked"),
+    ).toMatchObject({ reason: "listing_version_missing" });
+  });
+
+  it("MEDIUM (b4-holistic) — seller sửa content SAU khi admin mở review card (version stale) → approval TỪ CHỐI: status GIỮ pending + audit 'listing_changed_during_review', KHÔNG approve content chưa review", async () => {
+    const { listing } = setupPending();
+    // Admin render card tại U0; seller edit content (updateAll tự bump updatedAt U1)
+    const reviewedVersion = String(listing.updatedAt);
+    (listing as Row).updatedAt = "2026-10-07T09:41:00.000Z";
+    (listing as Row).title = "Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW";
+
+    await approveListingAction(fd({ listingId: listing.id, version: reviewedVersion }));
+
+    // KHÔNG approve — admin đã review content CŨ, content MỚI chưa qua review
+    expect(listing.status).toBe("pending");
+    expect(listing.title).toBe("Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW");
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      subjectId: listing.sellerId,
+      resourceId: listing.id,
+      reason: "listing_changed_during_review",
+    });
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+    expect(dbState.adminAudits).toHaveLength(0);
+    expect(dbState.notifications).toHaveLength(0);
+  });
+
+  it("recusal (S9 — Batch 3 takedown pattern): moderator LÀ seller của listing → KHÔNG tự duyệt + audit 'moderator_conflict' + redirect ?error=MODERATOR_CONFLICT", async () => {
+    const { listing } = setupPending();
+    // moderator-seller: admin ops chính là seller của listing
+    (listing as Row).sellerId = ADMIN_OPS.id;
+
+    const url = await expectRedirect(() =>
+      approveListingAction(approveFd(listing)),
+    );
+
+    expect(url).toBe("/admin/listings?error=MODERATOR_CONFLICT");
+    expect(listing.status).toBe("pending"); // KHÔNG approve
+    expect(
+      dbState.audits.find((r) => r.action === "listing.approve_blocked"),
+    ).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      subjectId: ADMIN_OPS.id,
+      resourceId: listing.id,
+      reason: "moderator_conflict",
+    });
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+    expect(dbState.adminAudits).toHaveLength(0);
+  });
+
+  it("approve THÀNH CÔNG ghi CẢ HAI audit (legacy AdminAuditLog + AuditEvent listing.approved) — cùng tx với claim (source contract)", async () => {
+    const { listing } = setupPending();
+
+    await approveListingAction(approveFd(listing));
+
+    expect(listing.status).toBe("approved");
+    // AuditEvent listing.approved
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(1);
+    // legacy AdminAuditLog (approve_listing)
+    expect(dbState.adminAudits).toHaveLength(1);
+    expect(dbState.adminAudits[0]).toMatchObject({
+      adminId: ADMIN_OPS.id,
+      action: "approve_listing",
+      entity: "Listing",
+      entityId: listing.id,
+    });
+    // notify seller
+    expect(dbState.notifications).toHaveLength(1);
+
+    // Source contract (tx atomicity — LOW b4-holistic): claim + CẢ HAI audit
+    // BÊN TRONG MỘT db.transaction — KHÔNG còn audit chạy SAU commit trên
+    // global db (approved-missing-audit), KHÔNG global db trong callback.
+    const src = read("src/lib/actions/admin.ts");
+    const fnSrc = src.slice(src.indexOf("export async function approveListingAction"));
+    const txStart = fnSrc.indexOf("await db.transaction(async (tx) => {");
+    expect(txStart).toBeGreaterThan(-1);
+    let depth = 0;
+    let end = -1;
+    for (let i = fnSrc.indexOf("{", txStart); i < fnSrc.length; i++) {
+      if (fnSrc[i] === "{") depth++;
+      else if (fnSrc[i] === "}") {
+        depth--;
+        if (depth === 0) {
+          end = i;
+          break;
+        }
+      }
+    }
+    const txBody = fnSrc.slice(txStart, end);
+    expect(txBody).toContain("tx.orm.public.Listing"); // claim trong tx
+    expect(txBody).toContain("auditTx(tx,"); // legacy AdminAuditLog trong tx
+    expect(txBody).toContain("auditEventTx(tx,"); // AuditEvent trong tx
+    expect(txBody).not.toMatch(/\baudit\(/); // KHÔNG global audit trong tx
+    expect(txBody).not.toContain("db.orm."); // KHÔNG global db trong tx callback
+  });
+
+  it("reject THÀNH CÔNG ghi CẢ HAI audit (legacy AdminAuditLog + AuditEvent listing.rejected) — cùng tx với claim; version stale → KHÔNG reject", async () => {
+    const { listing } = setupPending();
+    const { rejectListingAction } = await import("@/src/lib/actions/admin");
+
+    // version stale (content đổi sau review) → KHÔNG reject với lý do viết cho content cũ
+    const reviewedVersion = String(listing.updatedAt);
+    (listing as Row).updatedAt = "2026-10-07T09:42:00.000Z";
+    await rejectListingAction(fd({ listingId: listing.id, reason: "Nội dung vi phạm", version: reviewedVersion }));
+    expect(listing.status).toBe("pending");
+    expect(
+      dbState.audits.find((r) => r.action === "listing.reject_blocked"),
+    ).toMatchObject({ reason: "listing_changed_during_review" });
+
+    // version ĐÚNG → reject + cả hai audit trong cùng tx
+    await rejectListingAction(
+      fd({ listingId: listing.id, reason: "Nội dung vi phạm", version: String(listing.updatedAt) }),
+    );
+    expect(listing.status).toBe("rejected");
+    expect(dbState.audits.filter((r) => r.action === "listing.rejected")).toHaveLength(1);
+    expect(dbState.adminAudits).toHaveLength(1);
+    expect(dbState.adminAudits[0]).toMatchObject({ action: "reject_listing", entity: "Listing" });
   });
 });
 

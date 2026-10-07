@@ -363,6 +363,11 @@ d("approveListingAction vs concurrent content update — REAL-DB race (MEDIUM 1)
     const listingId = await seedListing(sellerId, "pending", cat);
     created.listings.push(listingId);
 
+    // Review card render: admin đọc listing (updatedAt U0) — card post ĐÚNG U0
+    // làm version (Batch 4 holistic: CAS theo version ĐÃ REVIEW).
+    const cardRow = await db.orm.public.Listing.first({ id: listingId });
+    const cardVersion = cardRow!.updatedAt;
+
     // T2 = updateListingAction tx (hiệu ứng DB: content swap trên pending,
     // status GIỮ pending — updateAll tự bump updatedAt).
     let signalLockTaken!: () => void;
@@ -382,11 +387,12 @@ d("approveListingAction vs concurrent content update — REAL-DB race (MEDIUM 1)
     await lockTaken;
 
     // Flow = approveListingAction của admin: đọc pending (MVCC — content CŨ),
-    // checkListingPublication pass (content cũ hợp lệ), CAS
-    // `.where({ id, status: "pending", updatedAt: U0 })` BLOCK trên row lock.
+    // version check (U0 === card version — match), checkListingPublication pass
+    // (content cũ hợp lệ), CAS `.where({ id, status: "pending", updatedAt: U0 })`
+    // BLOCK trên row lock.
     await login(adminId, { isAdmin: true });
     const flow = (async () => {
-      await approveListingAction(fd({ listingId }));
+      await approveListingAction(fd({ listingId, version: cardVersion }));
     })();
     await sleep(500);
     commitT2();
@@ -442,10 +448,12 @@ d("submit + approve happy path — CAS updatedAt MATCH khi không race (round-tr
     expect(submitted).toHaveLength(1);
     expect(submitted[0]!.policyVersion).toBe("v1"); // SELLER_RULES_POLICY_VERSION
 
-    // approve: đọc pending (updatedAt U1) → checkListingPublication → CAS
+    // approve: review card đọc pending (updatedAt U1) → post U1 làm version →
+    // version check match → checkListingPublication → CAS
     // `.where({ id, status: "pending", updatedAt: U1 })` → MATCH → approved.
     await login(adminId, { isAdmin: true });
-    await approveListingAction(fd({ listingId }));
+    const cardRow = await db.orm.public.Listing.first({ id: listingId });
+    await approveListingAction(fd({ listingId, version: cardRow!.updatedAt }));
 
     listing = await db.orm.public.Listing.first({ id: listingId });
     expect(listing!.status).toBe("approved");
@@ -454,5 +462,62 @@ d("submit + approve happy path — CAS updatedAt MATCH khi không race (round-tr
       .where({ action: "listing.approved", resourceId: listingId })
       .all();
     expect(approvedEvt).toHaveLength(1);
+    // Batch 4 holistic: legacy AdminAuditLog cũng ghi (cùng tx với claim)
+    const adminLog = await db.orm.public.AdminAuditLog
+      .where({ action: "approve_listing", entityId: listingId })
+      .all();
+    expect(adminLog).toHaveLength(1);
+  });
+});
+
+// ─── 4. Batch 4 holistic — version ĐÃ REVIEW (human review window) ──────────
+
+d("approveListingAction — version stale sau HUMAN review window (Batch 4 holistic)", () => {
+  it("seller edit content SAU khi admin mở review card (version stale) → approval TỪ CHỐI: audit 'listing_changed_during_review', listing GIỮ pending, content mới KHÔNG được duyệt", async () => {
+    const sellerId = await mkVerifiedSeller();
+    const adminId = await mkAdmin();
+    created.users.push(sellerId, adminId);
+    const cat = await mkBetaCatalog();
+    created.categories.push(cat.categoryId);
+    created.brands.push(cat.brandId);
+    created.models.push(cat.modelId);
+    const listingId = await seedListing(sellerId, "pending", cat);
+    created.listings.push(listingId);
+
+    // 1. Admin MỞ /admin/listings — review card render content CŨ (U0).
+    const cardRow = await db.orm.public.Listing.first({ id: listingId });
+    const cardVersion = cardRow!.updatedAt;
+
+    // 2. Seller edit content TRƯỚC khi admin click Duyệt (updateAll tự bump
+    //    updatedAt U1 — status GIỮ pending, chỉ content validation chạy).
+    await db.orm.public.Listing
+      .where({ id: listingId })
+      .updateAll({ title: "Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW" });
+
+    // 3. Admin click Duyệt trên card STALE (post U0) → version check: fresh
+    //    updatedAt U1 ≠ U0 → approval TỪ CHỐI + audit typed reason.
+    await login(adminId, { isAdmin: true });
+    await approveListingAction(fd({ listingId, version: cardVersion }));
+
+    // Listing GIỮ pending — content moderator CHƯA bao giờ thấy KHÔNG được duyệt
+    const listing = await db.orm.public.Listing.first({ id: listingId });
+    expect(listing!.status).toBe("pending");
+    expect(listing!.title).toBe("Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW");
+
+    const blocked = await db.orm.public.AuditEvent
+      .where({ action: "listing.approve_blocked", resourceId: listingId })
+      .all();
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]!.reason).toBe("listing_changed_during_review");
+    expect(blocked[0]!.actorId).toBe(adminId);
+
+    const approved = await db.orm.public.AuditEvent
+      .where({ action: "listing.approved", resourceId: listingId })
+      .all();
+    expect(approved).toHaveLength(0);
+    const adminLog = await db.orm.public.AdminAuditLog
+      .where({ action: "approve_listing", entityId: listingId })
+      .all();
+    expect(adminLog).toHaveLength(0);
   });
 });
