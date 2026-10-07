@@ -41,6 +41,10 @@ export CRON_SECRET="smoke-$(openssl rand -hex 32)"
 # random: PHẢI là base64 THUẦN của ĐÚNG 32 byte (openssl rand -base64 32) —
 # KHÔNG tiền tố "smoke-": admin-mfa-key.ts validate strict RFC 4648 → 32 byte.
 export ADMIN_MFA_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+# Batch 5 (Task 6): PRODUCT_EVENT_PSEUDONYM_KEY cũng bắt buộc ở production (env.ts
+# REQUIRED_KEYS → instrumentation fail-fast trong app container — corrections #8).
+# Base64 THUẦN của ĐÚNG 32 byte (openssl rand -base64 32) — validate strict RFC 4648.
+export PRODUCT_EVENT_PSEUDONYM_KEY="$(openssl rand -base64 32)"
 export SMOKE_PORT="$PORT"
 export REPO_ROOT="$(pwd)"
 

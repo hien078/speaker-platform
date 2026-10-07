@@ -57,6 +57,9 @@ services:
       # instrumentation fail-fast) — docker-smoke.sh sinh random, base64 thuần
       # của đúng 32 byte (validate strict trong admin-mfa-key.ts).
       ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?docker-smoke.sh set}
+      # Batch 5 (Task 6): key pseudonym telemetry — cùng bắt buộc ở production
+      # (env.ts REQUIRED_KEYS); docker-smoke.sh sinh random base64 thuần 32 byte.
+      PRODUCT_EVENT_PSEUDONYM_KEY: ${PRODUCT_EVENT_PSEUDONYM_KEY:?docker-smoke.sh set}
       NEXT_PUBLIC_APP_URL: https://smoke.invalid
       # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong stack smoke —
       # mọi finance entry point phải deny typed (scripts/docker-smoke.sh assert).
