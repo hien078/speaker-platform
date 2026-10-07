@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
-import { getCurrentUser } from "@/src/lib/auth";
+import { getSessionFromCookie } from "@/src/lib/session";
+import { capabilitiesOf } from "@/src/lib/rbac";
 import { ListingGallery } from "@/src/components/listing-gallery";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatVND, formatDateShort, cn } from "@/src/lib/utils";
@@ -34,7 +35,10 @@ export default async function ListingDetailPage({
   params,
 }: PageProps<"/listings/[slug]">) {
   const { slug } = await params;
-  const user = await getCurrentUser();
+  // MỘT session read — user cho owner/wishlist/chat + session.isAdmin cho
+  // admin authority của read gate bên dưới (không đọc session hai lần).
+  const current = await getSessionFromCookie();
+  const user = current?.user ?? null;
 
   const listing = await db.orm.public.Listing
     .where({ slug })
@@ -48,7 +52,24 @@ export default async function ListingDetailPage({
         .include("sellerVerification", (v) => v.select("status")))
     .first();
 
-  if (!listing || (listing.status !== "approved" && listing.sellerId !== user?.id && user?.role !== "admin")) {
+  // ─── Read gate (Batch 4 holistic review — thay legacy display-role check) ───
+  // Admin authority KHÔNG BAO GIỜ từ `user.role` (display-only —
+  // setAdminRoleAction gán role='admin' cho cả buyer được promote
+  // support/analyst): moderator xem được listing non-public CHỈ KHI session
+  // đã qua MFA (session.isAdmin — bằng chứng login path admin, rbac.ts review
+  // fix #1) VÀ adminRole có listing.moderate (capability matrix —
+  // capabilitiesOf non-throwing). Draft vẫn owner-only (L5 — /admin/listings
+  // cũng loại draft khỏi queue moderator: spec §4.4 seller-private).
+  const isModeratorSession =
+    current !== null &&
+    current.session.isAdmin &&
+    capabilitiesOf(current.user.adminRole).includes("listing.moderate");
+  if (
+    !listing ||
+    (listing.status !== "approved" &&
+      listing.sellerId !== user?.id &&
+      !(isModeratorSession && listing.status !== "draft"))
+  ) {
     notFound();
   }
 

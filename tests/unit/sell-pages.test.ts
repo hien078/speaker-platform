@@ -90,6 +90,17 @@ vi.mock("@/src/lib/auth", () => ({
   getCurrentUser: vi.fn(async () => authState.user),
 }));
 
+// Session seam thứ hai — app/listings/[slug] đọc getSessionFromCookie MỘT lần
+// (user cho owner/wishlist + session.isAdmin cho admin authority của read
+// gate — Batch 4 holistic review fix). Fixture trực tiếp như trên.
+const sessionState = vi.hoisted(() => ({
+  current: null as { session: Record<string, unknown>; user: Record<string, unknown> } | null,
+}));
+
+vi.mock("@/src/lib/session", () => ({
+  getSessionFromCookie: vi.fn(async () => sessionState.current),
+}));
+
 // Action boundary — page import để gắn <form action>; guard của action là
 // hợp đồng của listing-draft-actions/publication-gate (không phải ở đây).
 vi.mock("@/src/lib/actions/listings", () => ({
@@ -99,6 +110,15 @@ vi.mock("@/src/lib/actions/listings", () => ({
   submitListingAction: vi.fn(),
   toggleListingVisibilityAction: vi.fn(),
   deleteListingAction: vi.fn(),
+}));
+
+// Action boundary của listing detail page (chat/wishlist form action) —
+// guard của action là hợp đồng của chat-guard.test.ts, không phải ở đây.
+vi.mock("@/src/lib/actions/chat", () => ({
+  startConversationAction: vi.fn(),
+}));
+vi.mock("@/src/lib/actions/wishlist", () => ({
+  toggleWishlistAction: vi.fn(),
 }));
 
 // Bước 7 verification prop — hàm THẬT đọc 5 bảng workflow; partial mock giữ
@@ -122,6 +142,7 @@ const dbState = vi.hoisted(() => ({
   models: [] as Row[],
   actions: [] as Row[],
   priceHistory: [] as Row[],
+  wishlist: [] as Row[],
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -160,6 +181,10 @@ vi.mock("@/src/prisma/db.client", () => {
       },
       all: async () =>
         rows.filter((r) => preds.every((p) => matches(r, p))).map((r) => ({ ...r })),
+      // viewCount bump của detail page — no-op trong render harness
+      update: async () => null,
+      // modelStats avg/count của detail page — fixture trả 0 mẫu
+      aggregate: async () => ({ avg: 0, c: 0 }),
     });
     return {
       first: (filter?: Pred) => query([]).first(filter),
@@ -176,6 +201,7 @@ vi.mock("@/src/prisma/db.client", () => {
     ProductModel: makeModel(dbState.models),
     ModerationAction: makeModel(dbState.actions),
     PriceHistory: makeModel(dbState.priceHistory),
+    WishlistItem: makeModel(dbState.wishlist),
   };
 
   return {
@@ -191,6 +217,7 @@ import * as sellNewPage from "../../app/sell/new/page";
 import * as sellEditPage from "../../app/sell/[id]/edit/page";
 import * as sellMyPage from "../../app/sell/my/page";
 import * as modelPageModule from "../../app/models/[slug]/page";
+import * as listingDetailPageModule from "../../app/listings/[slug]/page";
 import { PortableListingForm } from "../../src/components/portable-listing-form";
 import { ListingForm } from "../../src/components/listing-form";
 import { submitListingAction } from "@/src/lib/actions/listings";
@@ -325,6 +352,11 @@ const MyPage = sellMyPage.default as unknown as MyPageFn;
 const ModelPage = modelPageModule.default as unknown as ModelPageFn;
 const NewPage = sellNewPage.default as unknown as NewPageFn;
 
+type DetailPageFn = (props: { params: Promise<{ slug: string }> }) => Promise<unknown>;
+const DetailPage = listingDetailPageModule.default as unknown as DetailPageFn;
+const callDetail = (slug: string): Promise<unknown> =>
+  DetailPage({ params: Promise.resolve({ slug }) });
+
 const callEdit = (id: string, error?: string): Promise<unknown> =>
   EditPage({
     params: Promise.resolve({ id }),
@@ -458,6 +490,8 @@ beforeEach(() => {
   dbState.models.length = 0;
   dbState.actions.length = 0;
   dbState.priceHistory.length = 0;
+  dbState.wishlist.length = 0;
+  sessionState.current = null;
   authState.user = {
     id: SELLER_ID,
     email: "seller@loaviet.test",
@@ -738,8 +772,19 @@ describe("app/listings/[slug] — structured fields cho buyer", () => {
     expect(listingDetail).toMatch(/listing\.includedAccessories != null/);
   });
 
-  it("legacy role read gate GIỮ NGUYÊN (follow-up recorded — không đổi batch này)", () => {
-    expect(listingDetail).toContain(`user?.role !== "admin"`);
+  it("read gate: admin authority từ session MFA + capability — KHÔNG BAO GIỜ user.role (Batch 4 holistic fix)", () => {
+    // Legacy `user?.role !== "admin"` (display role — setAdminRoleAction gán
+    // role='admin' cho buyer được promote support/analyst) ĐÃ XÓA.
+    expect(listingDetail).not.toContain(`user?.role !== "admin"`);
+    expect(listingDetail).not.toMatch(/\.role === "admin"/);
+    // Nguồn quyền mới: session.isAdmin (bằng chứng MFA) + capability matrix
+    // listing.moderate qua capabilitiesOf (rbac helpers — non-throwing).
+    expect(listingDetail).toContain("getSessionFromCookie");
+    expect(listingDetail).toContain("capabilitiesOf");
+    expect(listingDetail).toContain("session.isAdmin");
+    expect(listingDetail).toContain(`"listing.moderate"`);
+    // draft owner-only (L5 — /admin/listings cũng loại draft khỏi queue).
+    expect(listingDetail).toMatch(/listing\.status !== "draft"/);
   });
 
   it("label lookup own-property-safe (LOW-1 — keyed bởi DB data qua labelOf)", () => {
@@ -747,6 +792,122 @@ describe("app/listings/[slug] — structured fields cho buyer", () => {
     expect(listingDetail).not.toMatch(/CONDITION_LABELS\[listing\.condition\]/);
     expect(listingDetail).not.toMatch(/INVENTORY_CONTEXT_LABELS\[listing\.inventoryContext\]/);
     expect(listingDetail).not.toMatch(/FULFILLMENT_METHOD_LABELS\[m\]/);
+  });
+});
+
+// ─── 4b. app/listings/[slug] — read gate behavior (Batch 4 holistic fix) ─────
+//
+// CONFIRMED MEDIUM (b4-holistic): non-public listing hiển thị cho BẤT KÌ ai
+// có display User.role='admin' — không MFA, không capability. Buyer được
+// promote adminRole support/analyst (setAdminRoleAction vẫn gán role='admin')
+// xem được draft/pending của seller khác nguyên vẹn (knownDefects, chat,
+// wishlist, report). Admin authority phải là session.isAdmin (MFA) +
+// capabilitiesOf(adminRole) có listing.moderate — KHÔNG BAO GIỜ user.role.
+
+describe("app/listings/[slug] — read gate: admin authority session MFA + capability (behavior)", () => {
+  const DETAIL_SELLER = "seller-detail-owner";
+  const DETAIL_SLUG = "loa-detail-pending";
+
+  /** Listing non-public của seller khác (relations gắn sẵn — mock include pass-through). */
+  const detailListing = (over: Row = {}): Row =>
+    listingRow({
+      id: "listing-detail",
+      sellerId: DETAIL_SELLER,
+      slug: DETAIL_SLUG,
+      status: "pending",
+      productModelId: null, // bỏ modelStats (aggregate fixture 0)
+      images: [],
+      seller: {
+        id: DETAIL_SELLER,
+        name: "Người Bán Khác",
+        city: "Hà Nội",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        avatarUrl: null,
+        sellerVerification: null,
+      },
+      ...over,
+    });
+
+  /** Session fixture — điều khiển isAdmin (bằng chứng MFA) + adminRole. */
+  const detailSession = (over: {
+    userId?: string;
+    isAdmin?: boolean;
+    adminRole?: string | null;
+    role?: string;
+  } = {}) => ({
+    session: {
+      id: "sess-detail",
+      userId: over.userId ?? "user-viewer",
+      isAdmin: over.isAdmin ?? false,
+      createdAt: "2026-10-06T08:00:00.000Z",
+      lastSeenAt: null,
+      expiresAt: "2026-10-07T08:00:00.000Z",
+      steppedUpAt: null,
+      userAgent: null,
+    },
+    user: {
+      id: over.userId ?? "user-viewer",
+      email: "viewer@loaviet.test",
+      name: "Viewer",
+      role: over.role ?? "buyer",
+      avatarUrl: null,
+      isVerifiedSeller: false,
+      adminRole: over.adminRole ?? null,
+      sessionId: "sess-detail",
+    },
+  });
+
+  beforeEach(() => {
+    dbState.listings.push(detailListing());
+  });
+
+  it("display role 'admin' (adminRole null) → notFound — role KHÔNG là nguồn quyền", async () => {
+    sessionState.current = detailSession({ role: "admin", adminRole: null, isAdmin: true });
+    await expect(callDetail(DETAIL_SLUG)).rejects.toThrowError(NOT_FOUND);
+  });
+
+  it("adminRole support/analyst (KHÔNG có listing.moderate) + session MFA → notFound", async () => {
+    sessionState.current = detailSession({ isAdmin: true, adminRole: "analyst", role: "admin" });
+    await expect(callDetail(DETAIL_SLUG)).rejects.toThrowError(NOT_FOUND);
+    sessionState.current = detailSession({ isAdmin: true, adminRole: "support", role: "admin" });
+    await expect(callDetail(DETAIL_SLUG)).rejects.toThrowError(NOT_FOUND);
+  });
+
+  it("moderator + session MFA (isAdmin=true) → RENDER pending của seller khác", async () => {
+    sessionState.current = detailSession({ isAdmin: true, adminRole: "moderator", role: "admin" });
+    const tree = await callDetail(DETAIL_SLUG);
+    expect(textOf(tree)).toContain("JBL Charge 5 đã qua sử dụng");
+  });
+
+  it("moderator + session THƯỜNG (isAdmin=false — chưa qua MFA) → notFound", async () => {
+    sessionState.current = detailSession({ isAdmin: false, adminRole: "moderator", role: "admin" });
+    await expect(callDetail(DETAIL_SLUG)).rejects.toThrowError(NOT_FOUND);
+  });
+
+  it("draft owner-only (L5): moderator MFA → notFound; owner → render", async () => {
+    dbState.listings.length = 0;
+    dbState.listings.push(detailListing({ status: "draft" }));
+
+    sessionState.current = detailSession({ isAdmin: true, adminRole: "moderator", role: "admin" });
+    await expect(callDetail(DETAIL_SLUG)).rejects.toThrowError(NOT_FOUND);
+
+    sessionState.current = detailSession({ userId: DETAIL_SELLER, role: "seller" });
+    const tree = await callDetail(DETAIL_SLUG);
+    expect(textOf(tree)).toContain("JBL Charge 5 đã qua sử dụng");
+  });
+
+  it("owner xem pending của chính mình → render (không cần moderator)", async () => {
+    sessionState.current = detailSession({ userId: DETAIL_SELLER, role: "seller" });
+    const tree = await callDetail(DETAIL_SLUG);
+    expect(textOf(tree)).toContain("JBL Charge 5 đã qua sử dụng");
+  });
+
+  it("approved → render cho khách chưa đăng nhập (không session)", async () => {
+    dbState.listings.length = 0;
+    dbState.listings.push(detailListing({ status: "approved" }));
+    sessionState.current = null;
+    const tree = await callDetail(DETAIL_SLUG);
+    expect(textOf(tree)).toContain("JBL Charge 5 đã qua sử dụng");
   });
 });
 
