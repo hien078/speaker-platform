@@ -34,6 +34,13 @@
  *    trao đổi tham chiếu + status ≠ approved — b4-holistic-2) redirect
  *    /sell/my?error=LISTING_HAS_ORDERS (b4-holistic — KHÔNG throw);
  *    banner /sell/my đọc qua submitErrorText (allowlist này).
+ *  - LISTING_MODERATION_LOCKED (b4-holistic round-3): deleteListingAction/
+ *    toggleListingVisibilityAction/submitListingAction trên tin bị takedown
+ *    redirect /sell/my?error=LISTING_MODERATION_LOCKED (void form action —
+ *    KHÔNG throw ra error boundary); saveListingDraftAction/
+ *    updateListingAction trả CÙNG text qua form error (useActionState).
+ *  - CONCURRENT_CHANGE cũng là đích CAS 0-rows của toggle/delete (row đổi tay
+ *    giữa read và write — b4-holistic round-3: KHÔNG masquerade thành lock).
  */
 export const SUBMIT_ERROR_TEXT: Record<string, string> = {
   CONCURRENT_CHANGE: "Tin vừa thay đổi trạng thái — tải lại trang và kiểm tra lại",
@@ -69,6 +76,7 @@ export const SUBMIT_ERROR_TEXT: Record<string, string> = {
   LOCATION_DISPLAY_REQUIRED: "Nhập khu vực hiển thị (không nhập địa chỉ nhà riêng)",
   LOCATION_DISPLAY_INVALID: "Khu vực hiển thị quá dài (tối đa 120 ký tự)",
   LISTING_HAS_ORDERS: "Tin đang có đơn hàng liên quan — không thể thao tác",
+  LISTING_MODERATION_LOCKED: "Tin đang bị khóa bởi kiểm duyệt — không thể thao tác",
 };
 
 /**

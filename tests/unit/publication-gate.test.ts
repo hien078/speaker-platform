@@ -732,6 +732,27 @@ describe("createListingAction — gate trước Listing.create (spec §4.4)", ()
     expect(dbState.listings[0]).toMatchObject({ sellerId: seller.id, status: "pending" });
     expect(dbState.images).toHaveLength(1);
   });
+
+  it("b4-holistic round-3 — title CJK (slugify → '') → slug fallback KHÔNG rỗng (trang chi tiết mở được)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    login(seller);
+
+    // Title CJK pass checkTitle (có \p{L}) nhưng slugify strip hết → listingSlug
+    // fallback "tin-<uuid8>" — slug '' khiến MỌI link /listings/<slug> trỏ vào
+    // index (trang của tin KHÔNG BAO GIỜ mở được, kể cả sau khi duyệt).
+    const url = await expectRedirect(() =>
+      createListingAction({}, listingForm({ title: "蓝牙音箱很好用低音炮" })),
+    );
+
+    expect(url).toContain("/sell/my?created=1");
+    expect(dbState.listings).toHaveLength(1);
+    const slug = String(dbState.listings[0]!["slug"]);
+    expect(slug).not.toBe("");
+    expect(slug).toMatch(/^tin-[0-9a-f]{8}$/);
+  });
 });
 
 // ─── 2. updateListingAction ──────────────────────────────────────────────────
@@ -1361,47 +1382,46 @@ describe("per-path gate pins — create/submit/update-into-pending/toggle gọi 
 // ─── 10. R5 — moderation lock giữ nguyên sau rewire + source contract ─────────
 
 describe("R5 — moderation lock sau rewire (Batch 3 guards giữ nguyên)", () => {
-  it("updateListingAction trên listing bị takedown → LISTING_MODERATION_LOCKED, KHÔNG mutation", async () => {
+  it("updateListingAction trên listing bị takedown → typed form error LISTING_MODERATION_LOCKED (KHÔNG throw), KHÔNG mutation", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "removed");
     login(seller);
 
-    await expect(
-      updateListingAction(
-        {},
-        listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng SỬA SAU TAKEDOWN" }),
-      ),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: useActionState action KHÔNG throw ra error boundary —
+    // typed form error qua banner state.error.
+    const state = await updateListingAction(
+      {},
+      listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng SỬA SAU TAKEDOWN" }),
+    );
+    expect(state.error).toContain("LISTING_MODERATION_LOCKED");
 
     expect(listing.status).toBe("removed");
     expect(listing.title).toBe("Loa JBL Charge 5 chính hãng");
   });
 
-  it("toggleListingVisibilityAction trên listing bị takedown → LISTING_MODERATION_LOCKED (không un-remove)", async () => {
+  it("toggleListingVisibilityAction trên listing bị takedown → redirect typed code LISTING_MODERATION_LOCKED (không un-remove, KHÔNG throw)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "removed");
     login(seller);
 
-    await expect(
-      toggleListingVisibilityAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
+    expect(url).toBe("/sell/my?error=LISTING_MODERATION_LOCKED");
     expect(listing.status).toBe("removed");
   });
 
-  it("deleteListingAction trên listing bị takedown → LISTING_MODERATION_LOCKED, row SỐNG SÓT", async () => {
+  it("deleteListingAction trên listing bị takedown → redirect typed code LISTING_MODERATION_LOCKED (KHÔNG throw), row SỐNG SÓT", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "removed");
     login(seller);
 
-    await expect(
-      deleteListingAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    const url = await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
+    expect(url).toBe("/sell/my?error=LISTING_MODERATION_LOCKED");
     expect(dbState.listings.find((l) => l["id"] === listing.id)).toBeDefined();
   });
 

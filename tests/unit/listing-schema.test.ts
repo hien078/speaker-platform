@@ -262,6 +262,17 @@ describe("betaListingSubmissionSchema — requiredness đầy đủ", () => {
     );
   });
 
+  it("b4-holistic round-3 — title KHÔNG có chữ/số nào (chỉ dấu câu/emoji/zero-width) → TITLE_INVALID (empty slug)", () => {
+    // Title chỉ dấu câu/emoji bị slugify strip hết → slug '' → MỌI link
+    // /listings/<slug> trỏ vào index; chặn tại schema là gate đúng.
+    expectValidationCode(betaInput({ title: "!!!!!!!!" }), "TITLE_INVALID");
+    expectValidationCode(betaInput({ title: "🎉✨🎵🔊🎧" }), "TITLE_INVALID");
+    // zero-width (U+200B × 8) — trim() không bỏ, length pass 8, KHÔNG chữ/số
+    expectValidationCode(betaInput({ title: "​".repeat(8) }), "TITLE_INVALID");
+    // CJK CÓ chữ (\p{L}) → pass check (fallback listingSlug lo slug rỗng)
+    expect(betaListingSubmissionSchema.safeParse(betaInput({ title: "蓝牙音箱很好用低音炮" })).success).toBe(true);
+  });
+
   it("price ngoài 100.000₫–2 tỷ ₫ → PRICE_INVALID (giữ nguyên bound hiện tại)", () => {
     expectValidationCode(betaInput({ price: 99_000 }), "PRICE_INVALID");
     expectValidationCode(betaInput({ price: 2_000_000_001 }), "PRICE_INVALID");

@@ -556,13 +556,17 @@ afterEach(() => {
 // ─── 1. R5 — lock guard trên listing removed ────────────────────────────────
 
 describe("R5 — seller-side lock: listing removed KHÔNG được edit/toggle/delete", () => {
-  it("updateListingAction trên listing removed → LISTING_MODERATION_LOCKED, KHÔNG mutation", async () => {
+  it("updateListingAction trên listing removed → typed form error LISTING_MODERATION_LOCKED (KHÔNG throw), KHÔNG mutation", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "removed");
 
-    await expect(
-      updateListingAction({}, listingForm({ listingId: listing.id, title: "SỬA SAU TAKEDOWN" })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: useActionState action KHÔNG throw ra error boundary —
+    // typed form error hiển thị qua banner state.error của PortableListingForm.
+    const state = await updateListingAction(
+      {},
+      listingForm({ listingId: listing.id, title: "SỬA SAU TAKEDOWN" }),
+    );
+    expect(state.error).toContain("LISTING_MODERATION_LOCKED");
 
     // KHÔNG mutation — seller không edit để thoát takedown
     expect(listingRow(listing.id)).toMatchObject({
@@ -572,24 +576,38 @@ describe("R5 — seller-side lock: listing removed KHÔNG được edit/toggle/d
     expect(dbState.images).toHaveLength(0); // ảnh không bị đụng
   });
 
-  it("toggleListingVisibilityAction trên listing removed → LISTING_MODERATION_LOCKED, status GIỮ NGUYÊN removed (không un-remove)", async () => {
+  it("toggleListingVisibilityAction trên listing removed → redirect typed code LISTING_MODERATION_LOCKED (KHÔNG throw), status GIỮ NGUYÊN removed (không un-remove)", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "removed");
 
-    await expect(
-      toggleListingVisibilityAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    let redirected = false;
+    try {
+      await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=LISTING_MODERATION_LOCKED");
+    }
+    expect(redirected).toBe(true);
 
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
   });
 
-  it("deleteListingAction trên listing removed → LISTING_MODERATION_LOCKED, row SỐNG SÓT (nguồn moderation record không bị phá)", async () => {
+  it("deleteListingAction trên listing removed → redirect typed code LISTING_MODERATION_LOCKED (KHÔNG throw), row SỐNG SÓT (nguồn moderation record không bị phá)", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "removed");
 
-    await expect(
-      deleteListingAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    let redirected = false;
+    try {
+      await deleteListingAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=LISTING_MODERATION_LOCKED");
+    }
+    expect(redirected).toBe(true);
 
     // row GIỮ NGUYÊN — moderation record vẫn chỉ vào nguồn sống
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
@@ -600,7 +618,7 @@ describe("R5 — seller-side lock: listing removed KHÔNG được edit/toggle/d
 // ─── 2. SHOULD-FIX 3 — conditional-write race (takedown đổi row underneath) ──
 
 describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed", () => {
-  it("updateListingAction đọc approved, takedown đổi row sang removed TRƯỚC write → 0 rows → LISTING_MODERATION_LOCKED, status GIỮ NGUYÊN removed, ảnh KHÔNG bị đụng", async () => {
+  it("updateListingAction đọc approved, takedown đổi row sang removed TRƯỚC write → 0 rows → typed form error LISTING_MODERATION_LOCKED (KHÔNG throw), status GIỮ NGUYÊN removed, ảnh KHÔNG bị đụng", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
     // ảnh ĐÃ CÓ của listing — nếu action mutate ảnh trước CAS (bug cũ), một
@@ -608,14 +626,18 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     dbState.images.push({ id: "img-race", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 3 });
     // Takedown (request khác) đổi row sang removed NGAY TRƯỚC khi write của
     // action này chạy — conditional write .where({ id, status: "approved" })
-    // hit 0 rows → typed error (check-then-write sẽ CLOBBER removed).
+    // hit 0 rows → typed form error (check-then-write sẽ CLOBBER removed).
     dbState.beforeListingWrite = () => {
       listing.status = "removed";
     };
 
-    await expect(
-      updateListingAction({}, listingForm({ listingId: listing.id, title: "SỬA TRONG RACE" })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: CAS-0-rows nhánh moderation-lock → typed form error
+    // (sentinel classify ở catch — KHÔNG throw ra error boundary).
+    const state = await updateListingAction(
+      {},
+      listingForm({ listingId: listing.id, title: "SỬA TRONG RACE" }),
+    );
+    expect(state.error).toContain("LISTING_MODERATION_LOCKED");
 
     // row GIỮ NGUYÊN removed — KHÔNG bị clobber về pending/approved
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
@@ -647,30 +669,46 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     expect(dbState.images[0]).toMatchObject({ url: "/uploads/a.jpg", sortOrder: 3 });
   });
 
-  it("toggleListingVisibilityAction đọc approved, takedown đổi row → 0 rows → typed error, status GIỮ NGUYÊN removed", async () => {
+  it("toggleListingVisibilityAction đọc approved, takedown đổi row → 0 rows → redirect CONCURRENT_CHANGE (KHÔNG throw), status GIỮ NGUYÊN removed", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
     dbState.beforeListingWrite = () => {
       listing.status = "removed";
     };
 
-    await expect(
-      toggleListingVisibilityAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: CAS 0-rows → redirect typed code trung thực
+    // (CONCURRENT_CHANGE — row đổi tay), KHÔNG masquerade thành lock, KHÔNG throw.
+    let redirected = false;
+    try {
+      await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=CONCURRENT_CHANGE");
+    }
+    expect(redirected).toBe(true);
 
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
   });
 
-  it("deleteListingAction đọc approved, takedown đổi row → conditional delete 0 rows → typed error, row SỐNG SÓT removed", async () => {
+  it("deleteListingAction đọc approved, takedown đổi row → conditional delete 0 rows → redirect CONCURRENT_CHANGE (KHÔNG throw), row SỐNG SÓT removed", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
     dbState.beforeListingWrite = () => {
       listing.status = "removed";
     };
 
-    await expect(
-      deleteListingAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    let redirected = false;
+    try {
+      await deleteListingAction(fd({ listingId: listing.id }));
+    } catch (e) {
+      const msg = (e as Error).message;
+      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
+      redirected = true;
+      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=CONCURRENT_CHANGE");
+    }
+    expect(redirected).toBe(true);
 
     // row KHÔNG bị xóa — status removed nguyên vẹn
     expect(listingRow(listing.id)).toMatchObject({ status: "removed" });
@@ -898,22 +936,15 @@ describe("b4-holistic-2 — deleteListingAction pre-check ExchangeOffer.myListin
     expect(dbState.exchangeOffers).toHaveLength(1); // offer nguyên vẹn
   });
 
-  it("hidden + ExchangeOffer.myListingId → redirect LISTING_HAS_ORDERS (KHÔNG hard-delete, KHÔNG throw 23503)", async () => {
+  it("hidden + ExchangeOffer.myListingId → NO-OP im lặng (b4-holistic round-3 — tin ĐÃ ẩn, xóa không còn nghĩa gì; KHÔNG hard-delete, KHÔNG throw, KHÔNG banner)", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "hidden");
     seedOffer(listing.id);
 
-    // redirect typed code — KHÔNG throw Error ra error boundary
-    let redirected = false;
-    try {
-      await deleteListingAction(fd({ listingId: listing.id }));
-    } catch (e) {
-      const msg = (e as Error).message;
-      if (!msg.startsWith("NEXT_REDIRECT:")) throw e;
-      redirected = true;
-      expect(msg).toBe("NEXT_REDIRECT:/sell/my?error=LISTING_HAS_ORDERS");
-    }
-    expect(redirected).toBe(true);
+    // b4-holistic round-3 (verified fix): hidden + orders/offer → no-op
+    // (Batch 3 behavior) — banner LISTING_HAS_ORDERS chỉ cho status CHƯA ẩn
+    // (draft/pending/rejected — row sống sót, seller cần biết vì sao).
+    await deleteListingAction(fd({ listingId: listing.id }));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" }); // GIỮ NGUYÊN
     expect(dbState.exchangeOffers).toHaveLength(1);

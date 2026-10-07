@@ -869,15 +869,16 @@ describe("saveListingDraftAction — draft được phép trước verification"
     expect(dbState.listings).toHaveLength(0);
   });
 
-  it("saveListingDraftAction trên listing bị moderation takedown → LISTING_MODERATION_LOCKED (R5 — isModerationLocked, không hardcode)", async () => {
+  it("saveListingDraftAction trên listing bị moderation takedown → typed form error LISTING_MODERATION_LOCKED (R5 — KHÔNG throw ra error boundary)", async () => {
     const seller = mkUser({ id: "seller-fresh", role: "seller" });
     dbState.users.push(seller);
     login(seller);
     const takenDown = seedListing(seller.id, "removed");
 
-    await expect(
-      saveListingDraftAction({}, betaForm({ listingId: takenDown.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: useActionState action KHÔNG throw — typed form error
+    // hiển thị qua banner state.error (trước fix: error boundary thay cả form).
+    const state = await saveListingDraftAction({}, betaForm({ listingId: takenDown.id }));
+    expect(state.error).toContain("LISTING_MODERATION_LOCKED");
     expect(takenDown.status).toBe("removed");
   });
 });
@@ -1067,16 +1068,17 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     expect(dbState.audits).toHaveLength(0); // KHÔNG audit — không phải block, chỉ no-op
   });
 
-  it("submit trên listing bị moderation takedown → LISTING_MODERATION_LOCKED (R5)", async () => {
+  it("submit trên listing bị moderation takedown → redirect typed code LISTING_MODERATION_LOCKED (R5 — KHÔNG throw ra error boundary)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     const takenDown = seedListing(seller.id, "removed");
     login(seller);
 
-    await expect(
-      submitListingAction(fd({ listingId: takenDown.id })),
-    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // b4-holistic round-3: void form action KHÔNG throw — redirect typed code
+    // trong allowlist banner /sell/my (trước fix: generic error page).
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: takenDown.id })));
+    expect(url).toBe("/sell/my?error=LISTING_MODERATION_LOCKED");
     expect(takenDown.status).toBe("removed");
   });
 

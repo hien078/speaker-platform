@@ -6,7 +6,7 @@ import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 import type { JsonValue } from "@prisma/orm-postgres/target/codec-types";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
-import { slugify } from "@/src/lib/utils";
+import { listingSlug, slugify } from "@/src/lib/utils";
 import { isModerationLocked } from "@/src/lib/moderation";
 import {
   assertListingPublishable,
@@ -390,8 +390,11 @@ export async function createListingAction(
   });
   if (blocked) return blocked;
 
-  // slug duy nhất — thêm suffix nếu trùng (giữ nguyên hành vi)
-  let slug = slugify(input.title);
+  // slug duy nhất — thêm suffix nếu trùng (giữ nguyên hành vi).
+  // b4-holistic round-3 (LOW — empty slug): listingSlug KHÔNG bao giờ trả ''
+  // (title chỉ dấu/CJK bị slugify strip hết → fallback uuid ngắn) — slug ''
+  // khiến MỌI link /listings/<slug> trỏ vào index, trang tin không mở được.
+  let slug = listingSlug(input.title);
   const slugTaken = await db.orm.public.Listing.where({ slug }).first();
   if (slugTaken) slug = `${slug}-${Date.now().toString(36)}`;
 
@@ -490,9 +493,16 @@ export async function saveListingDraftAction(
   if (listingId !== "") {
     existing = await db.orm.public.Listing.first({ id: listingId });
     if (!existing || existing.sellerId !== user.id) return {}; // silent return (IDOR)
-    // R5 — moderation lock (Batch 3 helper — KHÔNG hardcode status)
+    // R5 — moderation lock (Batch 3 helper — KHÔNG hardcode status).
+    // b4-holistic round-3 (LOW — typed error thay throw): useActionState action
+    // throw → React error boundary thay form (không có error boundary dưới
+    // app/sell trước fix) — seller mất toàn bộ form + edits. Typed form error
+    // hiển thị qua banner state.error (edit page cũng render notice read-only
+    // khi load trang mới — đây là nhánh takedown land GIỮA page load và submit).
     if (isModerationLocked(existing.status)) {
-      throw new Error("LISTING_MODERATION_LOCKED");
+      return {
+        error: "Tin đang bị khóa bởi kiểm duyệt — không thể chỉnh sửa (LISTING_MODERATION_LOCKED)",
+      };
     }
     // chỉ draft được sửa như draft (approved/pending/… không qua đường này).
     // b4-holistic (LOW form-action-contract): KHÔNG silent return {} — form
@@ -565,8 +575,10 @@ export async function saveListingDraftAction(
     throw e;
   }
 
-  // slug duy nhất — thêm suffix nếu trùng (giữ nguyên hành vi)
-  let slug = slugify(input.title);
+  // slug duy nhất — thêm suffix nếu trùng (giữ nguyên hành vi).
+  // b4-holistic round-3 (LOW — empty slug): listingSlug fallback uuid khi title
+  // slugify thành '' (đường draft-create cùng dùng helper với createListingAction).
+  let slug = listingSlug(input.title);
   const slugTaken = await db.orm.public.Listing.where({ slug }).first();
   if (slugTaken) slug = `${slug}-${Date.now().toString(36)}`;
 
@@ -699,19 +711,23 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
   // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
   // seller KHÔNG được toggle (không un-remove qua nút hiện lại); helper từ
   // moderation vocab — KHÔNG hardcode chuỗi status.
+  // b4-holistic round-3 (LOW — typed redirect thay throw): void form action
+  // throw → generic error page. Redirect typed code trong allowlist banner
+  // /sell/my (fixed code, KHÔNG free text).
   if (isModerationLocked(listing.status)) {
-    throw new Error("LISTING_MODERATION_LOCKED");
+    redirect("/sell/my?error=LISTING_MODERATION_LOCKED");
   }
 
   if (listing.status === "approved") {
     // Ẩn tin = transition RA khỏi công khai — luôn được phép (gỡ tin khỏi chợ
     // không cần gate; hiện lại mới là transition vào công khai).
     // CAS theo status đã đọc — duyệt/ẩn song song không ghi đè nhau;
-    // 0 rows → typed error (row đổi tay giữa read và write).
+    // 0 rows → typed redirect (row đổi tay giữa read và write — CONCURRENT_CHANGE
+    // là code trung thực, KHÔNG masquerade thành moderation lock).
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "approved" })
       .updateAll({ status: "hidden" });
-    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+    if (claimed.length === 0) redirect("/sell/my?error=CONCURRENT_CHANGE");
   } else if (listing.status === "hidden") {
     // Hiện lại = transition vào CÔNG KHAI — full publication gate (Batch 4:
     // seller gate + category + schema + model + images) với input TỪ DB ROW
@@ -767,33 +783,44 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
     if (listing.approvedContentAt == null) {
       // CAS hidden→pending + audit listing.submitted trong MỘT tx (mọi path
       // vào review ghi cùng một event §4.6 — auditEventTx sống chết với claim).
-      // 0 rows → THROW ra khỏi callback (row đổi tay giữa read và write).
-      await db.transaction(async (tx) => {
-        const claimed = await tx.orm.public.Listing
-          .where({ id: listingId, status: "hidden" })
-          .updateAll({ status: "pending" });
-        if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
-        await auditEventTx(tx, {
-          actorId: user.id,
-          subjectId: user.id,
-          action: "listing.submitted",
-          resourceType: "Listing",
-          resourceId: listingId,
-          policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
-          detail: "via=show_again", // typed value — KHÔNG free text (spec §4.8)
+      // 0 rows → THROW ra khỏi callback (row đổi tay giữa read và write) —
+      // sentinel LISTING_CONCURRENT_CHANGE trung thực, classify NGOÀI tx.
+      try {
+        await db.transaction(async (tx) => {
+          const claimed = await tx.orm.public.Listing
+            .where({ id: listingId, status: "hidden" })
+            .updateAll({ status: "pending" });
+          if (claimed.length === 0) throw new Error("LISTING_CONCURRENT_CHANGE");
+          await auditEventTx(tx, {
+            actorId: user.id,
+            subjectId: user.id,
+            action: "listing.submitted",
+            resourceType: "Listing",
+            resourceId: listingId,
+            policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+            detail: "via=show_again", // typed value — KHÔNG free text (spec §4.8)
+          });
         });
-      });
+      } catch (e) {
+        // Classify NGOÀI tx (Global Constraints): CAS thua → redirect typed
+        // code (b4-holistic round-3 — KHÔNG throw ra error boundary); lỗi khác
+        // ném tiếp (fail closed).
+        if (e instanceof Error && e.message === "LISTING_CONCURRENT_CHANGE") {
+          redirect("/sell/my?error=CONCURRENT_CHANGE");
+        }
+        throw e;
+      }
       revalidatePath("/sell/my");
       revalidatePath("/admin/listings");
       // Seller thấy "Đã gửi duyệt" — KHÔNG im lặng (trạng thái badge đổi sang
       // Chờ duyệt; banner ?submitted=1 cùng text submitListingAction).
       redirect("/sell/my?submitted=1");
     }
-    // CAS như trên — 0 rows → typed error (row đổi tay giữa read và write).
+    // CAS như trên — 0 rows → typed redirect (row đổi tay giữa read và write).
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "hidden" })
       .updateAll({ status: "approved" });
-    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+    if (claimed.length === 0) redirect("/sell/my?error=CONCURRENT_CHANGE");
   }
 
   revalidatePath("/sell/my");
@@ -836,8 +863,13 @@ export async function updateListingAction(
   // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
   // seller KHÔNG được sửa (không edit để thoát takedown); helper từ moderation
   // vocab — KHÔNG hardcode chuỗi status.
+  // b4-holistic round-3 (LOW — typed error thay throw): useActionState action
+  // throw → error boundary thay form (seller mất edits). Typed form error qua
+  // banner state.error; nhánh CAS-0-rows bên dưới phân loại RIÊNG (concurrent).
   if (isModerationLocked(listing.status)) {
-    throw new Error("LISTING_MODERATION_LOCKED");
+    return {
+      error: "Tin đang bị khóa bởi kiểm duyệt — không thể chỉnh sửa (LISTING_MODERATION_LOCKED)",
+    };
   }
   if (listing.status === "sold") {
     return { error: "Không thể sửa tin đã bán" };
@@ -1023,12 +1055,19 @@ export async function updateListingAction(
     // slug-collision; CAS thua vì status đổi tay (admin duyệt/từ chối thường)
     // → typed form error (b4-holistic form-action-contract: KHÔNG throw ra
     // error boundary — PortableListingForm hiển thị banner state.error);
+    // takedown land GIỮA read và write → CAS-0-rows nhánh moderation-lock
+    // (sentinel riêng — KHÔNG masquerade) → typed form error cùng loại;
     // lỗi khác néM TIẾP (fail closed — KHÔNG masquerade).
     if (isListingSlugCollision(e)) {
       return { error: "Tiêu đề đã trùng — chọn tiêu đề khác (LISTING_SLUG_COLLISION)" };
     }
     if (e instanceof Error && e.message === "LISTING_CONCURRENT_CHANGE") {
       return { error: "Tin vừa thay đổi trạng thái — tải lại trang rồi thử lại (LISTING_CONCURRENT_CHANGE)" };
+    }
+    if (e instanceof Error && e.message === "LISTING_MODERATION_LOCKED") {
+      return {
+        error: "Tin đang bị khóa bởi kiểm duyệt — không thể chỉnh sửa (LISTING_MODERATION_LOCKED)",
+      };
     }
     throw e;
   }
@@ -1074,9 +1113,11 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.sellerId !== user.id) return;
 
-  // R5 — moderation lock (Batch 3 helper — KHÔNG hardcode status)
+  // R5 — moderation lock (Batch 3 helper — KHÔNG hardcode status).
+  // b4-holistic round-3 (LOW — typed redirect thay throw): void form action
+  // throw → generic error page. Redirect typed code trong allowlist banner.
   if (isModerationLocked(listing.status)) {
-    throw new Error("LISTING_MODERATION_LOCKED");
+    redirect("/sell/my?error=LISTING_MODERATION_LOCKED");
   }
   // draft-only (không double-submit — pending/approved/… no-op im lặng)
   if (listing.status !== "draft") return;
@@ -1195,8 +1236,11 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
   // R5 — moderation lock (Batch 3 Task 6): tin bị moderation takedown thì
   // seller KHÔNG được xóa — nguồn của moderation record không bị phá bởi
   // chính subject của nó; helper từ moderation vocab.
+  // b4-holistic round-3 (LOW — typed redirect thay throw): void form action
+  // throw → generic error page. Redirect typed code trong allowlist banner
+  // /sell/my (fixed code, KHÔNG free text).
   if (isModerationLocked(listing.status)) {
-    throw new Error("LISTING_MODERATION_LOCKED");
+    redirect("/sell/my?error=LISTING_MODERATION_LOCKED");
   }
   if (listing.status === "sold") return;
 
@@ -1216,6 +1260,14 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
     // rejected/draft bị hide xong seller toggle hidden→approved (chỉ qua
     // seller gate, KHÔNG qua admin review) → review bypass. Status khác +
     // có tham chiếu (đơn HOẶC offer) → typed error, status GIỮ NGUYÊN.
+    // b4-holistic round-3: hidden + orders → NO-OP im lặng (Batch 3 behavior) —
+    // tin ĐÃ ẩn rồi, "xóa" không còn nghĩa gì; banner LISTING_HAS_ORDERS chỉ
+    // cho status chưa-ẩn (draft/pending/rejected — row sống sót, seller cần
+    // biết vì sao không xóa được).
+    if (listing.status === "hidden") {
+      revalidatePath("/sell/my");
+      return;
+    }
     if (listing.status !== "approved") {
       // b4-holistic (LOW form-action-contract): void form action KHÔNG throw
       // expected condition ra error boundary — redirect typed code trong
@@ -1225,21 +1277,21 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
       redirect("/sell/my?error=LISTING_HAS_ORDERS");
     }
     // đã nằm trong đơn/offer — chỉ cho ẩn (approved → hidden). CAS theo approved
-    // (SHOULD-FIX 3): 0 rows = row đổi tay giữa read và write → typed error,
-    // KHÔNG clobber.
+    // (SHOULD-FIX 3): 0 rows = row đổi tay giữa read và write → typed redirect
+    // (CONCURRENT_CHANGE trung thực), KHÔNG clobber, KHÔNG masquerade lock.
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: "approved" })
       .updateAll({ status: "hidden" });
-    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+    if (claimed.length === 0) redirect("/sell/my?error=CONCURRENT_CHANGE");
   } else {
     // Xóa CÓ ĐIỀU KIỆN theo status đã đọc (SHOULD-FIX 3) — deleteAll compile
     // điều kiện status VÀO câu DELETE (Prisma 8 .delete() đơn-row select rồi
     // xoá theo id → KHÔNG atomic, takedown song song bị xoá mất). 0 rows = row
-    // đổi tay (moderation takedown) → typed error, row SỐNG SÓT.
+    // đổi tay (moderation takedown) → typed redirect, row SỐNG SÓT.
     const claimed = await db.orm.public.Listing
       .where({ id: listingId, status: listing.status })
       .deleteAll();
-    if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
+    if (claimed.length === 0) redirect("/sell/my?error=CONCURRENT_CHANGE");
     // FK cascade đã xoá ảnh/cart theo Listing; deleteAll giữ đúng nghĩa nếu
     // cascade đổi sau này.
     await db.orm.public.ListingImage.where({ listingId }).deleteAll();

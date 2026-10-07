@@ -186,6 +186,12 @@ const issue = (ctx: RefineCtx, path: string, message: string): void => {
 /** Rule CHUNG của cả 3 regime: title 8–120 (rule hiện có). */
 const checkTitle = (v: ListingBase, ctx: RefineCtx): void => {
   if (v.title.length < 8 || v.title.length > 120) issue(ctx, "title", "TITLE_INVALID");
+  // b4-holistic round-3 (LOW — empty slug): title phải có ÍT NHẤT một chữ cái
+  // hoặc SỐ (\p{L}\p{N} — Unicode, bao gồm CJK). Title chỉ dấu câu/emoji/
+  // zero-width ("!!!!!!!!", U+200B×8) slugify thành '' → trang chi tiết không
+  // bao giờ mở được (xem listingSlug fallback); chặn tại schema là gate đúng.
+  // (CJK vẫn pass check này nhưng slugify strip — fallback listingSlug lo phần đó.)
+  if (!/[\p{L}\p{N}]/u.test(v.title)) issue(ctx, "title", "TITLE_INVALID");
 };
 
 /** Rule CHUNG: price bounds 100.000₫–2 tỷ ₫ (giữ nguyên — KHÔNG siết). */
