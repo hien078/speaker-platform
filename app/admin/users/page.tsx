@@ -83,10 +83,14 @@ export default async function AdminUsersPage({
   }
 
   // đếm listing & đơn + founding_seller membership + suspension active của từng user
+  // b4-holistic-2 (LOW): cột "Tin đăng" KHÔNG đếm draft (Batch 4 draft không
+  // qua seller gate — applicant stack nháp thổi phồng count); draft đếm riêng
+  // hiển thị kèm "(+M nháp)" — cùng tín hiệu như /admin/seller-verification.
   const enriched = await Promise.all(
     users.map(async (u) => {
-      const [listings, orders, founding, suspension] = await Promise.all([
-        db.orm.public.Listing.where({ sellerId: u.id }).aggregate((a) => ({ c: a.count() })),
+      const [listings, drafts, orders, founding, suspension] = await Promise.all([
+        db.orm.public.Listing.where({ sellerId: u.id }).where((l) => l.status.neq("draft")).aggregate((a) => ({ c: a.count() })),
+        db.orm.public.Listing.where({ sellerId: u.id, status: "draft" }).aggregate((a) => ({ c: a.count() })),
         db.orm.public.Order
           .where({ sellerId: u.id })
           .where({ status: "completed" })
@@ -98,6 +102,7 @@ export default async function AdminUsersPage({
       return {
         ...u,
         listingCount: listings.c,
+        draftCount: drafts.c,
         completedSales: orders.c,
         foundingStatus: founding?.status ?? null,
         activeSuspension: suspension === null ? null : {
@@ -170,7 +175,13 @@ export default async function AdminUsersPage({
                     </span>
                   </td>
                   <td className="text-xs text-[var(--ink-2)]">{u.city ?? "—"}</td>
-                  <td className="text-sm">{u.listingCount}</td>
+                  <td className="text-sm">
+                    {u.listingCount}
+                    {/* b4-holistic-2: draft hiển thị kèm — KHÔNG đếm vào số chính */}
+                    {u.draftCount > 0 && (
+                      <span className="ml-1 text-[11px] text-[var(--muted)]">(+{u.draftCount} nháp)</span>
+                    )}
+                  </td>
                   <td className="text-sm">{u.completedSales}</td>
                   <td>
                     {u.isVerifiedSeller ? (
