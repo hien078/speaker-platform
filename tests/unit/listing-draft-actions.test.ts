@@ -1223,31 +1223,189 @@ describe("rate limit — listing mutation (§7.1)", () => {
   });
 });
 
-// ─── 4. updateListingAction trên draft — không transition (specified) ────────
+// ─── 4. updateListingAction trên draft — BỊ CHẶN (b4-holistic MEDIUM) ────────
 
-describe("updateListingAction trên draft — status GIỮ draft, chỉ assertListingContentValid (KHÔNG seller gate)", () => {
-  it("content change trên draft → status draft, assertListingContentValid chạy 1 lần, 0 seller gate", async () => {
+describe("updateListingAction trên draft — typed LISTING_DRAFT_NOT_EDITABLE (b4-holistic)", () => {
+  it("MEDIUM b4-holistic: draft KHÔNG sửa qua updateListingAction — typed error, KHÔNG write, KHÔNG PriceHistory, KHÔNG gate call", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
-    // revoked — chứng minh KHÔNG seller gate trên non-transition update
-    seedPolicyRows(seller.id, { verificationStatus: "revoked" });
+    seedPolicyRows(seller.id, { verificationStatus: "revoked" }); // revoked — kẻ viết của finding
     seedUpload(seller.id);
     const draft = seedListing(seller.id, "draft");
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
 
-    const url = await expectRedirect(() =>
+    // Trước fix: draft ∉ transition list → chỉ content validation → CAS
+    // status draft match → PriceHistory reprice row viết cho MỌI lần đổi giá
+    // (public price stats — /models, /compare, listing detail) mà KHÔNG qua
+    // publication gate. Sau fix: typed error, drafts đi saveListingDraftAction
+    // (không PriceHistory) + submitListingAction (full gate).
+    const state = await updateListingAction(
+      {},
+      betaForm({ listingId: draft.id, price: "990000", title: "Loa JBL Charge 5 chính hãng ĐỔI GIÁ NHÁP" }),
+    );
+
+    expect(state.error).toContain("LISTING_DRAFT_NOT_EDITABLE");
+    expect(draft.price).toBe(1_800_000); // KHÔNG write
+    expect(draft.title).toBe("Loa JBL Charge 5 chính hãng"); // KHÔNG write
+    expect(dbState.priceHistory).toHaveLength(0); // KHÔNG public price row
+    expect(gateState.contentValidCalls).toBe(0); // chặn TRƯỚC gate
+    expect(gateState.publishableCalls).toBe(0);
+    expect(gateState.sellerGateCalls).toBe(0);
+  });
+});
+
+// ─── 5. b4-holistic — listing.submitted audit MỌI đường vào review + PriceHistory ──
+
+describe("b4-holistic — listing.submitted audit trên MỌI đường vào review + PriceHistory discipline", () => {
+  it("LOW b4-holistic: createListingAction (submit-ngay) → audit listing.submitted kèm policyVersion v1 (via=create)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    login(seller);
+
+    const { createListingAction } = await import("@/src/lib/actions/listings");
+    await expectRedirect(() => createListingAction({}, betaForm()));
+
+    expect(dbState.listings).toHaveLength(1);
+    const evt = auditsOf("listing.submitted")[0]!;
+    expect(evt).toMatchObject({
+      actorId: seller.id,
+      subjectId: seller.id,
+      resourceType: "Listing",
+      resourceId: dbState.listings[0]!.id,
+      policyVersion: "v1", // SELLER_RULES_POLICY_VERSION (§4.6)
+      detail: "via=create", // typed value — KHÔNG free text (spec §4.8)
+    });
+  });
+
+  it("LOW b4-holistic: updateListingAction content-change approved→pending → audit listing.submitted (via=edit_resubmit)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const approved = seedListing(seller.id, "approved");
+    seedImage(approved.id, IMG_URL, "front");
+    login(seller);
+
+    await expectRedirect(() =>
       updateListingAction(
         {},
-        betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ" }),
+        betaForm({ listingId: approved.id, title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ" }),
       ),
     );
 
-    expect(url).toContain("/sell/my?updated=1");
-    expect(draft.status).toBe("draft"); // draft ∉ transition list — GIỮ draft
-    expect(draft.title).toBe("Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ");
-    expect(gateState.contentValidCalls).toBe(1); // item 1 — non-transition validate content
-    expect(gateState.publishableCalls).toBe(0); // KHÔNG full gate
-    expect(gateState.sellerGateCalls).toBe(0); // KHÔNG seller gate (revoked vẫn sửa draft được)
+    expect(approved.status).toBe("pending");
+    const evt = auditsOf("listing.submitted")[0]!;
+    expect(evt).toMatchObject({
+      actorId: seller.id,
+      subjectId: seller.id,
+      resourceType: "Listing",
+      resourceId: approved.id,
+      policyVersion: "v1",
+      detail: "via=edit_resubmit",
+    });
   });
+
+  it("LOW b4-holistic: updateListingAction KHÔNG vào review (approved không đổi content) → KHÔNG audit listing.submitted", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const approved = seedListing(seller.id, "approved");
+    seedImage(approved.id, IMG_URL, "front");
+    login(seller);
+
+    // form GIỮ NGUYÊN mọi giá trị → contentChanged false → status GIỮ approved
+    await expectRedirect(() => updateListingAction({}, betaForm({ listingId: approved.id })));
+
+    expect(approved.status).toBe("approved");
+    expect(auditsOf("listing.submitted")).toHaveLength(0);
+  });
+
+  it("LOW b4-holistic: submitListingAction draft→pending → PriceHistory 'listed' row (ĐÚNG 1) — như direct create", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    login(seller);
+
+    await submitListingAction(fd({ listingId: draft.id }));
+
+    expect(draft.status).toBe("pending");
+    expect(dbState.priceHistory).toHaveLength(1);
+    expect(dbState.priceHistory[0]).toMatchObject({
+      modelId: MODEL.id,
+      listingId: draft.id,
+      price: 1_800_000,
+      kind: "listed",
+    });
+  });
+
+  it("MEDIUM b4-holistic: updateListingAction reprice trên listing ĐÃ QUA gate (approved→pending) → PriceHistory reprice row VẪN viết (hành vi giữ nguyên)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const approved = seedListing(seller.id, "approved");
+    seedImage(approved.id, IMG_URL, "front");
+    login(seller);
+
+    await expectRedirect(() =>
+      updateListingAction(
+        {},
+        betaForm({ listingId: approved.id, price: "2200000", title: "Loa JBL Charge 5 chính hãng ĐỔI GIÁ" }),
+      ),
+    );
+
+    expect(approved.status).toBe("pending");
+    expect(dbState.priceHistory).toHaveLength(1);
+    expect(dbState.priceHistory[0]).toMatchObject({
+      modelId: MODEL.id,
+      listingId: approved.id,
+      price: 2_200_000,
+      kind: "reprice",
+    });
+  });
+
+  it("isActive (unverified-b REAL) — draft MỚI trong category beta INACTIVE → CATEGORY_NOT_PUBLICATION_ALLOWED, KHÔNG row", async () => {
+    dbState.categories.push({ ...CAT_BETA, id: "cat-beta-off", isActive: false });
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    login(seller);
+
+    const state = await saveListingDraftAction({}, betaForm({ categoryId: "cat-beta-off" }));
+
+    expect(state.error).toContain("CATEGORY_NOT_PUBLICATION_ALLOWED");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("isActive (unverified-b REAL) — draft UPDATE GIỮ NGUYÊN category inactive → PASS (grandfathered)", async () => {
+    (dbState.categories[0] as Row).isActive = false; // CAT_BETA inactive
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    login(seller);
+
+    const state = await saveListingDraftAction(
+      {},
+      betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+    );
+
+    expect(state.error).toBeUndefined();
+    expect(state.ok).toBe(true);
+    expect(draft.title).toBe("Loa JBL Charge 5 chính hãng SỬA NHÁP");
+  });
+
+  // Ghi chú (không test được ở action-draft): "ĐỔI category sang inactive" —
+  // Category.slug UNIQUE nên category beta inactive chính là category hiện tại
+  // của draft (unchanged → grandfathered); đổi sang category legacy khác bị
+  // assertCategoryPublicationAllowed chặn TRƯỚC. Case đổi-into-inactive với
+  // current ≠ target (listing legacy đổi sang beta inactive) pin ở
+  // tests/unit/listing-publication.test.ts (assertCategoryActive describe).
 });

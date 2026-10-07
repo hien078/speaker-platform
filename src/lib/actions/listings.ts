@@ -11,6 +11,7 @@ import { isModerationLocked } from "@/src/lib/moderation";
 import {
   assertListingPublishable,
   assertListingContentValid,
+  assertCategoryActive,
   type ListingPublicationInput,
 } from "@/src/lib/listing-publication";
 import { assertListingImagesOwned } from "@/src/lib/listing-images";
@@ -411,6 +412,18 @@ export async function createListingAction(
           kind: "listed",
         });
       }
+      // LOW (b4-holistic tx-concurrency): đường submit-ngay CŨNG audit
+      // listing.submitted kèm policyVersion — MỌI path vào review (create /
+      // edit-resubmit / draft-submit) ghi cùng một event §4.6.
+      await auditEventTx(tx, {
+        actorId: user.id,
+        subjectId: user.id,
+        action: "listing.submitted",
+        resourceType: "Listing",
+        resourceId: listing.id,
+        policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+        detail: "via=create", // typed value — KHÔNG free text (spec §4.8)
+      });
     });
   } catch (e) {
     if (isListingSlugCollision(e)) {
@@ -475,6 +488,10 @@ export async function saveListingDraftAction(
   }
   try {
     assertCategoryPublicationAllowed({ targetSlug: category.slug, currentSlug: currentCategorySlug });
+    // isActive (b4-holistic unverified-b REAL): server enforce — draft MỚI /
+    // đổi INTO category inactive bị chặn; GIỮ NGUYÊN category (grandfathered)
+    // thì pass. Cùng typed code với allowlist (catch dưới map sang form error).
+    assertCategoryActive(category, currentCategorySlug);
   } catch {
     return { error: contentErrorText("CATEGORY_NOT_PUBLICATION_ALLOWED") };
   }
@@ -717,6 +734,16 @@ export async function updateListingAction(
   if (listing.status === "sold") {
     return { error: "Không thể sửa tin đã bán" };
   }
+  // MEDIUM (b4-holistic authz-idor): draft KHÔNG sửa qua đường này. Trước fix:
+  // draft ∉ transition list → chỉ content validation (KHÔNG seller gate) →
+  // CAS status draft match → PriceHistory reprice row viết cho MỌI lần đổi giá
+  // — seller CHƯA verification (draft được phép trước gate) viết được public
+  // price stats (/models, /compare, listing detail) và giá draft riêng tư
+  // thành public. Draft đi saveListingDraftAction (không PriceHistory) +
+  // submitListingAction (full gate).
+  if (listing.status === "draft") {
+    return { error: "Tin nháp chỉ sửa qua nút Lưu nháp (LISTING_DRAFT_NOT_EDITABLE)" };
+  }
 
   // resolve target category TỪ DB (trust boundary)
   const category = await db.orm.public.Category.first({ id: input.categoryId });
@@ -848,8 +875,32 @@ export async function updateListingAction(
       // (+ checklistSlot — Batch 4)
       await applyImageDiff(tx, listingId, input.imageUrls, input.imageSlots);
 
+      // LOW (b4-holistic tx-concurrency): đường edit-resubmit (content-change
+      // approved/rejected/hidden → pending) CŨNG audit listing.submitted kèm
+      // policyVersion — MỌI path vào review ghi cùng một event §4.6. intoReview
+      // đã hẹp: chỉ content-change vào review (pending→pending edit KHÔNG đếm).
+      if (intoReview) {
+        await auditEventTx(tx, {
+          actorId: user.id,
+          subjectId: user.id,
+          action: "listing.submitted",
+          resourceType: "Listing",
+          resourceId: listingId,
+          policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+          detail: "via=edit_resubmit", // typed value — KHÔNG free text (spec §4.8)
+        });
+      }
+
+      // PriceHistory reprice (giữ nguyên) — GUARD b4-holistic (MEDIUM
+      // authz-idor): chỉ listing ĐÃ qua publication gate (draft bị chặn ở
+      // trên, sold/removed ở guard trước đó) mới viết public price stats.
+      // Belt-and-braces: điều kiện status rành mạch cho đường gọi tương lai.
       const finalModelId = input.productModelId ?? listing.productModelId;
-      if (finalModelId && listing.price !== Math.round(input.price)) {
+      if (
+        finalModelId &&
+        listing.price !== Math.round(input.price) &&
+        listing.status !== "draft"
+      ) {
         await tx.orm.public.PriceHistory.create({
           modelId: finalModelId,
           listingId: listing.id,
@@ -963,6 +1014,21 @@ export async function submitListingAction(formData: FormData): Promise<void> {
         .updateAll({ status: "pending" });
       if (claimed.length === 0) {
         throw new Error("LISTING_CONCURRENT_CHANGE");
+      }
+      // LOW (b4-holistic tx-concurrency): draft→submit cũng viết PriceHistory
+      // 'listed' như direct create — price stats của model KHÔNG phụ thuộc nút
+      // nào seller bấm (draft-save rồi submit hay submit-ngay). `listing` là row
+      // đọc TRƯỚC gate; CAS updatedAt đảm bảo price/productModelId không đổi
+      // giữa read và claim → giá trị nhất quán. PriceHistory discipline
+      // (b4-holistic MEDIUM): chỉ listing QUA gate mới viết public price rows —
+      // draft KHÔNG bao giờ (saveListingDraftAction không viết PriceHistory).
+      if (listing.productModelId) {
+        await tx.orm.public.PriceHistory.create({
+          modelId: listing.productModelId,
+          listingId: listing.id,
+          price: listing.price,
+          kind: "listed",
+        });
       }
       await auditEventTx(tx, {
         actorId: user.id,

@@ -502,6 +502,52 @@ describe("assertListingContentValid — category allowlist + regime schema", () 
   });
 });
 
+// ─── 2b. b4-holistic (unverified-b REAL) — Category.isActive enforce SERVER-side ──
+
+describe("assertCategoryActive — Category.isActive enforce server-side (b4-holistic unverified-b)", () => {
+  it("category ĐÍCH inactive + TẠO MỚI (không current) → CATEGORY_NOT_PUBLICATION_ALLOWED", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    dbState.categories.push({ ...CAT_BETA, id: "cat-beta-off", isActive: false });
+    await expect(
+      assertListingContentValid(publicationInput({ categoryId: "cat-beta-off", currentCategorySlug: undefined })),
+    ).rejects.toThrowError("CATEGORY_NOT_PUBLICATION_ALLOWED");
+  });
+
+  it("category ĐÍCH inactive + ĐỔI category (current khác) → CATEGORY_NOT_PUBLICATION_ALLOWED", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    dbState.categories.push({ ...CAT_BETA, id: "cat-beta-off", isActive: false });
+    await expect(
+      assertListingContentValid(
+        publicationInput({ categoryId: "cat-beta-off", currentCategorySlug: CAT_LEGACY.slug }),
+      ),
+    ).rejects.toThrowError("CATEGORY_NOT_PUBLICATION_ALLOWED");
+  });
+
+  it("category inactive NHƯNG GIỮ NGUYÊN category (grandfathered) → PASS", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    // category beta inactive — listing đã ở trong đó, KHÔNG đổi category
+    dbState.categories.length = 0;
+    dbState.categories.push({ ...CAT_BETA, isActive: false });
+    await expect(
+      assertListingContentValid(publicationInput({ currentCategorySlug: CAT_BETA.slug })),
+    ).resolves.toBeUndefined();
+  });
+
+  it("checkListingPublication thu isActive violation vào listingIssues (approve audit variant)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    dbState.categories.push({ ...CAT_BETA, id: "cat-beta-off", isActive: false });
+    const check = await checkListingPublication(
+      publicationInput({ categoryId: "cat-beta-off", currentCategorySlug: undefined }),
+    );
+    expect(check.ok).toBe(false);
+    expect(check.listingIssues).toContain("CATEGORY_NOT_PUBLICATION_ALLOWED");
+  });
+});
+
 // ─── 3. assertCanonicalModelValid — B4 DB checks ───────────────────────────────
 
 describe("assertCanonicalModelValid — canonical model DB check (B4)", () => {

@@ -42,9 +42,11 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   auditEvent/auditEventTx như trên (C3 — không trùng tên nào của Batch 2/4).
  *   (Batch 4 Task 4): listing.draft_created, listing.draft_updated — seller
  *   lưu/sửa nháp (auditEventTx trong cùng tx với write — spec §4.4 draft
- *   trước verification, KHÔNG seller gate); listing.submitted — draft→pending
- *   qua submitListingAction (policyVersion = SELLER_RULES_POLICY_VERSION,
- *   auditEventTx trong cùng tx với CAS claim — §4.6); listing.submit_blocked —
+ *   trước verification, KHÔNG seller gate); listing.submitted — MỌI đường
+ *   vào review (Batch 4 holistic): submit-ngay create (detail via=create),
+ *   edit-resubmit update→pending (detail via=edit_resubmit), draft-submit
+ *   submitListingAction — đều auditEventTx trong cùng tx với CAS claim,
+ *   policyVersion = SELLER_RULES_POLICY_VERSION (§4.6); listing.submit_blocked —
  *   submit/toggle bị gate chặn (reason = typed code: SELLER_PUBLICATION_BLOCKED:…
  *   hoặc content code từ allowlist, KHÔNG free text — §4.8);
  *   beta_catalog.seeded — Task 7 seed script (actor null, offline script).

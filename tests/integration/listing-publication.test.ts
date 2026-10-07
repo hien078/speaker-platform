@@ -104,6 +104,7 @@ import {
   saveListingDraftAction,
   submitListingAction,
   createListingAction,
+  updateListingAction,
   toggleListingVisibilityAction,
 } from "../../src/lib/actions/listings";
 import { approveListingAction } from "../../src/lib/actions/admin";
@@ -466,6 +467,14 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
       .all();
     expect(submitted).toHaveLength(1);
     expect(submitted[0]!.policyVersion).toBe("v1"); // SELLER_RULES_POLICY_VERSION
+    // b4-holistic (LOW tx-concurrency): draft→submit cũng viết PriceHistory
+    // 'listed' như direct create — price stats không phụ thuộc nút nào seller bấm
+    const listedPrice = await db.orm.public.PriceHistory
+      .where({ listingId: draftId, kind: "listed" })
+      .all();
+    expect(listedPrice).toHaveLength(1);
+    expect(listedPrice[0]!.modelId).toBe(cat.modelId);
+    expect(listedPrice[0]!.price).toBe(1_800_000);
 
     // approve → approved (admin qua checkListingPublication — defense-in-depth)
     await login(adminId, { isAdmin: true });
@@ -832,5 +841,124 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     expect(images).toHaveLength(0);
     const priceRows = await db.orm.public.PriceHistory.where({ modelId: cat.modelId }).all();
     expect(priceRows).toHaveLength(0);
+  });
+});
+
+// ─── 9. b4-holistic — audit mọi đường vào review + PriceHistory discipline ────
+
+d("b4-holistic — listing.submitted audit + PriceHistory discipline (real DB)", () => {
+  it("createListingAction (submit-ngay) → audit listing.submitted policyVersion v1 detail via=create + PriceHistory listed", async () => {
+    const sellerId = await mkVerifiedSeller();
+    created.users.push(sellerId);
+    const cat = await mkBetaCatalog();
+    const storageKey = await mkUploadRow(sellerId);
+    await login(sellerId);
+
+    const url = await expectRedirect(() =>
+      createListingAction({}, betaForm(cat, {
+        images: [`/uploads/${storageKey}`],
+        imageSlots: ["front"],
+      })),
+    );
+    expect(url).toBe("/sell/my?created=1");
+
+    const mine = await db.orm.public.Listing.where({ sellerId }).all();
+    expect(mine).toHaveLength(1);
+    const listingId = mine[0]!.id;
+    expect(mine[0]!.status).toBe("pending");
+
+    // LOW b4-holistic: đường submit-ngay CŨNG audit listing.submitted (policyVersion)
+    const submitted = await db.orm.public.AuditEvent
+      .where({ action: "listing.submitted", resourceId: listingId })
+      .all();
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]!.policyVersion).toBe("v1");
+    expect(submitted[0]!.detail).toBe("via=create");
+    expect(submitted[0]!.actorId).toBe(sellerId);
+
+    // PriceHistory listed (hành vi giữ nguyên của direct create)
+    const listed = await db.orm.public.PriceHistory
+      .where({ listingId, kind: "listed" })
+      .all();
+    expect(listed).toHaveLength(1);
+  });
+
+  it("updateListingAction content-change approved→pending → audit listing.submitted via=edit_resubmit", async () => {
+    const sellerId = await mkVerifiedSeller();
+    created.users.push(sellerId);
+    const cat = await mkBetaCatalog();
+    const storageKey = await mkUploadRow(sellerId);
+    const listingId = await seedBetaListing({ sellerId, cat, status: "approved", imageUrls: [`/uploads/${storageKey}`] });
+    await login(sellerId);
+
+    const url = await expectRedirect(() =>
+      updateListingAction({}, fd({
+        listingId,
+        title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ",
+        description: "Loa bluetooth cũ còn tốt, pin trâu, nghe hay.",
+        categoryId: cat.categoryId,
+        brandId: cat.brandId,
+        productModelId: cat.modelId,
+        condition: "good",
+        price: "1800000",
+        negotiable: "on",
+        inventoryContext: "used",
+        fulfillmentMethods: ["meetup"],
+        provinceLevelCode: "ho-chi-minh",
+        locationDisplayName: "Khu vực Quận 1",
+        images: [`/uploads/${storageKey}`],
+        imageSlots: ["front"],
+      })),
+    );
+    expect(url).toBe("/sell/my?updated=1");
+
+    const row = await db.orm.public.Listing.first({ id: listingId });
+    expect(row!.status).toBe("pending");
+    expect(row!.title).toBe("Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ");
+
+    // LOW b4-holistic: đường edit-resubmit CŨNG audit listing.submitted
+    const submitted = await db.orm.public.AuditEvent
+      .where({ action: "listing.submitted", resourceId: listingId })
+      .all();
+    expect(submitted).toHaveLength(1);
+    expect(submitted[0]!.policyVersion).toBe("v1");
+    expect(submitted[0]!.detail).toBe("via=edit_resubmit");
+  });
+
+  it("MEDIUM b4-holistic: updateListingAction trên DRAFT → typed error, KHÔNG write, KHÔNG PriceHistory row (draft KHÔNG viết public price stats)", async () => {
+    const sellerId = await mkUser("seller"); // CHƯA verification — đúng kẻ viết của finding
+    created.users.push(sellerId);
+    const cat = await mkBetaCatalog();
+    const storageKey = await mkUploadRow(sellerId);
+    const listingId = await seedBetaListing({ sellerId, cat, status: "draft", imageUrls: [`/uploads/${storageKey}`] });
+    await login(sellerId);
+
+    // Trước fix: draft ∉ transition list → chỉ content validation → CAS
+    // status draft match → PriceHistory reprice row viết cho MỌI lần đổi giá
+    // (public price stats) mà KHÔNG qua publication gate.
+    const state = await updateListingAction({}, fd({
+      listingId,
+      title: "Loa JBL Charge 5 chính hãng",
+      description: "Loa bluetooth cũ còn tốt, pin trâu, nghe hay.",
+      categoryId: cat.categoryId,
+      brandId: cat.brandId,
+      productModelId: cat.modelId,
+      condition: "good",
+      price: "990000", // REPRICE — giá trị của kịch bản finding
+      negotiable: "on",
+      inventoryContext: "used",
+      fulfillmentMethods: ["meetup"],
+      provinceLevelCode: "ho-chi-minh",
+      locationDisplayName: "Khu vực Quận 1",
+      images: [`/uploads/${storageKey}`],
+      imageSlots: ["front"],
+    }));
+
+    expect(state.error).toContain("LISTING_DRAFT_NOT_EDITABLE");
+    const row = await db.orm.public.Listing.first({ id: listingId });
+    expect(row!.status).toBe("draft");
+    expect(row!.price).toBe(1_800_000); // KHÔNG write
+    const priceRows = await db.orm.public.PriceHistory.where({ modelId: cat.modelId }).all();
+    expect(priceRows).toHaveLength(0); // KHÔNG public price row
   });
 });

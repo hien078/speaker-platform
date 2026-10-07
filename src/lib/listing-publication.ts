@@ -144,6 +144,29 @@ export async function assertCanonicalModelValid(
 // ─── Content validity — category → schema → model → images ─────────────────────
 
 /**
+ * Category.isActive enforce SERVER-side (b4-holistic — unverified item b,
+ * verdict REAL): mọi publication path đọc category TỪ DB (trust boundary) —
+ * UI (/sell/new, /sell/[id]/edit, /listings, /admin/catalog) đã lọc
+ * isActive từ trước, server thì KHÔNG → category bị founder deactivate vẫn
+ * nhận listing qua action call trực tiếp (action ID public trong client
+ * bundle). Quy tắc (khớp allowlist invariant — Legacy Migration Decisions):
+ *  - category ĐÍCH inactive → CATEGORY_NOT_PUBLICATION_ALLOWED (cùng typed
+ *    code allowlist — "danh mục chưa mở cho đăng tin");
+ *  - GIỮ NGUYÊN category (target === current — grandfathered) → PASS: listing
+ *    đã ở trong đó được sửa/submit tiếp; đóng category không confiscate tin.
+ */
+export function assertCategoryActive(
+  category: { isActive: boolean; slug: string },
+  currentCategorySlug: string | undefined,
+): void {
+  const unchangedCategory =
+    currentCategorySlug !== undefined && category.slug === currentCategorySlug;
+  if (!category.isActive && !unchangedCategory) {
+    throw new Error("CATEGORY_NOT_PUBLICATION_ALLOWED");
+  }
+}
+
+/**
  * Chạy TẤT CẢ content stage và thu code lỗi từng stage (thứ tự cố định:
  * category → schema → model → images). Dùng chung bởi bản throw
  * (assertListingContentValid — code đầu tiên) và bản non-throw
@@ -155,7 +178,8 @@ const collectListingContentIssues = async (
   const issues: string[] = [];
 
   // (1) category — target slug resolve TỪ DB theo input.categoryId (trust
-  //     boundary: KHÔNG tin formData cho slug); allowlist invariant.
+  //     boundary: KHÔNG tin formData cho slug); allowlist invariant +
+  //     isActive (b4-holistic unverified-b — server enforce, không chỉ UI).
   let regime: ListingRegime | null = null;
   try {
     const category = await db.orm.public.Category.first({ id: input.categoryId });
@@ -164,6 +188,7 @@ const collectListingContentIssues = async (
       targetSlug: category.slug,
       currentSlug: input.currentCategorySlug,
     });
+    assertCategoryActive(category, input.currentCategorySlug);
     regime = listingRegimeForCategorySlug(category.slug);
   } catch (e) {
     if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
