@@ -284,6 +284,13 @@ async function main() {
       negotiable: l.negotiable,
       acceptExchange: l.acceptExchange,
       status: l.status ?? "approved",
+      // b4-holistic round-4 (LOW deploy-risk — backfill): seed row approved ⇒
+      // approvedContentAt SET — đúng bất biến production (content đã được
+      // admin duyệt; NULL chỉ dành cho row CHƯA qua duyệt). Trước fix: mọi row
+      // seed approved giữ NULL → hide→show coi content chưa duyệt → vào
+      // pending chờ duyệt lại (mô phỏng sai bất biến sau migration backfill
+      // migrations/app/20261007T2007_batch4_round4_approved_content_backfill).
+      approvedContentAt: (l.status ?? "approved") === "approved" ? new Date().toISOString() : null,
       city: l.city,
       viewCount: Math.floor(Math.random() * 400) + 20,
     });

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "data.backfill-listing-approved-content-at",
+    "label": "Data transform: backfill Listing.approvedContentAt cho row approved (b4-holistic round-4)",
+    "operationClass": "data",
+    "invariantId": "backfill-listing-approved-content-at",
+    "target": {
+      "id": "postgres"
+    },
+    "precheck": [
+      {
+        "description": "Còn row approved với approvedContentAt NULL (còn việc phải làm)",
+        "sql": "SELECT EXISTS (SELECT \"id\" AS \"id\" FROM \"public\".\"Listing\" WHERE (\"status\" = $1 AND \"approvedContentAt\" IS NULL) LIMIT 1) AS ok",
+        "params": [
+          "approved"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "Backfill approvedContentAt = updatedAt cho row approved đang NULL",
+        "sql": "UPDATE \"public\".\"Listing\" SET \"approvedContentAt\" = \"updatedAt\" WHERE (\"status\" = $1 AND \"approvedContentAt\" IS NULL)",
+        "params": [
+          "approved"
+        ]
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "Không còn row approved nào với approvedContentAt NULL",
+        "sql": "SELECT NOT EXISTS (SELECT \"id\" AS \"id\" FROM \"public\".\"Listing\" WHERE (\"status\" = $1 AND \"approvedContentAt\" IS NULL) LIMIT 1) AS ok",
+        "params": [
+          "approved"
+        ]
+      }
+    ]
+  }
+]
