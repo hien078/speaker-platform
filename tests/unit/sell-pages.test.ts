@@ -670,25 +670,30 @@ describe("app/sell/[id]/edit — sold + regime switch + draft flow (behavior)", 
 });
 
 // ─── 2c. app/sell/[id]/edit — ?error= banner (LOW-1 — own-property-safe) ──────
+//
+// b4-holistic (LOW form-action-contract): banner ?error= CHỈ hiển thị khi
+// listing vẫn là DRAFT — ?error= là đích redirect của submitListingAction
+// (submit bị chặn → listing GIỮ draft); listing đã pending/approved thì
+// banner là STALE (submit ở tab khác đã thành công) → KHÔNG render.
 
-describe("app/sell/[id]/edit — banner ?error= (review fix LOW-1)", () => {
-  it("?error=CONCURRENT_CHANGE → text tiếng Việt của code (parallel note Task 4)", async () => {
+describe("app/sell/[id]/edit — banner ?error= (review fix LOW-1 + b4-holistic stale banner)", () => {
+  it("?error=CONCURRENT_CHANGE trên DRAFT → text tiếng Việt của code (parallel note Task 4)", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1", "CONCURRENT_CHANGE");
     expect(textOf(tree)).toContain("Tin vừa thay đổi trạng thái — tải lại trang và kiểm tra lại");
   });
 
-  it("?error=RATE_LIMITED → text rate limit", async () => {
+  it("?error=RATE_LIMITED trên DRAFT → text rate limit", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1", "RATE_LIMITED");
     expect(textOf(tree)).toContain("Bạn thao tác quá nhanh — thử lại sau ít phút");
   });
 
   it("?error=__proto__ → generic fallback, KHÔNG crash (prototype key không resolve)", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1", "__proto__");
     const text = textOf(tree);
     expect(text).toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
@@ -697,14 +702,14 @@ describe("app/sell/[id]/edit — banner ?error= (review fix LOW-1)", () => {
 
   it("?error=constructor → generic fallback (KHÔNG trả function)", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1", "constructor");
     expect(textOf(tree)).toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
   });
 
   it("?error=<code lạ> → generic fallback (fail closed — KHÔNG phản chiếu query text)", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1", "SOMETHING_EVIL");
     const text = textOf(tree);
     expect(text).toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
@@ -713,9 +718,19 @@ describe("app/sell/[id]/edit — banner ?error= (review fix LOW-1)", () => {
 
   it("không có ?error= → KHÔNG banner", async () => {
     seedCatalog();
-    dbState.listings.push(listingRow({}));
+    dbState.listings.push(listingRow({ status: "draft" }));
     const tree = await callEdit("listing-1");
     expect(textOf(tree)).not.toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
+  });
+
+  it("b4-holistic: listing KHÔNG còn draft (pending/approved) + ?error= STALE → KHÔNG banner (submit ở tab khác đã thành công)", async () => {
+    seedCatalog();
+    dbState.listings.push(listingRow({ status: "pending" }));
+    const tree = await callEdit("listing-1", "IMAGE_REQUIRED");
+    const text = textOf(tree);
+    expect(text).not.toContain(SUBMIT_ERROR_TEXT.IMAGE_REQUIRED!);
+    expect(text).not.toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
+    expect(text).not.toContain("Thêm ít nhất 1 ảnh sản phẩm");
   });
 });
 
@@ -749,6 +764,34 @@ describe("app/sell/my — draft submit + status labels (R8)", () => {
     expect(text).toContain("Đã lưu trữ");
     expect(LISTING_STATUS_LABELS.removed).toBeTruthy();
     expect(LISTING_STATUS_BADGE.archived).toBeTruthy();
+  });
+
+  it("b4-holistic: ?submitted=1 → banner 'Đã gửi duyệt' (submitListingAction thành công có confirmation)", async () => {
+    dbState.listings.push(listingRow({ id: "l-pending", status: "pending" }));
+    const tree = await MyPage({ searchParams: Promise.resolve({ submitted: "1" }) });
+    expect(textOf(tree)).toContain("Đã gửi duyệt");
+    // giá trị khác → KHÔNG banner (so sánh literal — KHÔNG echo query)
+    const forged = await MyPage({ searchParams: Promise.resolve({ submitted: "<b>x</b>" }) });
+    expect(textOf(forged)).not.toContain("Đã gửi duyệt");
+    expect(textOf(forged)).not.toContain("<b>x</b>");
+  });
+
+  it("b4-holistic: ?error=LISTING_HAS_ORDERS → banner tiếng Việt (allowlist — deleteListingAction redirect)", async () => {
+    dbState.listings.push(listingRow({ id: "l-hidden", status: "hidden" }));
+    const tree = await MyPage({ searchParams: Promise.resolve({ error: "LISTING_HAS_ORDERS" }) });
+    expect(textOf(tree)).toContain("Tin đang có đơn hàng liên quan — không thể thao tác");
+  });
+
+  it("b4-holistic: ?error=<code lạ>/prototype key → generic fallback (allowlist — KHÔNG phản chiếu query)", async () => {
+    dbState.listings.push(listingRow({ id: "l-live", status: "approved" }));
+    const tree = await MyPage({ searchParams: Promise.resolve({ error: "SOMETHING_EVIL" }) });
+    const text = textOf(tree);
+    expect(text).not.toContain("SOMETHING_EVIL");
+    expect(text).not.toContain("Tin đang có đơn hàng liên quan"); // KHÔNG text của code khác
+    expect(text).toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!); // generic fail closed
+    const proto = await MyPage({ searchParams: Promise.resolve({ error: "__proto__" }) });
+    expect(textOf(proto)).toContain(SUBMIT_ERROR_TEXT.CONTENT_INVALID!);
+    expect(textOf(proto)).not.toContain("Tin đang có đơn hàng liên quan");
   });
 });
 

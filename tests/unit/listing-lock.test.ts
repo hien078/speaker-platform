@@ -615,24 +615,21 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     expect(dbState.images[0]).toMatchObject({ url: "/uploads/a.jpg", sortOrder: 3 });
   });
 
-  it("updateListingAction đọc approved, admin TỪ CHỐI thường thắng race → 0 rows → LISTING_CONCURRENT_CHANGE (typed error RIÊNG — KHÔNG masquerade LISTING_MODERATION_LOCKED), ảnh KHÔNG bị đụng", async () => {
+  it("updateListingAction đọc approved, admin TỪ CHỐI thường thắng race → 0 rows → typed form error LISTING_CONCURRENT_CHANGE (b4-holistic — KHÔNG throw ra error boundary), ảnh KHÔNG bị đụng", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
     dbState.images.push({ id: "img-race", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 3 });
     // Admin rejectListingAction (không phải moderation) thắng race — seller
-    // thấy lỗi "trạng thái đã đổi tay" chứ KHÔNG thấy lỗi moderation gây hiểu
-    // lầm listing của mình bị takedown (item 7 — distinct typed error).
+    // thấy lỗi "trạng thái đã đổi tay" (form error tiếng Việt + code ổn định)
+    // chứ KHÔNG thấy error boundary (b4-holistic form-action-contract).
     dbState.beforeListingWrite = () => {
       listing.status = "rejected";
     };
 
-    let err: unknown;
-    try {
-      await updateListingAction({}, listingForm({ listingId: listing.id, title: "SỬA TRONG RACE" }));
-    } catch (e) {
-      err = e;
-    }
-    expect((err as Error).message).toBe("LISTING_CONCURRENT_CHANGE");
+    const state = await updateListingAction({}, listingForm({ listingId: listing.id, title: "SỬA TRONG RACE" }));
+
+    expect(state.error).toContain("LISTING_CONCURRENT_CHANGE");
+    expect(state.error).toContain("Tin vừa thay đổi trạng thái");
 
     // row GIỮ NGUYÊN rejected — KHÔNG bị clobber
     expect(listingRow(listing.id)).toMatchObject({ status: "rejected", title: "Loa JBL Charge 5 chính hãng" });

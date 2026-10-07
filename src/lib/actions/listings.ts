@@ -26,6 +26,7 @@ import {
   listingRegimeForCategorySlug,
 } from "@/src/lib/beta-categories";
 import { PROVINCE_CODES } from "@/src/lib/provinces";
+import { CITIES } from "@/src/lib/constants";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { auditEvent, auditEventTx } from "@/src/lib/audit-event";
 import {
@@ -235,6 +236,17 @@ async function runContentValidation(
 /** Input từ formData — ListingSubmissionInput + trường form riêng (city/acceptExchange). */
 type ListingFormInput = ListingSubmissionInput & { city: string; acceptExchange: boolean };
 
+/**
+ * Free-text field → normalize line breaks (CRLF/CR → LF) + trim TRƯỚC validate
+ * (b4-holistic LOW validation): multipart form-data chuẩn hóa LF thành CRLF
+ * nên server thấy chuỗi DÀI HƠN browser đếm (maxLength đếm LF = 1 ký tự, CRLF
+ * = 2) → text form CHẤP NHẬN bị server từ chối DESCRIPTION_INVALID/
+ * FREE_TEXT_INVALID với thông báo gây hiểu lầm. Normalize → cùng đơn vị đếm
+ * với browser; stored text LF nhất quán.
+ */
+const formText = (formData: FormData, key: string): string =>
+  String(formData.get(key) ?? "").replace(/\r\n?/g, "\n").trim();
+
 function listingFormInput(formData: FormData): ListingFormInput {
   const images = formData.getAll("images").map(String).filter(Boolean);
   const rawSlots = formData.getAll("imageSlots").map(String);
@@ -243,8 +255,8 @@ function listingFormInput(formData: FormData): ListingFormInput {
   const imageSlots = rawSlots.length > 0 ? rawSlots.map((s) => (s === "" ? null : s)) : undefined;
   const fulfillment = formData.getAll("fulfillmentMethods").map(String).filter(Boolean);
   return {
-    title: String(formData.get("title") ?? "").trim(),
-    description: String(formData.get("description") ?? "").trim(),
+    title: formText(formData, "title"),
+    description: formText(formData, "description"),
     categoryId: String(formData.get("categoryId") ?? ""),
     brandId: String(formData.get("brandId") ?? "") || null,
     productModelId: String(formData.get("productModelId") ?? "") || null,
@@ -252,15 +264,15 @@ function listingFormInput(formData: FormData): ListingFormInput {
     price: Number(formData.get("price") ?? 0),
     negotiable: formData.get("negotiable") === "on",
     inventoryContext: String(formData.get("inventoryContext") ?? "") || null,
-    includedAccessories: String(formData.get("includedAccessories") ?? "").trim() || null,
-    knownDefects: String(formData.get("knownDefects") ?? "").trim() || null,
-    repairHistory: String(formData.get("repairHistory") ?? "").trim() || null,
+    includedAccessories: formText(formData, "includedAccessories") || null,
+    knownDefects: formText(formData, "knownDefects") || null,
+    repairHistory: formText(formData, "repairHistory") || null,
     fulfillmentMethods: fulfillment.length > 0 ? fulfillment : null,
     provinceLevelCode: String(formData.get("provinceLevelCode") ?? "") || null,
-    locationDisplayName: String(formData.get("locationDisplayName") ?? "").trim() || null,
+    locationDisplayName: formText(formData, "locationDisplayName") || null,
     imageUrls: images,
     imageSlots,
-    city: String(formData.get("city") ?? "").trim(),
+    city: formText(formData, "city"),
     acceptExchange: formData.get("acceptExchange") === "on",
   };
 }
@@ -268,20 +280,34 @@ function listingFormInput(formData: FormData): ListingFormInput {
 /**
  * city (cột NON-NULL — item 12): beta derive từ province =
  * PROVINCE_CODES[provinceLevelCode] (canonical 34-unit displayName — FD-1);
- * legacy (không province) giữ text form. LOW 2 (review fix): province lạ →
+ * legacy (không province) giữ text form. LOW 2: province lạ →
  * typed PROVINCE_INVALID, province+city thiếu → typed PROVINCE_REQUIRED —
  * KHÔNG BAO GIỜ text không có code ("Chọn khu vực") vì code ổn định là thứ
  * test/redirect ?error=/audit reason dùng chung.
+ *
+ * b4-holistic (LOW validation) — legacy free-text city BOUND + validate:
+ * legacy form chỉ offer select CITIES; server TRƯỚC fix nhận chuỗi tuỳ ý
+ * (900KB / số điện thoại / URL) → render công khai không clamp. Giờ CHỈ
+ * chấp nhận ∈ CITIES (select của legacy form) hoặc ĐÚNG BẰNG city đang lưu
+ * của listing (grandfathered — legacy pre-Batch-4 free-text vẫn sửa tiếp
+ * được); sai → typed PROVINCE_INVALID. Cap chiều dài chặn cả giá trị
+ * grandfathered bệnh thái.
  */
+const LEGACY_CITY_MAX = 120;
+
 type DerivedCity = { city: string } | { error: "PROVINCE_INVALID" | "PROVINCE_REQUIRED" };
 
-function deriveCity(input: ListingFormInput): DerivedCity {
+function deriveCity(input: ListingFormInput, existingCity?: string): DerivedCity {
   if (input.provinceLevelCode != null) {
     const displayName: string | undefined = PROVINCE_CODES[input.provinceLevelCode];
     if (displayName === undefined) return { error: "PROVINCE_INVALID" };
     return { city: displayName };
   }
   if (input.city.length === 0) return { error: "PROVINCE_REQUIRED" };
+  if (input.city.length > LEGACY_CITY_MAX) return { error: "PROVINCE_INVALID" };
+  if (input.city !== existingCity && !CITIES.includes(input.city)) {
+    return { error: "PROVINCE_INVALID" };
+  }
   return { city: input.city };
 }
 
@@ -350,7 +376,8 @@ export async function createListingAction(
   const category = await db.orm.public.Category.first({ id: input.categoryId });
   if (!category) return { error: "Chọn danh mục" };
 
-  // city (cột non-null) — beta derive từ province (item 12); LOW 2: typed error
+  // city (cột non-null) — beta derive từ province (item 12); LOW 2: typed error.
+  // createListingAction KHÔNG truyền existingCity: legacy branch yêu cầu city ∈ CITIES.
   const cityRes = deriveCity(input);
   if ("error" in cityRes) return { error: contentErrorText(cityRes.error) };
   const city = cityRes.city;
@@ -467,8 +494,13 @@ export async function saveListingDraftAction(
     if (isModerationLocked(existing.status)) {
       throw new Error("LISTING_MODERATION_LOCKED");
     }
-    // chỉ draft được sửa như draft (approved/pending/… không qua đường này)
-    if (existing.status !== "draft") return {};
+    // chỉ draft được sửa như draft (approved/pending/… không qua đường này).
+    // b4-holistic (LOW form-action-contract): KHÔNG silent return {} — form
+    // draft stale (submit ở tab khác) drop edits ÂM THẪM không error/banner;
+    // typed error hiển thị qua banner state.error của PortableListingForm.
+    if (existing.status !== "draft") {
+      return { error: "Tin vừa thay đổi trạng thái — tải lại trang rồi thử lại (LISTING_CONCURRENT_CHANGE)" };
+    }
   }
 
   // ─── Draft schema (base requiredness + structured TUYỂN CHỌN + 0..8 ảnh) ───
@@ -476,6 +508,22 @@ export async function saveListingDraftAction(
   if (!parsed.success) {
     const first = parsed.error.issues[0]?.message ?? "SCHEMA_INVALID";
     return { error: contentErrorText(`${LISTING_VALIDATION_PREFIX}${first}`) };
+  }
+
+  // ─── brand/model FK existence (b4-holistic LOW validation) ───
+  // Draft path KHÔNG qua assertCanonicalModelValid (pre-gate theo spec §4.4)
+  // nhưng id lạ (≤64 ký tự qua FOREIGN_ID_MAX) vẫn là FK — thiếu check này thì
+  // Listing.create/updateAll đâm FK 23503 → action crash 500. Existence-only:
+  // status/brand/category validation sống ở submit gate (assertCanonicalModelValid)
+  // — pin bởi integration "model PENDING → submit ?error=MODEL_INVALID (draft
+  // GIỮ nguyên)". Typed BRAND_INVALID/MODEL_INVALID — KHÔNG FK 500.
+  if (input.brandId) {
+    const brand = await db.orm.public.Brand.first({ id: input.brandId });
+    if (!brand) return { error: contentErrorText("BRAND_INVALID") };
+  }
+  if (input.productModelId) {
+    const model = await db.orm.public.ProductModel.first({ id: input.productModelId });
+    if (!model) return { error: contentErrorText("MODEL_INVALID") };
   }
 
   // ─── Category allowlist (§5.6.1): tạo mới ∈ allowlist; update INTO allowlist ───
@@ -753,9 +801,10 @@ export async function updateListingAction(
     if (!brand) return { error: "Thương hiệu không hợp lệ" };
   }
 
-  // city (cột non-null): beta derive từ province; legacy giữ text form.
+  // city (cột non-null): beta derive từ province; legacy giữ text form —
+  // b4-holistic: bound + validate (CITIES hoặc BẰNG city đang lưu — grandfathered).
   // LOW 2: typed PROVINCE_INVALID/PROVINCE_REQUIRED — KHÔNG text không code.
-  const cityRes = deriveCity(input);
+  const cityRes = deriveCity(input, listing.city);
   if ("error" in cityRes) return { error: contentErrorText(cityRes.error) };
   const city = cityRes.city;
 
@@ -911,9 +960,15 @@ export async function updateListingAction(
     });
   } catch (e) {
     // Classify NGOÀI tx (Global Constraints): 23505 Listing.slug → typed
-    // slug-collision; lỗi khác ném tiếp (fail closed — KHÔNG masquerade).
+    // slug-collision; CAS thua vì status đổi tay (admin duyệt/từ chối thường)
+    // → typed form error (b4-holistic form-action-contract: KHÔNG throw ra
+    // error boundary — PortableListingForm hiển thị banner state.error);
+    // lỗi khác néM TIẾP (fail closed — KHÔNG masquerade).
     if (isListingSlugCollision(e)) {
       return { error: "Tiêu đề đã trùng — chọn tiêu đề khác (LISTING_SLUG_COLLISION)" };
+    }
+    if (e instanceof Error && e.message === "LISTING_CONCURRENT_CHANGE") {
+      return { error: "Tin vừa thay đổi trạng thái — tải lại trang rồi thử lại (LISTING_CONCURRENT_CHANGE)" };
     }
     throw e;
   }
@@ -1055,6 +1110,11 @@ export async function submitListingAction(formData: FormData): Promise<void> {
 
   revalidatePath("/sell/my");
   revalidatePath("/admin/listings");
+  // b4-holistic (LOW form-action-contract): submit THÀNH CÔNG phải có
+  // confirmation — trước fix chỉ revalidatePath, URL vẫn mang ?error= STALE
+  // của lần trước → seller tưởng submit fail. redirect /sell/my?submitted=1
+  // (banner xanh) — KHÔNG còn ?error= cũ.
+  redirect("/sell/my?submitted=1");
 }
 
 /** Xóa tin (chỉ khi chưa bán / không có đơn) */
@@ -1084,7 +1144,10 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
     // seller gate, KHÔNG qua admin review) → review bypass. Status khác +
     // có đơn → typed error, status GIỮ NGUYÊN.
     if (listing.status !== "approved") {
-      throw new Error("LISTING_HAS_ORDERS");
+      // b4-holistic (LOW form-action-contract): void form action KHÔNG throw
+      // expected condition ra error boundary — redirect typed code trong
+      // allowlist banner của /sell/my (fixed code, KHÔNG free text).
+      redirect("/sell/my?error=LISTING_HAS_ORDERS");
     }
     // đã nằm trong đơn — chỉ cho ẩn (approved → hidden). CAS theo approved
     // (SHOULD-FIX 3): 0 rows = row đổi tay giữa read và write → typed error,

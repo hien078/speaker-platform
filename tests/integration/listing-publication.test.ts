@@ -458,8 +458,10 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     // verify seller (8 yêu cầu — seed trực tiếp)
     await grantVerification(sellerId);
 
-    // submit → pending + audit listing.submitted (policyVersion §4.6)
-    await submitListingAction(fd({ listingId: draftId }));
+    // submit → pending + audit listing.submitted (policyVersion §4.6) —
+    // b4-holistic: thành công redirect /sell/my?submitted=1 (confirmation)
+    const submitUrl = await expectRedirect(() => submitListingAction(fd({ listingId: draftId })));
+    expect(submitUrl).toBe("/sell/my?submitted=1");
     row = await db.orm.public.Listing.first({ id: draftId });
     expect(row!.status).toBe("pending");
     const submitted = await db.orm.public.AuditEvent
@@ -532,9 +534,10 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     expect(blocked).toHaveLength(1);
     expect(String(blocked[0]!.reason)).toContain("operations_review_verified");
 
-    // RE-VERIFY → submit passes (vòng thu hồi/tái xác minh)
+    // RE-VERIFY → submit passes (vòng thu hồi/tái xác minh) — redirect ?submitted=1
     await db.orm.public.SellerVerification.where({ userId: sellerId }).updateAll({ status: "verified" });
-    await submitListingAction(fd({ listingId: draftId }));
+    const reSubmitUrl = await expectRedirect(() => submitListingAction(fd({ listingId: draftId })));
+    expect(reSubmitUrl).toBe("/sell/my?submitted=1");
     expect((await db.orm.public.Listing.first({ id: draftId }))!.status).toBe("pending");
   });
 

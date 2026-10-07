@@ -131,7 +131,12 @@ export default async function EditListingPage({
       : Promise.resolve([]),
   ]);
 
-  const submitError = sp.error != null && sp.error !== "" ? sp.error : null;
+  // b4-holistic (LOW form-action-contract): banner ?error= CHỈ hiển thị khi
+  // listing VẪN là draft — ?error= là đích redirect của submitListingAction
+  // (submit bị chặn → listing GIỮ draft). Listing đã pending/approved thì
+  // banner là STALE (submit ở tab khác đã thành công) → KHÔNG render — seller
+  // không còn thấy "Thêm ít nhất 1 ảnh" đỏ sau khi submit thành công.
+  const submitError = listing.status === "draft" && sp.error != null && sp.error !== "" ? sp.error : null;
   // ?saved=draft — saveListingDraftAction redirect sau khi TẠO draft (so sánh
   // literal, không echo query); chỉ hiện khi tin vẫn là draft.
   const draftJustSaved = sp.saved === "draft" && listing.status === "draft" && submitError === null;

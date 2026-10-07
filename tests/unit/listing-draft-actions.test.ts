@@ -781,19 +781,23 @@ describe("saveListingDraftAction — draft được phép trước verification"
     expect(auditsOf("listing.draft_updated")).toHaveLength(0);
   });
 
-  it("draft UPDATE trên listing KHÔNG phải draft (approved) → silent return, status giữ nguyên", async () => {
+  it("draft UPDATE trên listing KHÔNG phải draft (approved) → typed form error LISTING_CONCURRENT_CHANGE (b4-holistic — KHÔNG silent drop edits)", async () => {
     const seller = mkUser({ id: "seller-fresh", role: "seller" });
     dbState.users.push(seller);
     login(seller);
     const approved = seedListing(seller.id, "approved");
     seedImage(approved.id, IMG_URL, "front");
 
+    // Trước fix: return {} im lặng — form draft stale (submit ở tab khác) hiện
+    // KHÔNG error, KHÔNG banner → edits bị drop âm thầm. Sau fix: typed error
+    // hiển thị qua banner state.error của PortableListingForm.
     const state = await saveListingDraftAction(
       {},
       betaForm({ listingId: approved.id, title: "Loa JBL Charge 5 bị đổi tên" }),
     );
 
-    expect(state.error).toBeUndefined();
+    expect(state.error).toContain("LISTING_CONCURRENT_CHANGE");
+    expect(state.error).toContain("Tin vừa thay đổi trạng thái");
     expect(state.ok).toBeUndefined();
     expect(approved.status).toBe("approved");
     expect(approved.title).toBe("Loa JBL Charge 5 chính hãng");
@@ -890,7 +894,9 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
 
-    await submitListingAction(fd({ listingId: draft.id }));
+    // b4-holistic: submit thành công redirect /sell/my?submitted=1 (confirmation)
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
+    expect(url).toBe("/sell/my?submitted=1");
 
     expect(draft.status).toBe("pending");
     const evt = auditsOf("listing.submitted")[0]!;
@@ -1129,9 +1135,10 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
     // tiêu hết bucket rate limit — redirect rate-limit là đường PHẢN CHẠNH
-    // listingId vào URL; malformed phải bị chặn TRƯỚC đó.
+    // listingId vào URL; malformed phải bị chặn TRƯỚC đó. (Lần đầu redirect
+    // ?submitted=1 — b4-holistic; các lần sau no-op im lặng.)
     for (let i = 0; i < 20; i++) {
-      await submitListingAction(fd({ listingId: draft.id }));
+      await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
     }
     expect(draft.status).toBe("pending");
     dbState.audits.length = 0; // dọn audit của 20 lần setup — chỉ đếm lần malformed
@@ -1173,9 +1180,10 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
 
-    // 20 lần đầu tiêu hết bucket (lần 1 thành công → pending; các lần sau no-op)
+    // 20 lần đầu tiêu hết bucket (lần 1 thành công → pending + redirect
+    // ?submitted=1 — b4-holistic; các lần sau no-op im lặng)
     for (let i = 0; i < 20; i++) {
-      await submitListingAction(fd({ listingId: draft.id }));
+      await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
     }
     expect(draft.status).toBe("pending");
 
@@ -1333,7 +1341,7 @@ describe("b4-holistic — listing.submitted audit trên MỌI đường vào rev
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
 
-    await submitListingAction(fd({ listingId: draft.id }));
+    await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
 
     expect(draft.status).toBe("pending");
     expect(dbState.priceHistory).toHaveLength(1);
@@ -1408,4 +1416,153 @@ describe("b4-holistic — listing.submitted audit trên MỌI đường vào rev
   // assertCategoryPublicationAllowed chặn TRƯỚC. Case đổi-into-inactive với
   // current ≠ target (listing legacy đổi sang beta inactive) pin ở
   // tests/unit/listing-publication.test.ts (assertCategoryActive describe).
+
+  it("LOW b4-holistic (validation): draft brandId KHÔNG tồn tại → typed BRAND_INVALID, KHÔNG row (KHÔNG FK 23503 crash)", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    seedUpload(seller.id);
+    login(seller);
+
+    const state = await saveListingDraftAction({}, betaForm({ brandId: "brand-khong-ton-tai" }));
+
+    expect(state.error).toContain("BRAND_INVALID");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("LOW b4-holistic (validation): draft productModelId KHÔNG tồn tại → typed MODEL_INVALID, KHÔNG row (KHÔNG FK 23503 crash)", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    seedUpload(seller.id);
+    login(seller);
+
+    const state = await saveListingDraftAction({}, betaForm({ productModelId: "model-khong-ton-tai" }));
+
+    expect(state.error).toContain("MODEL_INVALID");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("LOW b4-holistic (validation): CRLF line breaks normalize TRƯỚC validate — description 3.990 ký tự + 15 dòng (CRLF) PASS (browser maxLength đếm LF = 1 ký tự)", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    seedUpload(seller.id);
+    login(seller);
+
+    // 3.990 ký tự + 15 \r\n = 4.020 byte multipart — TRƯỚC fix: server thấy
+    // 4.020 > DESCRIPTION_MAX → DESCRIPTION_INVALID dù counter browser chưa
+    // bao giờ vượt 4.000. Sau fix: normalize \r\n → \n (4.005 ≤ 4.000? KHÔNG —
+    // 3.990 + 15 = 4.005... dựng chính xác: 3.985 + 15 dòng = 4.000).
+    const lines = 15;
+    const body = "a".repeat(3_985);
+    const description = `${body}${"\r\n".repeat(lines)}`; // 3.985 + 15×2 = 4.015 byte CRLF, 4.000 ký tự LF
+    expect(description.replace(/\r\n?/g, "\n").length).toBe(4_000);
+
+    const url = await createDraftExpectRedirect(betaForm({ description }));
+    expect(url).toMatch(/\/sell\/.+\/edit\?saved=draft$/);
+    expect(dbState.listings).toHaveLength(1);
+    // stored text dùng LF nhất quán (KHÔNG CRLF)
+    expect(String(dbState.listings[0]!.description)).not.toContain("\r");
+  });
+
+  it("LOW b4-holistic (validation): description 4.001 ký tự LF (THẬT quá dài) → VẪN DESCRIPTION_INVALID (bound giữ nguyên — KHÔNG nới vì CRLF)", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    login(seller);
+
+    const description = "a".repeat(4_001);
+    const state = await saveListingDraftAction({}, betaForm({ description }));
+
+    expect(state.error).toContain("DESCRIPTION_INVALID");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("LOW b4-holistic (validation): legacy free-text city — updateListingAction KHÔNG province + city 10.000 ký tự → typed PROVINCE_INVALID, KHÔNG write", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    // listing LEGACY (category legacy — regime legacy, không đòi province)
+    const legacy = seedListing(seller.id, "approved", { categoryId: CAT_LEGACY.id });
+    seedImage(legacy.id, IMG_URL, null);
+    login(seller);
+
+    const { updateListingAction } = await import("@/src/lib/actions/listings");
+    const state = await updateListingAction(
+      {},
+      betaForm({
+        listingId: legacy.id,
+        categoryId: CAT_LEGACY.id,
+        brandId: "",
+        productModelId: "",
+        city: "X".repeat(10_000),
+        provinceLevelCode: "",
+        inventoryContext: "",
+        fulfillmentMethods: [] as string[],
+        locationDisplayName: "",
+      }),
+    );
+
+    expect(state.error).toContain("PROVINCE_INVALID");
+    expect(legacy.city).toBe("Hà Nội"); // KHÔNG write
+  });
+
+  it("LOW b4-holistic (validation): legacy city NGOÀI CITIES nhưng BẰNG city đang lưu → grandfathered PASS (sửa tiếp được)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    // legacy pre-Batch-4 free-text city không nằm trong CITIES
+    const legacy = seedListing(seller.id, "approved", { categoryId: CAT_LEGACY.id, city: "Bình Dương cũ" });
+    seedImage(legacy.id, IMG_URL, null);
+    login(seller);
+
+    const { updateListingAction } = await import("@/src/lib/actions/listings");
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        betaForm({
+          listingId: legacy.id,
+          categoryId: CAT_LEGACY.id,
+          brandId: "",
+          productModelId: "",
+          city: "Bình Dương cũ", // GIỮ NGUYÊN — grandfathered
+          provinceLevelCode: "",
+          inventoryContext: "",
+          fulfillmentMethods: [] as string[],
+          locationDisplayName: "",
+        }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(legacy.city).toBe("Bình Dương cũ");
+  });
+
+  it("LOW b4-holistic (validation): legacy city NGOÀI CITIES và KHÁC city đang lưu → PROVINCE_INVALID (số điện thoại/URL/rác không lọt)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const legacy = seedListing(seller.id, "approved", { categoryId: CAT_LEGACY.id, city: "Bình Dương cũ" });
+    seedImage(legacy.id, IMG_URL, null);
+    login(seller);
+
+    const { updateListingAction } = await import("@/src/lib/actions/listings");
+    const state = await updateListingAction(
+      {},
+      betaForm({
+        listingId: legacy.id,
+        categoryId: CAT_LEGACY.id,
+        brandId: "",
+        productModelId: "",
+        city: "0900000001 gọi ngay",
+        provinceLevelCode: "",
+        inventoryContext: "",
+        fulfillmentMethods: [] as string[],
+        locationDisplayName: "",
+      }),
+    );
+
+    expect(state.error).toContain("PROVINCE_INVALID");
+    expect(legacy.city).toBe("Bình Dương cũ"); // KHÔNG write
+  });
 });

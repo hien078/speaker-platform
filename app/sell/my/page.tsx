@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
-import { labelOf } from "@/src/lib/listing-error-text";
+import { labelOf, submitErrorText } from "@/src/lib/listing-error-text";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE } from "@/src/lib/constants";
 import { toggleListingVisibilityAction, deleteListingAction, submitListingAction } from "@/src/lib/actions/listings";
 import { Package, Eye, EyeOff, Trash2, Plus, Pencil, Send } from "lucide-react";
@@ -17,7 +17,13 @@ export default async function MyListingsPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const sp = (await searchParams) as { created?: string; updated?: string };
+  const sp = (await searchParams) as { created?: string; updated?: string; submitted?: string; error?: string };
+
+  // b4-holistic (LOW form-action-contract): banner ?error= — CHỈ typed code
+  // trong allowlist SUBMIT_ERROR_TEXT (Object.hasOwn qua submitErrorText) —
+  // giá trị lạ/prototype key → generic, KHÔNG phản chiếu query text.
+  const actionError =
+    sp.error != null && sp.error !== "" ? submitErrorText(sp.error) : null;
 
   const listings = await db.orm.public.Listing
     .where({ sellerId: user.id })
@@ -48,6 +54,18 @@ export default async function MyListingsPage({
       {sp.updated === "1" && (
         <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
           ✓ Đã lưu thay đổi. Nếu nội dung chính thay đổi, tin sẽ được duyệt lại.
+        </div>
+      )}
+      {/* b4-holistic: submit draft→pending THÀNH CÔNG có confirmation (so sánh
+          literal — KHÔNG echo query); ?error= typed code trong allowlist. */}
+      {sp.submitted === "1" && (
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
+          ✓ Đã gửi duyệt — tin đang chờ duyệt.
+        </div>
+      )}
+      {actionError !== null && (
+        <div className="mt-5 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
+          {actionError}
         </div>
       )}
 

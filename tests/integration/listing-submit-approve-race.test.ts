@@ -436,9 +436,11 @@ d("submit + approve happy path — CAS updatedAt MATCH khi không race (round-tr
 
     // submit: đọc row (updatedAt U0 dạng text Postgres) → gate → CAS
     // `.where({ id, status: "draft", updatedAt: U0 })` — không ai viết giữa
-    // chừng → string U0 cast lại CÙNG instant → MATCH → pending.
+    // chừng → string U0 cast lại CÙNG instant → MATCH → pending (redirect
+    // ?submitted=1 — b4-holistic confirmation).
     await login(sellerId);
-    await submitListingAction(fd({ listingId }));
+    const submitUrl = await expectRedirect(() => submitListingAction(fd({ listingId })));
+    expect(submitUrl).toBe("/sell/my?submitted=1");
 
     let listing = await db.orm.public.Listing.first({ id: listingId });
     expect(listing!.status).toBe("pending");

@@ -1265,7 +1265,9 @@ describe("per-path gate pins — create/submit/update-into-pending/toggle gọi 
     const draft = seedListing(seller.id, "draft");
     login(seller);
 
-    await submitListingAction(fd({ listingId: draft.id }));
+    // b4-holistic: submit thành công redirect /sell/my?submitted=1
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
+    expect(url).toBe("/sell/my?submitted=1");
 
     expect(gateState.publishableCalls).toBe(1);
     expect(draft.status).toBe("pending");
@@ -1669,7 +1671,7 @@ describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng 
     ["rejected", "rejected"],
     ["draft", "draft"],
     ["pending", "pending"],
-  ])("listing %s CÓ đơn → LISTING_HAS_ORDERS (typed), status GIỮ NGUYÊN — KHÔNG hide (không mở đường hidden→approved bypass review)", async (_label, status) => {
+  ])("listing %s CÓ đơn → redirect ?error=LISTING_HAS_ORDERS (typed — KHÔNG throw ra error boundary), status GIỮ NGUYÊN — KHÔNG hide (không mở đường hidden→approved bypass review)", async (_label, status) => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -1677,9 +1679,10 @@ describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng 
     dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
     login(seller);
 
-    await expect(
-      deleteListingAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_HAS_ORDERS/);
+    // b4-holistic (LOW form-action-contract): void form action KHÔNG throw
+    // expected condition ra error boundary — redirect typed code trong allowlist.
+    const url = await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
+    expect(url).toBe("/sell/my?error=LISTING_HAS_ORDERS");
 
     // status GIỮ NGUYÊN — KHÔNG bao giờ thành hidden → KHÔNG toggle được lên approved
     expect(listing.status).toBe(status);
@@ -1709,10 +1712,9 @@ describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng 
     dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
     login(seller);
 
-    // delete bị chặn typed error
-    await expect(
-      deleteListingAction(fd({ listingId: listing.id })),
-    ).rejects.toThrowError(/LISTING_HAS_ORDERS/);
+    // delete bị chặn — redirect typed code (b4-holistic: KHÔNG throw error boundary)
+    const url = await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
+    expect(url).toBe("/sell/my?error=LISTING_HAS_ORDERS");
     // toggle trên rejected → KHÔNG phải hidden → không có đường hidden→approved
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
     expect(listing.status).toBe("rejected"); // vẫn rejected — KHÔNG thể đạt approved

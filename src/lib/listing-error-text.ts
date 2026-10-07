@@ -26,12 +26,13 @@
  * Ghi chú nguồn code:
  *  - content codes + RATE_LIMITED + CONTENT_INVALID: các code submitListingAction
  *    redirect về /sell/<id>/edit?error= (SUBMIT_ERROR_PARAM_CODES — listings.ts).
- *  - CONCURRENT_CHANGE: defense-in-depth — CAS claim 0 row hiện throw
- *    LISTING_CONCURRENT_CHANGE (không redirect); giữ sẵn text cho ngày có
- *    đường redirect (parallel note của Task 4 review-fix).
- *  - LISTING_HAS_ORDERS: review fix LOW-1 yêu cầu pin code này; CHƯA có
- *    action nào phát hành (deleteListingAction có đơn → ẩn im lặng) — giữ
- *    sẵn để lookup không miss khi code đến.
+ *  - CONCURRENT_CHANGE: submitListingAction CAS claim 0 row → redirect
+ *    ?error=CONCURRENT_CHANGE (typed code); updateListingAction/
+ *    saveListingDraftAction trả CÙNG text qua form error (b4-holistic —
+ *    KHÔNG throw ra error boundary).
+ *  - LISTING_HAS_ORDERS: deleteListingAction (có đơn + status ≠ approved)
+ *    redirect /sell/my?error=LISTING_HAS_ORDERS (b4-holistic — KHÔNG throw);
+ *    banner /sell/my đọc qua submitErrorText (allowlist này).
  */
 export const SUBMIT_ERROR_TEXT: Record<string, string> = {
   CONCURRENT_CHANGE: "Tin vừa thay đổi trạng thái — tải lại trang và kiểm tra lại",
