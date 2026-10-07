@@ -234,6 +234,28 @@ describe("listingToChat — reconciliation (FIXTURE window 24h)", () => {
     });
   });
 
+  it("revisit TRONG window bị dedup vào unit view đầu — chat SAU window của view ĐẦU KHÔNG tính (b5-review T9 no-change)", () => {
+    // TÍNH TAY (windowMs 24h): view @0, revisit @1380 (23h — TRONG window của
+    // view đầu → CÙNG unit, dedup), chat @1500 (25h — NGOÀI [0, 1440]) → 0/1.
+    //
+    // Quyết định ghi nhận (no-change): plan Task 9 Step 4 (L1104) chốt anchor
+    // = view GIỮ UNIT (view ĐẦU): "conversationStartedAt >= viewedAt &&
+    // <= viewedAt + windowMs" — revisit trong window KHÔNG mở rộng window.
+    // Spec §5.8.1 chỉ chốt dedup "viewer + listing + attribution window",
+    // KHÔNG chốt anchor (first-view vs last-view) — đọc plan là quyết định
+    // reversible: đảo lại cùng A1 khi founder chọn window production.
+    const revisit: ProductEventRow[] = [
+      row({ name: "listing_viewed", actorPseudonym: "buyer-a", listingId: "L1", occurredAt: at(0), metadata: { ownerView: false, fromSearch: false } }),
+      row({ name: "listing_viewed", actorPseudonym: "buyer-a", listingId: "L1", occurredAt: at(1380), metadata: { ownerView: false, fromSearch: true } }),
+      row({ name: "conversation_started", actorPseudonym: "buyer-a", listingId: "L1", conversationId: "K1", occurredAt: at(1500) }),
+    ];
+    expect(listingToChat(revisit, { windowMs: WINDOW_24H })).toEqual({
+      numerator: 0,
+      denominator: 1,
+      rate: 0,
+    });
+  });
+
   it("fixture rỗng → rate null", () => {
     expect(listingToChat([], { windowMs: WINDOW_24H })).toEqual({
       numerator: 0,
@@ -304,6 +326,32 @@ describe("searchToChat — reconciliation (UNBOUNDED click chain)", () => {
       denominator: 5,
       rate: 0.2,
     });
+  });
+
+  it("multi-credit per-session (D3): MỘT conversation credit MỌI session đã click cùng listing (b5-review T9 no-change)", () => {
+    // TÍNH TAY: buyer-a refine 3 lần (D1 — mỗi lần submit = session mới
+    // ss1..ss3), click L ở cả 3, rồi MỘT conversation (buyer-a/L, sau click)
+    // → MỌI session đều có "click L → conversation cùng actor+listing" →
+    // numerator 3, denominator 3, rate 1.
+    //
+    // Quyết định ghi nhận (no-change): D3 (plan L1294) đếm THEO SESSION —
+    // "a search session counts when a search_result_clicked on listing L is
+    // followed by a conversation_started for the same actor on the same
+    // listing" — KHÔNG single-attribution (một conversation chỉ credit session
+    // click cuối). Spec §5.8.1 numerator session-centric ("qualified search
+    // sessions that eventually produce a new buyer↔seller conversation
+    // through a clicked result"). Đọc D3 là quyết định reversible — đảo lại
+    // khi founder yêu cầu last-touch attribution.
+    const multi: ProductEventRow[] = [
+      row({ name: "search_submitted", actorPseudonym: "buyer-a", searchSessionId: "ss1", occurredAt: at(0), metadata: { resultCount: 3, resultListingIds: ["L1"] } }),
+      row({ name: "search_submitted", actorPseudonym: "buyer-a", searchSessionId: "ss2", occurredAt: at(10), metadata: { resultCount: 2, resultListingIds: ["L1"] } }),
+      row({ name: "search_submitted", actorPseudonym: "buyer-a", searchSessionId: "ss3", occurredAt: at(20), metadata: { resultCount: 1, resultListingIds: ["L1"] } }),
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-a", searchSessionId: "ss1", listingId: "L1", occurredAt: at(60) }),
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-a", searchSessionId: "ss2", listingId: "L1", occurredAt: at(70) }),
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-a", searchSessionId: "ss3", listingId: "L1", occurredAt: at(80) }),
+      row({ name: "conversation_started", actorPseudonym: "buyer-a", listingId: "L1", conversationId: "K1", occurredAt: at(120) }),
+    ];
+    expect(searchToChat(multi)).toEqual({ numerator: 3, denominator: 3, rate: 1 });
   });
 
   it("fixture rỗng → rate null", () => {
