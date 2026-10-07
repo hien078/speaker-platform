@@ -5,6 +5,7 @@
  */
 import { db } from "@/src/prisma/db.client";
 import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
+import type { ListingPublicationInput } from "@/src/lib/listing-publication";
 
 type TxContext = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -47,6 +48,75 @@ export async function getOrCreateCart(userId: string): Promise<string> {
   if (cart) return cart.id;
   const created = await db.orm.public.Cart.create({ userId });
   return created.id;
+}
+
+// ─── Listing publication input từ DB row (Batch 4 Task 4 — trust boundary) ────
+
+/** Row Listing scalars — structural type (nhận output type của contract). */
+type ListingPublicationRow = {
+  id: string;
+  title: string;
+  description: string;
+  categoryId: string;
+  brandId: string | null;
+  productModelId: string | null;
+  condition: string;
+  price: number;
+  negotiable: boolean;
+  inventoryContext: string | null;
+  includedAccessories: string | null;
+  knownDefects: string | null;
+  repairHistory: string | null;
+  /** Json column — array fulfillment hoặc null. */
+  fulfillmentMethods: unknown;
+  provinceLevelCode: string | null;
+  locationDisplayName: string | null;
+};
+
+/**
+ * Input publication XÂY TỪ DB ROW (Batch 4 Task 4 — trust boundary, spec §4.5):
+ * title/description/price/condition/… đọc từ listing row; imageUrls từ
+ * ListingImage rows theo sortOrder (imageSlots song song từ checklistSlot);
+ * currentCategorySlug từ Category row của listing.categoryId — KHÔNG tin
+ * formData cho bất kỳ trường gate. Caller (submitListingAction /
+ * toggleListingVisibilityAction / approveListingAction) đã check
+ * ownership/admin TRƯỚC khi gọi (IDOR — read ảnh/category chỉ sau ownership).
+ */
+export async function listingPublicationInputFromRow(
+  listing: ListingPublicationRow,
+  sellerId: string,
+): Promise<ListingPublicationInput> {
+  const [images, category] = await Promise.all([
+    db.orm.public.ListingImage
+      .where({ listingId: listing.id })
+      .orderBy((i) => i.sortOrder.asc())
+      .all(),
+    db.orm.public.Category.first({ id: listing.categoryId }),
+  ]);
+  return {
+    title: listing.title,
+    description: listing.description,
+    categoryId: listing.categoryId,
+    brandId: listing.brandId,
+    productModelId: listing.productModelId,
+    condition: listing.condition,
+    price: listing.price,
+    negotiable: listing.negotiable,
+    inventoryContext: listing.inventoryContext,
+    includedAccessories: listing.includedAccessories,
+    knownDefects: listing.knownDefects,
+    repairHistory: listing.repairHistory,
+    fulfillmentMethods: Array.isArray(listing.fulfillmentMethods)
+      ? (listing.fulfillmentMethods as string[])
+      : null,
+    provinceLevelCode: listing.provinceLevelCode,
+    locationDisplayName: listing.locationDisplayName,
+    imageUrls: images.map((i) => i.url),
+    imageSlots: images.map((i) => i.checklistSlot ?? null),
+    sellerId,
+    listingId: listing.id,
+    currentCategorySlug: category?.slug,
+  };
 }
 
 /** Đọc số ngày tự giải ngân từ PlatformSetting — admin cấu hình được (§73) */

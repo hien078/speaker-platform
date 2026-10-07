@@ -31,6 +31,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 vi.mock("server-only", () => ({}));
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
@@ -70,6 +73,10 @@ const dbState = vi.hoisted(() => ({
   listings: [] as Array<Record<string, unknown>>,
   images: [] as Array<Record<string, unknown>>,
   categories: [] as Array<Record<string, unknown>>,
+  brands: [] as Array<Record<string, unknown>>,
+  models: [] as Array<Record<string, unknown>>,
+  uploads: [] as Array<Record<string, unknown>>,
+  priceHistory: [] as Array<Record<string, unknown>>,
   verifications: [] as Array<Record<string, unknown>>,
   acceptances: [] as Array<Record<string, unknown>>,
   memberships: [] as Array<Record<string, unknown>>,
@@ -187,12 +194,40 @@ vi.mock("@/src/prisma/db.client", () => {
     ListingImage: makeModel(dbState.images, () => ({
       id: `img-${dbState.images.length + 1}`,
       sortOrder: 0,
+      checklistSlot: null,
     })),
     Category: makeModel(dbState.categories, () => ({
       id: `cat-${dbState.categories.length + 1}`,
       commissionRate: 5,
       sortOrder: 0,
       isActive: true,
+      createdAt: new Date().toISOString(),
+    })),
+    Brand: makeModel(dbState.brands, () => ({
+      id: `brand-${dbState.brands.length + 1}`,
+      logoUrl: null,
+      createdAt: new Date().toISOString(),
+    })),
+    ProductModel: makeModel(dbState.models, () => ({
+      id: `model-${dbState.models.length + 1}`,
+      releaseYear: null,
+      description: null,
+      specs: null,
+      image: null,
+      status: "approved",
+      mergedIntoId: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })),
+    ListingImageUpload: makeModel(dbState.uploads, () => ({
+      id: `up-${dbState.uploads.length + 1}`,
+      bytes: 1024,
+      width: 800,
+      height: 600,
+      createdAt: new Date().toISOString(),
+    })),
+    PriceHistory: makeModel(dbState.priceHistory, () => ({
+      id: `ph-${dbState.priceHistory.length + 1}`,
       createdAt: new Date().toISOString(),
     })),
     SellerVerification: makeModel(dbState.verifications, () => ({
@@ -251,12 +286,57 @@ vi.mock("@/src/prisma/db.client", () => {
   };
 });
 
+// ─── Counting wrappers (cross-module — Global Constraints recipe) ────────────
+// Batch 4 Task 4 (item 1 per-path pins): create/submit/update-into-pending/toggle
+// gọi assertListingPublishable ĐÚNG MỘT LẦN; non-transition update gọi
+// assertListingContentValid (KHÔNG seller gate); approve gọi checkListingPublication
+// MỘT LẦN. Wrapper gọi THẬT (importOriginal) — hành vi giữ nguyên, chỉ đếm.
+
+const gateState = vi.hoisted(() => ({
+  sellerGateCalls: 0,
+  publishableCalls: 0,
+  contentValidCalls: 0,
+  checkPublicationCalls: 0,
+}));
+
+vi.mock("@/src/lib/seller-verification-policy", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/src/lib/seller-verification-policy")>();
+  return {
+    ...actual,
+    assertSellerPublicationAllowed: async (sellerId: string): Promise<void> => {
+      gateState.sellerGateCalls += 1;
+      return actual.assertSellerPublicationAllowed(sellerId);
+    },
+  };
+});
+
+vi.mock("@/src/lib/listing-publication", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/src/lib/listing-publication")>();
+  return {
+    ...actual,
+    assertListingPublishable: async (input: unknown): Promise<void> => {
+      gateState.publishableCalls += 1;
+      return actual.assertListingPublishable(input as never);
+    },
+    assertListingContentValid: async (input: unknown): Promise<void> => {
+      gateState.contentValidCalls += 1;
+      return actual.assertListingContentValid(input as never);
+    },
+    checkListingPublication: async (input: unknown): Promise<unknown> => {
+      gateState.checkPublicationCalls += 1;
+      return actual.checkListingPublication(input as never);
+    },
+  };
+});
+
 import { resetRateLimits } from "@/src/lib/rate-limit";
 import { SESSION_COOKIE } from "@/src/lib/session";
 import {
   createListingAction,
   updateListingAction,
   toggleListingVisibilityAction,
+  deleteListingAction,
+  submitListingAction,
 } from "@/src/lib/actions/listings";
 import { approveListingAction } from "@/src/lib/actions/admin";
 
@@ -288,7 +368,7 @@ const mkUser = (over: Partial<Row>): Row & { id: string } => ({
 
 const ADMIN_OPS = mkUser({ id: "admin-ops", email: "ops@loaviet.test", name: "Ops", role: "admin", adminRole: "operations_admin" });
 
-/** Seller ĐỦ 7 yêu cầu policy v1 (mặc định) — case block bỏ/thay từng mảnh. */
+/** Seller ĐỦ 8 yêu cầu policy v1 (mặc định) — case block bỏ/thay từng mảnh. */
 const mkVerifiedSeller = (): Row & { id: string } =>
   mkUser({
     id: "seller-1",
@@ -339,7 +419,75 @@ const seedPolicyRows = (sellerId: string, over?: { membershipStatus?: string; ve
   });
 };
 
-const CATEGORY = { id: "cat-1", name: "Loa bluetooth", slug: "loa-bluetooth", commissionRate: 5, sortOrder: 0, isActive: true, createdAt: "2026-09-01T00:00:00.000Z" };
+// ─── Batch 4 fixtures (Task 4 — fixture migration: happy-path category là BETA) ─
+
+/** Ảnh upload MỚI (Batch 4) — storage key ngẫu nhiên của upload route (Task 3). */
+const UUID_IMG = "00000000-0000-4000-8000-0000000000dd";
+const UUID_IMG_2 = "10000000-0000-4000-8000-0000000000ee";
+const IMG_URL = `/uploads/${UUID_IMG}.webp`;
+const IMG_URL_2 = `/uploads/${UUID_IMG_2}.webp`;
+
+/** Category BETA (spec §5.6.1 verbatim) — happy-path fixtures dùng slug này. */
+const CATEGORY = {
+  id: "cat-1",
+  name: "Loa Bluetooth di động",
+  slug: "portable_bluetooth_speaker",
+  commissionRate: 5,
+  sortOrder: 0,
+  isActive: true,
+  createdAt: "2026-09-01T00:00:00.000Z",
+};
+/** Category LEGACY (pre-Batch-4) — grandfathered cases (A10/compat). */
+const CAT_LEGACY = {
+  id: "cat-legacy",
+  name: "Loa bluetooth",
+  slug: "loa-bluetooth",
+  commissionRate: 5,
+  sortOrder: 1,
+  isActive: true,
+  createdAt: "2026-09-01T00:00:00.000Z",
+};
+
+const BRAND = { id: "brand-1", name: "JBL", slug: "jbl", logoUrl: null, createdAt: "2026-09-01T00:00:00.000Z" };
+const MODEL = {
+  id: "model-1",
+  brandId: "brand-1",
+  categoryId: CATEGORY.id,
+  name: "Charge 5",
+  slug: "jbl-charge-5",
+  releaseYear: null,
+  description: null,
+  specs: null,
+  image: null,
+  status: "approved",
+  mergedIntoId: null,
+  createdAt: "2026-09-01T00:00:00.000Z",
+  updatedAt: "2026-09-01T00:00:00.000Z",
+};
+
+/** Ảnh upload thuộc seller — rule (1) ownership pass. */
+const seedUpload = (ownerUserId: string, storageKey = `${UUID_IMG}.webp`): void => {
+  dbState.uploads.push({
+    id: `up-${dbState.uploads.length + 1}`,
+    ownerUserId,
+    storageKey,
+    bytes: 1024,
+    width: 800,
+    height: 600,
+    createdAt: new Date().toISOString(),
+  });
+};
+
+/** Ảnh ĐÃ GẮN vào listing (rule 2 compat + toggle/approve input từ DB row). */
+const seedImage = (listingId: string, url: string, checklistSlot: string | null, sortOrder = 0): void => {
+  dbState.images.push({
+    id: `img-${dbState.images.length + 1}`,
+    listingId,
+    url,
+    sortOrder,
+    checklistSlot,
+  });
+};
 
 /** Episode đình chỉ ACTIVE cho seller (yêu cầu thứ 8 — spec §7.8, Batch 3 Task 5). */
 const seedSuspension = (userId: string): void => {
@@ -357,13 +505,13 @@ const seedSuspension = (userId: string): void => {
   });
 };
 
-/** Listing fixture của seller. */
+/** Listing fixture của seller — structured beta đầy đủ + 1 ảnh gắn (slot front). */
 const seedListing = (sellerId: string, status: string, over?: Partial<Row>): Row & { id: string } => {
   const row: Row & { id: string } = {
     id: `listing-${dbState.listings.length + 1}`,
     sellerId,
     categoryId: CATEGORY.id,
-    brandId: null,
+    brandId: BRAND.id,
     title: "Loa JBL Charge 5 chính hãng",
     slug: "loa-jbl-charge-5-chinh-hang",
     description: "Loa bluetooth cũ còn tốt, pin trâu, nghe hay.",
@@ -375,12 +523,21 @@ const seedListing = (sellerId: string, status: string, over?: Partial<Row>): Row
     rejectionReason: null,
     city: "Hà Nội",
     viewCount: 0,
-    productModelId: null,
+    productModelId: MODEL.id,
+    inventoryContext: "used",
+    includedAccessories: null,
+    knownDefects: null,
+    repairHistory: null,
+    fulfillmentMethods: ["meetup"],
+    provinceLevelCode: "ha-noi",
+    communeLevelCode: null,
+    locationDisplayName: "Khu vực Cầu Giấy",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...over,
   };
   dbState.listings.push(row);
+  seedImage(row.id, IMG_URL, "front");
   return row;
 };
 
@@ -404,14 +561,21 @@ const login = (user: Row, opts?: { isAdmin?: boolean }): string => {
   return id;
 };
 
-const fd = (entries: Record<string, string>): FormData => {
+const fd = (entries: Record<string, string | string[]>): FormData => {
   const form = new FormData();
-  for (const [k, v] of Object.entries(entries)) form.set(k, v);
+  for (const [k, v] of Object.entries(entries)) {
+    if (Array.isArray(v)) for (const item of v) form.append(k, item);
+    else form.set(k, v);
+  }
   return form;
 };
 
-/** createListing/updateListing formData HỢP LỆ (title/desc/price/city/images). */
-const listingForm = (over?: Record<string, string>): FormData => {
+/**
+ * createListing/updateListing formData HỢP LỆ (beta structured đầy đủ —
+ * Task 4 fixture migration: brand/model/inventoryContext/fulfillment/province/
+ * location + ảnh owned + slot; các case block chỉ đổi từng mảnh).
+ */
+const listingForm = (over?: Record<string, string | string[]>): FormData => {
   const form = fd({
     title: "Loa JBL Charge 5 chính hãng",
     categoryId: CATEGORY.id,
@@ -419,9 +583,23 @@ const listingForm = (over?: Record<string, string>): FormData => {
     price: "1800000",
     city: "Hà Nội",
     description: "Loa bluetooth cũ còn tốt, pin trâu, nghe hay.",
+    brandId: BRAND.id,
+    productModelId: MODEL.id,
+    inventoryContext: "used",
+    provinceLevelCode: "ha-noi",
+    locationDisplayName: "Khu vực Cầu Giấy",
+    fulfillmentMethods: ["meetup"],
+    images: [IMG_URL],
+    imageSlots: ["front"],
   });
-  form.set("images", "/uploads/a.jpg");
-  if (over) for (const [k, v] of Object.entries(over)) form.set(k, v);
+  if (over) {
+    for (const [k, v] of Object.entries(over)) {
+      if (Array.isArray(v)) {
+        form.delete(k);
+        for (const item of v) form.append(k, item);
+      } else form.set(k, v);
+    }
+  }
   return form;
 };
 
@@ -440,20 +618,15 @@ const expectRedirect = async (fn: () => Promise<unknown>): Promise<string> => {
 beforeEach(() => {
   vi.stubEnv("NODE_ENV", "test");
   vi.stubEnv("AUTH_SECRET", "unit-test-auth-secret-0123456789abcdef");
-  dbState.users.length = 0;
-  dbState.sessions.length = 0;
-  dbState.listings.length = 0;
-  dbState.images.length = 0;
-  dbState.categories.length = 0;
-  dbState.verifications.length = 0;
-  dbState.acceptances.length = 0;
-  dbState.memberships.length = 0;
-  dbState.suspensions.length = 0;
-  dbState.audits.length = 0;
-  dbState.adminAudits.length = 0;
-  dbState.notifications.length = 0;
+  for (const arr of Object.values(dbState)) (arr as unknown[]).length = 0;
+  gateState.sellerGateCalls = 0;
+  gateState.publishableCalls = 0;
+  gateState.contentValidCalls = 0;
+  gateState.checkPublicationCalls = 0;
   dbState.users.push({ ...ADMIN_OPS });
-  dbState.categories.push({ ...CATEGORY });
+  dbState.categories.push({ ...CATEGORY }, { ...CAT_LEGACY });
+  dbState.brands.push({ ...BRAND });
+  dbState.models.push({ ...MODEL });
   cookieState.store.clear();
   headerState.headers = new Headers();
   resetRateLimits();
@@ -498,6 +671,7 @@ describe("createListingAction — gate trước Listing.create (spec §4.4)", ()
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
+    seedUpload(seller.id); // ảnh upload thuộc seller — rule (1) pass
     login(seller);
 
     const url = await expectRedirect(() => createListingAction({}, listingForm()));
@@ -535,6 +709,7 @@ describe("updateListingAction — gate trước transition vào pending (spec §
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
+    seedUpload(seller.id);
     const listing = seedListing(seller.id, "approved");
     login(seller);
 
@@ -554,6 +729,7 @@ describe("updateListingAction — gate trước transition vào pending (spec §
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id, { verificationStatus: "revoked" });
+    seedUpload(seller.id); // non-transition update vẫn validate content (item 1) — ảnh phải owned
     const listing = seedListing(seller.id, "pending");
     login(seller);
 
@@ -590,6 +766,7 @@ describe("toggleListingVisibilityAction — gate hidden → approved (spec §4.4
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
+    seedUpload(seller.id); // input từ DB row — ảnh gắn phải owned
     const listing = seedListing(seller.id, "hidden");
     login(seller);
 
@@ -656,6 +833,7 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
+    seedUpload(seller.id); // checkListingPublication chạy content stage — ảnh phải owned
     const listing = seedListing(seller.id, "pending");
     login(ADMIN_OPS, { isAdmin: true });
 
@@ -774,6 +952,7 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id); // đủ 8 (không có suspension)
+    seedUpload(seller.id);
     login(seller);
 
     // 1. create → pending
@@ -806,5 +985,411 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     expect(listing.status).toBe("hidden");
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
     expect(listing.status).toBe("approved");
+  });
+});
+
+// ─── 6. B3 — content-change MỞ RỘNG: MỌI structured field/brand/model/ảnh/slot ──
+
+describe("updateListingAction — content-change mở rộng (B3): mọi structured field đưa tin về pending", () => {
+  const setupApproved = () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+    return { seller, listing };
+  };
+
+  it.each([
+    ["knownDefects", { knownDefects: "Có trầy xước nhẹ ở góc" }],
+    ["includedAccessories", { includedAccessories: "Sạc, cáp USB-C" }],
+    ["repairHistory", { repairHistory: "Thay pin tháng 3/2026" }],
+    ["inventoryContext", { inventoryContext: "open_box" }],
+    ["fulfillmentMethods", { fulfillmentMethods: ["carrier"] }],
+    ["provinceLevelCode", { provinceLevelCode: "ho-chi-minh" }],
+    ["locationDisplayName", { locationDisplayName: "Khu vực Quận 1" }],
+  ])("đổi %s trên approved → pending (B3)", async (_label, over) => {
+    const { listing } = setupApproved();
+
+    const url = await expectRedirect(() =>
+      updateListingAction({}, listingForm({ listingId: listing.id, ...(over as Record<string, string | string[]>) })),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+  });
+
+  it("đổi brandId + productModelId (sang model khác cùng category) trên approved → pending (B3)", async () => {
+    const { listing } = setupApproved();
+    dbState.brands.push({ ...BRAND, id: "brand-2", name: "Sony", slug: "sony" });
+    dbState.models.push({ ...MODEL, id: "model-2", brandId: "brand-2", name: "SRS-XB33", slug: "sony-srs-xb33" });
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, brandId: "brand-2", productModelId: "model-2" }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+    expect(listing.brandId).toBe("brand-2");
+    expect(listing.productModelId).toBe("model-2");
+  });
+
+  it("đổi image set (thêm ảnh mới owned) trên approved → pending (B3)", async () => {
+    const { seller, listing } = setupApproved();
+    seedUpload(seller.id, `${UUID_IMG_2}.webp`);
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, images: [IMG_URL, IMG_URL_2], imageSlots: ["front", "back"] }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+    expect(dbState.images.filter((i) => i["listingId"] === listing.id)).toHaveLength(2);
+  });
+
+  it("đổi slot set (front → back) trên approved → pending (B3)", async () => {
+    const { listing } = setupApproved();
+
+    const url = await expectRedirect(() =>
+      updateListingAction({}, listingForm({ listingId: listing.id, imageSlots: ["back"] })),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+    expect(dbState.images[0]).toMatchObject({ checklistSlot: "back" });
+  });
+
+  it("content change từ hidden → pending (ẩn cũng phải qua lại review — spec §5.6.2)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "hidden");
+    login(seller);
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ" }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+  });
+});
+
+// ─── 7. A10 interim — legacy rejected KHÔNG resubmit ──────────────────────────
+
+describe("A10 interim — legacy-regime listing bị từ chối KHÔNG resubmit (fail closed)", () => {
+  it("content-change trên legacy listing status rejected → form message, status GIỮ rejected (KHÔNG chuyển pending)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    // listing legacy (pre-Batch-4) — category legacy, structured NULL, ảnh seed gắn
+    const listing = seedListing(seller.id, "rejected", {
+      categoryId: CAT_LEGACY.id,
+      brandId: null,
+      productModelId: null,
+      inventoryContext: null,
+      fulfillmentMethods: null,
+      provinceLevelCode: null,
+      locationDisplayName: null,
+    });
+    seedImage(listing.id, "/img/listings/seed-1.svg", null);
+    login(seller);
+
+    const state = await updateListingAction(
+      {},
+      listingForm({
+        listingId: listing.id,
+        categoryId: CAT_LEGACY.id,
+        title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ",
+        brandId: "",
+        productModelId: "",
+        inventoryContext: "",
+        fulfillmentMethods: [] as string[],
+        provinceLevelCode: "",
+        locationDisplayName: "",
+        images: ["/img/listings/seed-1.svg"],
+        imageSlots: [] as string[],
+      }),
+    );
+
+    expect(state.error).toBeTruthy();
+    expect(listing.status).toBe("rejected"); // A10 — KHÔNG resubmit vào pending
+    expect(listing.title).toBe("Loa JBL Charge 5 chính hãng"); // KHÔNG ghi đè
+  });
+});
+
+// ─── 8. B1/B4 — approve defense-in-depth qua checkListingPublication ─────────
+
+describe("approveListingAction — content defense-in-depth (B1/B4 qua checkListingPublication)", () => {
+  const setupPending = () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+    return { seller, listing };
+  };
+
+  it("listing có ảnh https:// ĐÃ GẮN → KHÔNG approve + audit reason 'listing_content_invalid' + issues= (scheme URL không bao giờ tin — kể cả approve)", async () => {
+    const { listing } = setupPending();
+    // ảnh scheme ĐÃ gắn từ trước (pre-gate) — rule (3) chặn kể cả khi attached
+    dbState.images.push({
+      id: `img-${dbState.images.length + 1}`,
+      listingId: listing.id,
+      url: "https://evil.example/x.jpg",
+      sortOrder: 1,
+      checklistSlot: null,
+    });
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("pending"); // KHÔNG approve
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      subjectId: listing.sellerId,
+      reason: "listing_content_invalid", // reason MỚI (content) — tách bạch với seller gate
+    });
+    expect(evt!.detail).toContain("issues=");
+    expect(evt!.detail).toContain("IMAGE_URL_INVALID");
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+  });
+
+  it.each([
+    ["model status pending", { status: "pending" }],
+    ["model status merged", { status: "merged" }],
+    ["model thuộc category KHÁC", { categoryId: CAT_LEGACY.id }],
+  ])("beta listing với %s → KHÔNG approve + issues chứa MODEL_INVALID (B4)", async (_label, over) => {
+    const { listing } = setupPending();
+    dbState.models.push({ ...MODEL, id: "model-bad", ...over });
+    (listing as Row).productModelId = "model-bad"; // row fixture mutate trực tiếp
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("pending");
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt!.reason).toBe("listing_content_invalid");
+    expect(evt!.detail).toContain("MODEL_INVALID");
+  });
+
+  it("model thuộc brand KHÁC → MODEL_BRAND_MISMATCH (B4)", async () => {
+    const { listing } = setupPending();
+    dbState.brands.push({ ...BRAND, id: "brand-2", name: "Sony", slug: "sony" });
+    dbState.models.push({ ...MODEL, id: "model-other-brand", brandId: "brand-2" });
+    (listing as Row).productModelId = "model-other-brand";
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("pending");
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt!.reason).toBe("listing_content_invalid");
+    expect(evt!.detail).toContain("MODEL_BRAND_MISMATCH");
+  });
+});
+
+// ─── 9. Item 1 per-path pins — wrapper gọi ĐÚNG MỘT LẦN (counting wrappers) ─────
+
+describe("per-path gate pins — create/submit/update-into-pending/toggle gọi assertListingPublishable MỘT LẦN", () => {
+  it("createListingAction → assertListingPublishable ĐÚNG 1 lần", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    login(seller);
+
+    await expectRedirect(() => createListingAction({}, listingForm()));
+
+    expect(gateState.publishableCalls).toBe(1);
+    expect(gateState.sellerGateCalls).toBe(1); // seller gate chạy BÊN TRONG wrapper
+  });
+
+  it("submitListingAction → assertListingPublishable ĐÚNG 1 lần", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    login(seller);
+
+    await submitListingAction(fd({ listingId: draft.id }));
+
+    expect(gateState.publishableCalls).toBe(1);
+    expect(draft.status).toBe("pending");
+  });
+
+  it("updateListingAction vào pending → assertListingPublishable ĐÚNG 1 lần", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+
+    await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ" }),
+      ),
+    );
+
+    expect(gateState.publishableCalls).toBe(1);
+    expect(listing.status).toBe("pending");
+  });
+
+  it("toggleListingVisibilityAction hidden→approved → assertListingPublishable ĐÚNG 1 lần", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "hidden");
+    login(seller);
+
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+
+    expect(gateState.publishableCalls).toBe(1);
+    expect(listing.status).toBe("approved");
+  });
+
+  it("updateListingAction KHÔNG chuyển trạng thái → assertListingContentValid 1 lần, 0 seller gate (item 1)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(seller);
+
+    await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ" }),
+      ),
+    );
+
+    expect(gateState.contentValidCalls).toBe(1);
+    expect(gateState.publishableCalls).toBe(0); // KHÔNG full gate
+    expect(gateState.sellerGateCalls).toBe(0); // KHÔNG seller gate
+    expect(listing.status).toBe("pending");
+  });
+
+  it("approveListingAction → checkListingPublication ĐÚNG 1 lần (direct checkSellerPublicationRequirements call ĐÃ XÓA)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(gateState.checkPublicationCalls).toBe(1);
+    expect(gateState.publishableCalls).toBe(0); // approve KHÔNG dùng bản throw
+    expect(listing.status).toBe("approved");
+  });
+});
+
+// ─── 10. R5 — moderation lock giữ nguyên sau rewire + source contract ─────────
+
+describe("R5 — moderation lock sau rewire (Batch 3 guards giữ nguyên)", () => {
+  it("updateListingAction trên listing bị takedown → LISTING_MODERATION_LOCKED, KHÔNG mutation", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedListing(seller.id, "removed");
+    login(seller);
+
+    await expect(
+      updateListingAction(
+        {},
+        listingForm({ listingId: listing.id, title: "Loa JBL Charge 5 chính hãng SỬA SAU TAKEDOWN" }),
+      ),
+    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+
+    expect(listing.status).toBe("removed");
+    expect(listing.title).toBe("Loa JBL Charge 5 chính hãng");
+  });
+
+  it("toggleListingVisibilityAction trên listing bị takedown → LISTING_MODERATION_LOCKED (không un-remove)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedListing(seller.id, "removed");
+    login(seller);
+
+    await expect(
+      toggleListingVisibilityAction(fd({ listingId: listing.id })),
+    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    expect(listing.status).toBe("removed");
+  });
+
+  it("deleteListingAction trên listing bị takedown → LISTING_MODERATION_LOCKED, row SỐNG SÓT", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedListing(seller.id, "removed");
+    login(seller);
+
+    await expect(
+      deleteListingAction(fd({ listingId: listing.id })),
+    ).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    expect(dbState.listings.find((l) => l["id"] === listing.id)).toBeDefined();
+  });
+
+  it("source contract: guard gọi isModerationLocked từ @/src/lib/moderation — KHÔNG hardcode status, KHÔNG raw .includes", () => {
+    const src = readFileSync(join(fileURLToPath(new URL("../..", import.meta.url)), "src/lib/actions/listings.ts"), "utf8");
+    expect(src).toMatch(/import \{[^}]*isModerationLocked[^}]*\} from "@\/src\/lib\/moderation"/);
+    expect(src).not.toContain('"removed"');
+    expect(src).not.toContain("'removed'");
+    expect(src).not.toContain("MODERATION_LOCKED_LISTING_STATUSES");
+  });
+});
+
+// ─── 11. Item 14 — account_not_suspended trên đường submit MỚI (Task 4) ────────
+
+describe("item 14 — suspended seller bị chặn trên submitListingAction (đường mới của Task 4)", () => {
+  it("submitListingAction: suspended seller → /sell/verification + audit listing.submit_blocked reason chứa account_not_suspended, status GIỮ draft", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedSuspension(seller.id);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    login(seller);
+
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
+
+    expect(url).toBe("/sell/verification");
+    expect(draft.status).toBe("draft");
+    const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
+    expect(evt).toMatchObject({ actorId: seller.id, resourceId: draft.id });
+    expect(String(evt!.reason)).toContain("account_not_suspended");
+  });
+
+  it("toggleListingVisibilityAction: hidden → approved blocked cho suspended seller → silent return + audit listing.submit_blocked", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedSuspension(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "hidden");
+    login(seller);
+
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("hidden");
+    const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
+    expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id });
+    expect(String(evt!.reason)).toContain("account_not_suspended");
   });
 });

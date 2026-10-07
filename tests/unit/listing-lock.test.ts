@@ -675,6 +675,10 @@ describe("SHOULD-FIX 3 — conditional write thua race thay vì clobber removed"
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
     const listing = seedListing(seller.id, "pending");
+    // (Batch 4 Task 4 fixture) ảnh ĐÃ GẮN — checkListingPublication chạy content
+    // stage TRƯỚC CAS; listing không ảnh → IMAGE_REQUIRED → block TRƯỚC khi CAS
+    // chạy (seam không bao giờ fire). Ảnh gắn cho content pass → CAS mới chạy.
+    dbState.images.push({ id: "img-approve-race", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0, checklistSlot: null });
     login(ADMIN_OPS, { isAdmin: true });
     dbState.beforeListingWrite = () => {
       listing.status = "removed";
@@ -787,6 +791,10 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
   it("updateListingAction trên approved (content-change) → pending như trước (redirect /sell/my)", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
+    // (Batch 4 Task 4 fixture) ảnh form ĐÃ GẮN vào listing — rule (2) attached
+    // (ảnh "/uploads/a.jpg" không phải upload uuid của Batch 4, chỉ hợp lệ khi
+    // đã gắn; không gắn → IMAGE_URL_INVALID block trước transition).
+    dbState.images.push({ id: "img-update-ok", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0, checklistSlot: null });
 
     let redirected = false;
     try {
@@ -805,6 +813,10 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
   it("toggle approved → hidden → approved (gate pass) — luồng ẩn/hiện nguyên vẹn", async () => {
     const seller = setupVerifiedSeller();
     const listing = seedListing(seller.id, "approved");
+    // (Batch 4 Task 4 fixture) ảnh ĐÃ GẮN — hidden→approved build input TỪ DB
+    // ROW (imageUrls từ ListingImage rows); không ảnh → IMAGE_REQUIRED → gate
+    // block → silent return (test cũ sẽ fail vì status giữ hidden).
+    dbState.images.push({ id: "img-toggle-ok", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0, checklistSlot: null });
 
     await toggleListingVisibilityAction(fd({ listingId: listing.id }));
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
@@ -848,12 +860,16 @@ describe("R5 source contract — isModerationLocked consumed bởi cả ba guard
     expect(listingsSrc).toMatch(/import \{[^}]*isModerationLocked[^}]*\} from "@\/src\/lib\/moderation"/);
   });
 
-  it("CẢ BA guard (update/toggle/delete) + classification re-read gọi isModerationLocked — đúng 4 call sites", () => {
+  it("CẢ NĂM guard (update/toggle/delete/draft/submit) + classification re-read gọi isModerationLocked — đúng 6 call sites", () => {
     const calls = listingsSrc.match(/isModerationLocked\(/g) ?? [];
-    // 3 guard (update/toggle/delete) + 1 call site phân loại typed error trong
-    // tx của updateListingAction (item 7 — re-read sau CAS 0 rows: takedown →
-    // LISTING_MODERATION_LOCKED, admin duyệt/từ chối → LISTING_CONCURRENT_CHANGE).
-    expect(calls).toHaveLength(4);
+    // 3 guard Batch 3 (update/toggle/delete) + 1 call site phân loại typed error
+    // trong tx của updateListingAction (item 7 — re-read sau CAS 0 rows: takedown
+    // → LISTING_MODERATION_LOCKED, admin duyệt/từ chối → LISTING_CONCURRENT_CHANGE)
+    // + 2 guard Batch 4 Task 4 (saveListingDraftAction/submitListingAction — R5:
+    // "rewire keeps these guards and adds the same check to saveListingAction
+    // and submitListingAction"). Invariant giữ nguyên: mọi guard gọi helper từ
+    // @/src/lib/moderation — KHÔNG hardcode status, KHÔNG raw .includes.
+    expect(calls).toHaveLength(6);
   });
 
   it("KHÔNG hardcode chuỗi removed và KHÔNG raw .includes trên tuple trong listings.ts", () => {

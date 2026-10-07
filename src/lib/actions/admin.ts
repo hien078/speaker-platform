@@ -3,11 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/src/prisma/db.client";
 import { requireCapability, requireAdminUser } from "@/src/lib/rbac";
-import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
+import { audit, recordStatusChange, listingPublicationInputFromRow } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
 import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { auditEvent } from "@/src/lib/audit-event";
-import { checkSellerPublicationRequirements } from "@/src/lib/seller-verification-policy";
+import { checkListingPublication } from "@/src/lib/listing-publication";
 import { notify } from "@/src/lib/notify";
 
 /**
@@ -18,6 +18,14 @@ import { notify } from "@/src/lib/notify";
  * (defense-in-depth — spec §7.3: admin duyệt cũng bị chặn khi seller mất
  * verification/membership) + auditEvent("listing.approved"|"listing.rejected"|
  * "listing.approve_blocked") theo registry Task 5 (song song legacy audit()).
+ *
+ * Batch 4 Task 4: gate qua `checkListingPublication` (Task 2 wrapper) MỘT LẦN —
+ * seller gate (Batch 2, giờ qua wrapper — call trực tiếp
+ * checkSellerPublicationRequirements ĐÃ XÓA) + category allowlist (§5.6.1) +
+ * regime schema (§5.6/§6.3) + canonical-model DB check + image ownership
+ * (§5.6.4). Audit HAI reason tách bạch (item 6): seller thiếu →
+ * "publication_requirements_unmet" + missing=… (Batch 2 pin); content sai →
+ * "listing_content_invalid" + issues=… (typed codes).
  */
 
 /** Duyệt tin đăng */
@@ -29,12 +37,15 @@ export async function approveListingAction(formData: FormData): Promise<void> {
   if (!listing || listing.status !== "pending") return;
 
   // ─── Publication gate (Task 10 — spec §4.4/§7.3 defense-in-depth) ───
-  // Admin duyệt KHÔNG phải escape hatch: seller mất verification (revoked)
-  // hoặc membership (suspended) → KHÔNG approve. Đọc FRESH từ DB.
-  const requirements = await checkSellerPublicationRequirements(listing.sellerId);
-  if (!requirements.ok) {
+  // Admin duyệt KHÔNG phải escape hatch: seller mất verification (revoked) /
+  // membership (suspended) / đang bị đình chỉ → KHÔNG approve; content sai
+  // (category/schema/model/ảnh) → KHÔNG approve. Input TỪ DB ROW (trust
+  // boundary), đọc FRESH từ DB.
+  const input = await listingPublicationInputFromRow(listing, listing.sellerId);
+  const check = await checkListingPublication(input);
+  if (!check.ok) {
     // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
-    // detail chỉ typed requirement keys, KHÔNG PII).
+    // detail chỉ typed requirement keys / typed content codes, KHÔNG PII).
     try {
       await auditEvent({
         actorId: admin.user.id,
@@ -43,8 +54,17 @@ export async function approveListingAction(formData: FormData): Promise<void> {
         resourceType: "Listing",
         resourceId: listingId,
         sessionId: admin.session.id,
-        reason: "publication_requirements_unmet",
-        detail: `missing=${requirements.missing.join(",")}`,
+        // HAI reason tách bạch (item 6): seller thiếu thắng priority — giữ
+        // nguyên Batch 2 pin (publication_requirements_unmet + missing=…);
+        // còn lại là content → listing_content_invalid + issues=… (mới).
+        reason:
+          check.sellerMissing.length > 0
+            ? "publication_requirements_unmet"
+            : "listing_content_invalid",
+        detail:
+          check.sellerMissing.length > 0
+            ? `missing=${check.sellerMissing.join(",")}`
+            : `issues=${check.listingIssues.join(",")}`,
       });
     } catch {
       /* fail-open: audit lỗi không mở đường approve */
