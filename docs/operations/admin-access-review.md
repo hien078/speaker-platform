@@ -31,9 +31,18 @@ export DATABASE_URL="postgresql://…@localhost:5435/…"
 npx tsx scripts/admin-access-review.ts
 ```
 
-**Production** (db container KHÔNG publish port — `docker-compose.prod.yml`;
-read-only qua `docker exec`, cùng container pattern `scripts/db-ops.sh`, KHÔNG
-host pg tools):
+**Production** (host docker-only — KHÔNG có Node/npx; db container KHÔNG publish
+port — `docker-compose.prod.yml`). Chạy qua wrapper: transport ORM bên trong
+image `migrate` (node_modules + tsx có sẵn, cùng pattern admin-bootstrap và
+`scripts/ops-alerts-cron.sh`), `DATABASE_URL` lấy từ environment của service
+migrate — không đưa secret ra shell:
+
+```bash
+cd /opt/loaviet && ./scripts/admin-access-review-prod.sh
+```
+
+Transport `--docker` (`docker exec <container> psql`) chỉ dùng khi chạy từ một
+máy ops CÓ Node + docker CLI trỏ tới host production:
 
 ```bash
 npx tsx scripts/admin-access-review.ts --docker
@@ -89,7 +98,7 @@ security review (Batch 8 Task 8) — mỗi lần review đều đối chiếu l�
 ## 3. Nhịp review (cadence)
 
 - **Pre-launch: BẮT BUỘC** (§9 Batch 8 gate "admin MFA operational / RBAC
-  operational") — chạy production (`--docker`), paste output vào mục dated,
+  operational") — chạy production (`./scripts/admin-access-review-prod.sh`), paste output vào mục dated,
   founder ký sign-off.
 - Sau đó: **per-release hoặc monthly — `[FOUNDER DECISION]`** (chưa có số
   spec; ghi nhận Founder Decision Register Batch 8). Đề xuất mặc định: mỗi
@@ -135,7 +144,7 @@ scratch). Lệnh: `npx tsx scripts/admin-access-review.ts` (transport ORM).
 Đọc kết quả: dev DB chỉ có 1 user `super_admin` (dữ liệu seed dev — KHÔNG phải
 production): chưa enroll MFA → `ADMIN_WITHOUT_MFA` (đúng §5.4.2 fail-closed —
 dev không bắt buộc MFA để test) + `LAST_SUPER_ADMIN` (đúng guard runbook §4).
-**Production pre-launch run là bước của operator** — chạy `--docker` trên
+**Production pre-launch run là bước của operator** — chạy `./scripts/admin-access-review-prod.sh` trên
 server, paste mục dated mới tại đây; release checklist (Batch 8 Task 9) mang
 dòng sign-off tương ứng.
 
