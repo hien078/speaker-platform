@@ -2116,3 +2116,106 @@ describe("grandfatherStoredBounds — toggle/approve của legacy row không đ�
     expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id, reason: "MODEL_INVALID" });
   });
 });
+
+// ─── 16. b4-holistic round-4 — contentChanged so SÁNH CHUẨN HÓA (CRLF/trim) ───
+
+/**
+ * CONFIRMED LOW regression (round-4): formText (b4-holistic) normalize
+ * CRLF/CR → LF + trim MỌI free-text input — nhưng contentChanged so sánh
+ * input đã chuẩn hóa với STORED THÔ (row lưu trước fix qua multipart giữ
+ * \r\n / trailing whitespace) → save KHÔNG ĐỔI GÌ của listing multi-line cũ
+ * bị coi là content-change → approved→pending chờ admin duyệt lại content
+ * đã duyệt (tin rơi khỏi chợ).
+ *
+ * Fix: normalize STORED side bằng CHÍNH formText (nl()) trước khi so —
+ * description/includedAccessories/knownDefects/repairHistory/title/
+ * locationDisplayName/city. Content THẬT vẫn vào review (đổi chữ → khác).
+ */
+describe("updateListingAction — contentChanged so sánh chuẩn hóa CRLF→LF + trim (b4-holistic round-4 LOW)", () => {
+  /** Description multi-line lưu TRƯỚC fix: CRLF + trailing CRLF (multipart). */
+  const STORED_CRLF_DESC = "Loa bluetooth cũ còn tốt.\r\nPin trâu, nghe hay.\r\n";
+  /** Description form gửi trên save không đổi gì: formText → LF + trim. */
+  const FORM_NOOP_DESC = "Loa bluetooth cũ còn tốt.\r\nPin trâu, nghe hay.";
+
+  it("save KHÔNG đổi gì của listing multi-line CRLF pre-fix → GIỮ approved (KHÔNG re-queue review)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved", {
+      description: STORED_CRLF_DESC,
+      includedAccessories: "Sạc, cáp.\r\nHộp.", // multi-line CRLF pre-fix
+      knownDefects: "  xước nhẹ  ", // trailing/leading whitespace pre-fix
+      repairHistory: null,
+    });
+    login(seller);
+
+    // form gửi ĐÚNG nội dung stored (như textarea render từ DB row) — formText
+    // chuẩn hóa CRLF→LF + trim input; stored CRLF/whitespace phải được chuẩn
+    // hóa KHỚP trước khi so → KHÔNG content-change.
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({
+          listingId: listing.id,
+          description: FORM_NOOP_DESC,
+          includedAccessories: "Sạc, cáp.\r\nHộp.",
+          knownDefects: "xước nhẹ",
+        }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("approved"); // KHÔNG pending — no-op save
+  });
+
+  it("đổi content THẬT (chữ khác) trên row CRLF → pending (chuẩn hóa KHÔNG nuốt content-change thật)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved", {
+      description: STORED_CRLF_DESC,
+    });
+    login(seller);
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({
+          listingId: listing.id,
+          description: "Loa bluetooth cũ còn tốt.\r\nPin ĐÃ THAY, nghe hay.", // đổi chữ thật
+        }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending"); // content-change thật → vào review
+  });
+
+  it("title/locationDisplayName stored có CRLF/whitespace → form giữ nội dung → KHÔNG content-change", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved", {
+      title: "Loa JBL Charge 5 chính hãng ", // trailing space pre-fix
+      locationDisplayName: "Khu vực Cầu Giấy\r\ngần chợ", // CRLF pre-fix
+    });
+    login(seller);
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({
+          listingId: listing.id,
+          title: "Loa JBL Charge 5 chính hãng", // formText trim
+          locationDisplayName: "Khu vực Cầu Giấy\r\ngần chợ", // formText → LF
+        }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("approved"); // whitespace/CRLF ≠ content-change
+  });
+});

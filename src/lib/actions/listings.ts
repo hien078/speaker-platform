@@ -912,9 +912,18 @@ export async function updateListingAction(
   const oldUrls = oldImages.map((i) => i.url);
   const oldSlots = oldImages.map((i) => (i.checklistSlot ?? null));
   const newSlots = input.imageSlots ?? oldSlots; // form không gửi slot → slot giữ nguyên
+  // b4-holistic round-4 (LOW regression — CRLF no-op save): formText chuẩn hóa
+  // MỌI free-text input (CRLF/CR → LF + trim) nhưng stored side lưu THÔ (row
+  // pre-fix qua multipart giữ \r\n / trailing whitespace) → so thẳng coi
+  // save-KHÔNG-ĐỔI-GÌ của listing multi-line cũ là content-change →
+  // approved→pending chờ duyệt lại content đã duyệt. Chuẩn hóa STORED side
+  // bằng CHÍNH formText trước khi so — whitespace/line-ending ≠ content;
+  // đổi chữ THẬT vẫn khác (và vẫn vào review).
+  const nl = (s: string | null | undefined): string | null =>
+    s == null ? null : s.replace(/\r\n?/g, "\n").trim();
   const contentChanged =
-    listing.title !== input.title ||
-    listing.description !== input.description ||
+    nl(listing.title) !== input.title ||
+    nl(listing.description) !== input.description ||
     listing.price !== Math.round(input.price) ||
     listing.categoryId !== input.categoryId ||
     listing.condition !== input.condition ||
@@ -923,17 +932,17 @@ export async function updateListingAction(
     // content công khai — đổi chúng trên approved phải qua lại review, KHÔNG
     // giữ nguyên approved (bypass review).
     listing.acceptExchange !== input.acceptExchange ||
-    listing.city !== city ||
+    nl(listing.city) !== city ||
     (listing.brandId ?? null) !== (input.brandId ?? null) ||
     (listing.productModelId ?? null) !== (input.productModelId ?? null) ||
     (listing.inventoryContext ?? null) !== (input.inventoryContext ?? null) ||
-    (listing.includedAccessories ?? null) !== (input.includedAccessories ?? null) ||
-    (listing.knownDefects ?? null) !== (input.knownDefects ?? null) ||
-    (listing.repairHistory ?? null) !== (input.repairHistory ?? null) ||
+    nl(listing.includedAccessories) !== input.includedAccessories ||
+    nl(listing.knownDefects) !== input.knownDefects ||
+    nl(listing.repairHistory) !== input.repairHistory ||
     JSON.stringify(listing.fulfillmentMethods ?? null) !==
       JSON.stringify(input.fulfillmentMethods ?? null) ||
     (listing.provinceLevelCode ?? null) !== (input.provinceLevelCode ?? null) ||
-    (listing.locationDisplayName ?? null) !== (input.locationDisplayName ?? null) ||
+    nl(listing.locationDisplayName) !== input.locationDisplayName ||
     oldUrls.length !== input.imageUrls.length ||
     oldUrls.some((u, idx) => input.imageUrls[idx] !== u) ||
     oldSlots.some((s, idx) => (newSlots[idx] ?? null) !== s);
