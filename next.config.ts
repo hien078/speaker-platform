@@ -13,6 +13,12 @@ const nextConfig: NextConfig = {
   // (Batch 4 Task 3, spec §7.5): chặn content-type sniffing và mọi việc thực
   // thi/nhúng từ file này (polyglot đã bị re-encode neutralize ở tầng upload —
   // đây là lớp thứ hai cho file pre-Batch-4 còn trên đĩa).
+  // b4-holistic round-3 HIGH: file upload sống NGOÀI public/ (data/uploads —
+  // UPLOADS_DIR) và được serve bởi route handler app/uploads/[key]/route.ts
+  // (đọc đĩa MỌI request — Next production chỉ serve file public/ tồn tại
+  // khi start). Route handler tự set ĐÚNG 4 header này; headers() dưới là
+  // belt-and-braces cho mọi path /uploads còn lại (kể cả static file cũ
+  // còn trong public/uploads của deploy chưa migrate).
   // Production nginx (docs/deployment.md) PROXY location / về app nên header
   // Next có hiệu lực cho /uploads; nếu deploy sau này serve /uploads trực tiếp
   // từ nginx, CÙNG hai header phải vào location block đó (deploy checklist —

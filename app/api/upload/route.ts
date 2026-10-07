@@ -12,6 +12,7 @@ import {
 import { isUserSuspended } from "@/src/lib/moderation";
 import { db } from "@/src/prisma/db.client";
 import { captureError } from "@/src/lib/observability";
+import { UPLOADS_DIR } from "@/src/lib/uploads-storage";
 
 /**
  * Upload ảnh bậc tự quản (lưu vào public/uploads) — Batch 4 Task 3 hardening
@@ -198,8 +199,11 @@ async function ingestUpload(request: Request, user: SessionUser): Promise<Respon
   }
 
   // 11. ROW FIRST — storageKey random dùng cho CẢ row lẫn file (tạo trước cả hai)
+  //     b4-holistic round-3 HIGH: dir NGOÀI public/ (UPLOADS_DIR — data/uploads,
+  //     volume riêng trong compose) — Next production chỉ serve file public/
+  //     TỒN TẠI KHI START; serving đi qua app/uploads/[key] (đọc đĩa mỗi request).
   const storageKey = `${randomUUID()}.webp`;
-  const dir = path.join(process.cwd(), "public", "uploads");
+  const dir = UPLOADS_DIR;
   try {
     await mkdir(dir, { recursive: true });
     await db.orm.public.ListingImageUpload.create({

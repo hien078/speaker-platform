@@ -24,6 +24,10 @@
 .DS_Store
 *.pem
 
+# uploads (b4-holistic round-3 HIGH: file upload lưu NGOÀI public/ —
+# data/uploads mặc định, UPLOADS_DIR override; KHÔNG commit ảnh user)
+/data/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

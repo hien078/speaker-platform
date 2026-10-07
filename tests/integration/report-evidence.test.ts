@@ -286,7 +286,7 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
       slug: `cat-${uid()}`,
     });
     created.categories.push(cat.id);
-    const listing = await db.orm.public.Listing.create({
+    const listingRow = await db.orm.public.Listing.create({
       sellerId: seller,
       categoryId: cat.id,
       title: `Loa beta ${uid()}`,
@@ -304,7 +304,8 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
       provinceLevelCode: "01",
       locationDisplayName: "Gần chợ Bến Thành",
     });
-    created.listings.push(listing.id);
+    const listing = listingRow.id;
+    created.listings.push(listing);
     const img = await db.orm.public.ListingImage.create({
       listingId: listing,
       url: "/uploads/00000000-0000-0000-0000-00000000000a.webp",

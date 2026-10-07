@@ -108,7 +108,7 @@ export default async function EditListingPage({
   );
   const categoryIds = categories.map((c) => c.id);
 
-  const [brands, models, verification, legacyCategories, legacyModels] = await Promise.all([
+  const [brands, betaModels, verification, legacyCategories, legacyModels] = await Promise.all([
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
     // b4-holistic (round-1 LOW): KHÔNG .limit(200) — model là field BẮT BUỘC của
     // beta (MODEL_REQUIRED); cap 200 chặn model #201+ (seed cho phép ~500) và
@@ -148,6 +148,9 @@ export default async function EditListingPage({
   // sách loaded (không còn approved — pending/merged) → fetch riêng và APPEND
   // — controlled select có option khớp, save không blanking model; badge
   // "Model chờ duyệt/đã gộp" ở /admin/listings vẫn cảnh báo moderator.
+  // (copy mảng: Promise.all union với Promise.resolve([]) cho type never[] —
+  // không push được trên union.)
+  const models = [...betaModels];
   if (
     regime === "beta" &&
     listing.productModelId != null &&

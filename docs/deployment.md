@@ -11,6 +11,27 @@ Internet ──► [Nginx/Cloudflare] ──► Docker app (Next.js :3000)
 Cron mỗi giờ ──► POST /api/cron/auto-release (Bearer CRON_SECRET) ──► giải ngân escrow quá hạn
 ```
 
+### Ảnh upload (b4-holistic round-3 HIGH — KHÔNG dùng public/)
+
+File upload sống **ngoài `public/`** — volume `uploads` mount tại `/app/data/uploads`
+(`docker-compose.prod.yml`). Next production chỉ serve file `public/` **tồn tại
+khi server start** (scan một lần lúc boot), nên ảnh upload sau đó sẽ 404 mãi mãi
+nếu lưu trong `public/`. Serving đi qua route handler `app/uploads/[key]/route.ts`
+(đọc đĩa **mỗi request**, key regex chặt `uuid.(jpg|png|webp|gif)`, header
+`nosniff` + CSP `default-src 'none'; sandbox` + cache immutable) — URL
+`/uploads/<key>` giữ nguyên, row `ListingImageUpload.storageKey` không đổi.
+
+**Deploy lần đầu với Batch 4 (bắt buộc):** compose mount volume `uploads` tại
+`/app/data/uploads`. Với **deploy đã chạy Batch ≤4 trước đó** (volume cũ mount
+tại `/app/public/uploads`): volume đó giữ nguyên dữ liệu, chỉ đổi đường dẫn
+mount sang `/app/data/uploads` — không cần di chuyển file. Với deploy non-compose
+chạy `next start`/standalone ngoài Docker: chuyển file cũ
+`public/uploads/*` → `data/uploads/` (hoặc đặt `UPLOADS_DIR` trỏ tới thư mục cũ)
+trước khi bật bản này, nếu không ảnh cũ 404 qua route handler mới.
+
+Dọn ảnh mồ côi (upload chưa gắn vào tin nào): `scripts/cleanup-uploads.ts`
+(chạy qua image `migrate` như các script offline khác — xem §2 seed beta).
+
 ## 1. Yêu cầu server
 
 | Thông số | Tối thiểu | Khuyến nghị |

@@ -131,6 +131,57 @@ done
 echo "✔ /api/health → 200 db=up"
 
 declare -a FAILED=()
+
+# ─── b4-holistic round-3 HIGH — uploads serve qua route handler đọc đĩa ────────
+# Trước fix: file upload ghi public/uploads và Next production chỉ serve file
+# public/ TỒN TẠI KHI START (scan 1 lần lúc boot) → ảnh upload SAU start 404
+# (đã reproduce: file tại boot 200, file sau start 404). Sau fix: file sống ở
+# data/uploads (NGOÀI public/) và GET /uploads/<key> đi qua route handler
+# app/uploads/[key] đọc đĩa MỌI request. Smoke: ghi file .webp THẬT (sharp)
+# vào uploads dir SAU khi server start — GET phải 200 + image/webp.
+SMOKE_UPLOAD_KEY="99998888-7777-6666-5555-444433332221.webp"
+SMOKE_UPLOADS_DIR="$PWD/data/uploads"
+mkdir -p "$SMOKE_UPLOADS_DIR"
+node -e '
+const sharp = require("sharp");
+sharp({ create: { width: 8, height: 8, channels: 3, background: "#884422" } })
+  .webp()
+  .toFile(process.argv[1])
+  .then(() => console.log("webp ok"))
+  .catch((e) => { console.error(e); process.exit(1); });
+' "$SMOKE_UPLOADS_DIR/$SMOKE_UPLOAD_KEY" || { echo "FAIL: không sinh được webp smoke" >&2; exit 1; }
+
+check_uploads() { # check_uploads <mô tả> <code mong đợi> <content-type mong đợi> <path>
+  local desc="$1" expect="$2" want_type="$3" url_path="$4"
+  local code ctype
+  code=$(curl -s -o "$TMP_DIR/upload.bin" -w '%{http_code}' "http://127.0.0.1:$PORT$url_path" || true)
+  ctype=$(curl -sI "http://127.0.0.1:$PORT$url_path" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')
+  if [[ "$code" == "$expect" && "$ctype" == "$want_type" ]]; then
+    echo "✔ $desc → $code ($ctype)"
+  else
+    echo "✘ $desc → $code ($ctype) (mong đợi $expect / $want_type)" >&2
+    FAILED+=("$desc")
+  fi
+}
+# file ghi SAU start (mô phỏng upload mới) → 200 image/webp qua route handler
+check_uploads "GET /uploads/<key> file mới ghi sau start → 200 image/webp" 200 "image/webp" "/uploads/$SMOKE_UPLOAD_KEY"
+# key lạ / traversal → 404 (regex chặt trước khi chạm filesystem)
+check_uploads "GET /uploads/<key sai định dạng> → 404" 404 "" "/uploads/not-a-uuid.webp"
+check_uploads "GET /uploads/<traversal> → 404" 404 "" "/uploads/..%2f..%2fetc%2fpasswd.webp"
+# file không tồn tại → 404
+check_uploads "GET /uploads/<key chưa upload> → 404" 404 "" "/uploads/00000000-0000-0000-0000-000000000000.webp"
+# header bảo mật của route handler (spec §7.5)
+sec_headers=$(curl -sI "http://127.0.0.1:$PORT/uploads/$SMOKE_UPLOAD_KEY" 2>/dev/null | tr -d '\r')
+echo "$sec_headers" | grep -qi '^x-content-type-options: nosniff$' \
+  && echo "✔ /uploads nosniff header" \
+  || { echo "✘ /uploads thiếu X-Content-Type-Options: nosniff" >&2; FAILED+=("uploads nosniff"); }
+echo "$sec_headers" | grep -qi "^content-security-policy: default-src 'none'; sandbox" \
+  && echo "✔ /uploads CSP sandbox header" \
+  || { echo "✘ /uploads thiếu CSP default-src 'none'; sandbox" >&2; FAILED+=("uploads CSP"); }
+rm -f "$SMOKE_UPLOADS_DIR/$SMOKE_UPLOAD_KEY"
+
+rm -f "$SMOKE_UPLOADS_DIR/$SMOKE_UPLOAD_KEY"
+
 check() { # check <mô tả> <code mong đợi> <url> [curl args...]
   local desc="$1" expect="$2" url="$3"; shift 3
   local code

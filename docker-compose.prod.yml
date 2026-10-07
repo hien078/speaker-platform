@@ -107,7 +107,13 @@ services:
       MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
       MOMO_ENDPOINT: ${MOMO_ENDPOINT:-https://payment.momo.vn}
     volumes:
-      - uploads:/app/public/uploads
+      # b4-holistic round-3 HIGH: uploads NGOÀI public/ — Next production chỉ
+      # serve file public/ TỒN TẠI KHI START (scan 1 lần lúc boot) → file upload
+      # sau boot 404 mãi. Serving qua route handler app/uploads/[key] (đọc đĩa
+      # MỌI request) từ /app/data/uploads; volume sống qua redeploy. Volume
+      # này TRƯỚC đây mount tại /app/public/uploads — file cũ trong volume vẫn
+      # ở đó, chỉ đổi đường dẫn mount (không cần di chuyển dữ liệu).
+      - uploads:/app/data/uploads
 
 volumes:
   pgdata:
