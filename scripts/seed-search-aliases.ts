@@ -1,8 +1,10 @@
 /**
  * Seed search aliases (Batch 5 Task 5 — S9/A7, spec §5.7) — offline
  * maintenance command, seed-beta-catalog posture: dry-run mặc định,
- * --apply để mutate, idempotent (create-if-absent theo (alias, target)),
- * KHÔNG expose HTTP/admin UI.
+ * --apply để mutate, idempotent (create-if-absent theo (alias, target);
+ * row có sẵn trỏ đích KHÁC file → RETARGET update-in-place + audit count —
+ * b5-review T5, file founder là source of truth A7), KHÔNG expose HTTP/
+ * admin UI.
  *
  * A7: IMPLEMENTER KHÔNG TỰ BIÊN alias catalog từ training data — content
  * EMPTY mặc định (không --aliases → không tạo gì), hoặc FOUNDER-SUPPLIED qua
@@ -45,7 +47,8 @@
  *
  * Rollback: xoá các row run này TẠO theo (alias, target) — script in danh
  * sách ở cuối mỗi lần --apply. (FK onDelete: Cascade từ Task 1 — brand/
- * model bị xoá dọn alias theo.)
+ * model bị xoá dọn alias theo.) Retarget rollback = chạy lại với file cũ
+ * (retarget ngược về đích cũ — đích cũ nằm trong git history của file).
  */
 import { readFileSync, statSync } from "node:fs";
 
@@ -71,8 +74,14 @@ export type SeedSearchAliasesReport = {
   created: number;
   /** Rows còn thiếu hôm nay (dry-run in plan; apply = created). */
   planned: number;
-  /** Rows đã có — create-if-absent bỏ qua (idempotent). */
+  /** Rows đã có trỏ ĐÚNG đích file — bỏ qua (idempotent). */
   existing: number;
+  /**
+   * b5-review T5: rows (alias, target) có sẵn nhưng trỏ đích KHÁC file —
+   * dry-run: Sẽ retarget khi --apply (KHÔNG ghi); apply: ĐÃ retarget
+   * update-in-place (AUDIT count — file founder là source of truth, A7).
+   */
+  retargeted: number;
 };
 
 export type SeedSearchAliasesOptions = {
@@ -190,12 +199,36 @@ function parseFounderAliasesFile(path: string): FounderAliasEntry[] {
 }
 
 /**
+ * True khi row có sẵn trỏ ĐÚNG đích của entry (không cần retarget). Lookup
+ * luôn theo (alias, target) nên target khớp theo cấu trúc — so sánh id.
+ */
+function sameTarget(
+  present: { target: string; brandId: string | null; productModelId: string | null },
+  entry: FounderAliasEntry,
+): boolean {
+  return entry.target === "brand"
+    ? present.target === "brand" && present.brandId === entry.brandId
+    : present.target === "model" && present.productModelId === entry.productModelId;
+}
+
+/**
  * Seed search aliases. `isApply=false` → dry-run (chỉ đọc + báo plan);
  * `isApply=true` → MỘT db.transaction bao toàn bộ creates. Idempotent:
  * create-if-absent theo (alias, target) đọc TRONG tx; race create đồng thời
  * → unique violation 23505 propagate ra khỏi tx (callback KHÔNG catch),
  * classify NGOÀI qua isUniqueConstraintViolation → chạy lại toàn bộ đúng
  * MỘT lần; lỗi khác → ném (fail closed, KHÔNG im lặng mất row).
+ *
+ * b5-review T5 — founder RETARGET: row (alias, target) có sẵn nhưng trỏ đích
+ * KHÁC file → KHÔNG còn "báo existing rồi bỏ qua" (correction của founder
+ * không bao giờ áp dụng — deployed silently lệch khỏi content đã review, A7;
+ * DB unique key (alias, target) khiến manual delete là đường duy nhất).
+ * Quyết định: file founder là SOURCE OF TRUTH (A7 — plan L1286 "takes
+ * founder-supplied content") → seed RETARGET update-in-place + AUDIT count:
+ * dry-run thấy trước (retargeted=N, KHÔNG ghi), --apply update theo id
+ * (khóa (alias, target) KHÔNG đổi — không đụng unique key), báo retargeted=N.
+ * Audit trail = dry-run plan + apply count + git history của file founder.
+ * Idempotent per-file: chạy lại cùng file → existing, 0 retarget.
  */
 export async function seedSearchAliases(
   isApply: boolean,
@@ -249,29 +282,47 @@ export async function seedSearchAliases(
     // Dry-run: đếm plan (đọc, KHÔNG ghi).
     let planned = 0;
     let existing = 0;
+    let retargeted = 0;
     for (const entry of entries) {
       const present = await db.orm.public.SearchAlias
         .where({ alias: entry.alias, target: entry.target })
         .first();
       if (present === null) planned += 1;
-      else existing += 1;
+      else if (sameTarget(present, entry)) existing += 1;
+      else retargeted += 1; // SẸ retarget khi --apply (dry-run chỉ báo)
     }
-    return { mode: "dry-run", created: 0, planned, existing };
+    return { mode: "dry-run", created: 0, planned, existing, retargeted };
   }
 
   // Apply — MỘT db.transaction bao toàn bộ creates. Callback dùng tx.orm
   // ONLY, KHÔNG catch: mọi lỗi (kể cả 23505) propagate ra ngoài → rollback
   // toàn bộ → 0 row (KHÔNG BAO GIỜ partial write).
-  const runApplyAttempt = (): Promise<{ created: number; existing: number }> =>
+  const runApplyAttempt = (): Promise<{
+    created: number;
+    existing: number;
+    retargeted: number;
+  }> =>
     db.transaction(async (tx) => {
       let created = 0;
       let existing = 0;
+      let retargeted = 0;
       for (const entry of entries) {
         const present = await tx.orm.public.SearchAlias
           .where({ alias: entry.alias, target: entry.target })
           .first();
         if (present !== null) {
-          existing += 1;
+          if (sameTarget(present, entry)) {
+            existing += 1;
+            continue;
+          }
+          // Founder retarget (b5-review T5) — update-in-place THEO file
+          // (A7: file là content đã review). Khóa (alias, target) KHÔNG đổi.
+          // Target mới đã được kiểm tra tồn tại ở trên (SEED_ALIAS_TARGET_MISSING).
+          await tx.orm.public.SearchAlias.where({ id: present.id }).update({
+            brandId: entry.target === "brand" ? entry.brandId : null,
+            productModelId: entry.target === "model" ? entry.productModelId : null,
+          });
+          retargeted += 1;
           continue;
         }
         await tx.orm.public.SearchAlias.create({
@@ -282,10 +333,10 @@ export async function seedSearchAliases(
         });
         created += 1;
       }
-      return { created, existing };
+      return { created, existing, retargeted };
     });
 
-  let outcome: { created: number; existing: number };
+  let outcome: { created: number; existing: number; retargeted: number };
   try {
     outcome = await runApplyAttempt();
   } catch (e) {
@@ -296,7 +347,13 @@ export async function seedSearchAliases(
     if (!isUniqueConstraintViolation(e)) throw e;
     outcome = await runApplyAttempt();
   }
-  return { mode: "apply", created: outcome.created, planned: outcome.created, existing: outcome.existing };
+  return {
+    mode: "apply",
+    created: outcome.created,
+    planned: outcome.created,
+    existing: outcome.existing,
+    retargeted: outcome.retargeted,
+  };
 }
 
 // ─── CLI (chỉ chạy khi được gọi trực tiếp — unit test import seedSearchAliases) ──
@@ -365,7 +422,10 @@ async function main(): Promise<void> {
 
   const report = await seedSearchAliases(isApply, aliasesFile, { allowProduction });
   console.log(`── chế độ: ${report.mode}`);
-  console.log(`── kết quả: created=${report.created} planned=${report.planned} existing=${report.existing}`);
+  console.log(`── kết quả: created=${report.created} planned=${report.planned} existing=${report.existing} retargeted=${report.retargeted}`);
+  if (report.mode === "apply" && report.retargeted > 0) {
+    console.log(`── AUDIT retarget: ${report.retargeted} alias trỏ lại THEO file founder (update-in-place theo (alias, target)) — đích CŨ bị ghi đè; rollback = chạy lại với file cũ (retarget ngược).`);
+  }
   if (report.mode === "apply" && report.created > 0) {
     console.log("── rollback nếu cần: xoá các row run này TẠO theo (alias, target) — script không giữ danh sách riêng (create-if-absent đọc lại được).");
   }

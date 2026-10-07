@@ -74,6 +74,14 @@ vi.mock("@/src/prisma/db.client", () => {
             const found = dbState.aliases.find((r) => matchRow(r, pred));
             return found ? { ...found } : null;
           }),
+          // update-in-place theo where (retarget seed — b5-review T5): merge
+          // data vào row khớp ĐẦU (thực tế where theo id unique).
+          update: vi.fn(async (data: Record<string, unknown>) => {
+            const found = dbState.aliases.find((r) => matchRow(r, pred));
+            if (found === undefined) return null;
+            Object.assign(found, data);
+            return { ...found };
+          }),
         }),
         create: vi.fn(async (data: Record<string, unknown>) => {
           const row = {
@@ -395,6 +403,24 @@ describe("resolveSearchQuery — privacy shape (spec §4.8)", () => {
     expect(src).toMatch(/import "server-only"/);
     expect(src).not.toMatch(/"use server"/);
   });
+
+  it("source-contract: ghi chú scale — per-search full load (alias + catalog) CHẤP NHẬN ở beta scale (b5-review T5 no-change)", () => {
+    // Plan Task 5 Step 3 (L588): "P0 catalog is small; per-search load
+    // acceptable at beta scale — noted in code" — Brand/ProductModel load
+    // được plan CHẤP THUẬN. Alias full load là BẮT BUỘC của compact matching
+    // (B6: compactForm hai phía tính trong TS — query builder không express
+    // được, không có cột compact trong contract — thêm cột = schema change
+    // ngoài plan). .take(N) cap = correctness regression (alias ngoài cap
+    // ngừng resolve — content founder-reviewed A7); cache TTL = invalidation
+    // phức tạp (seed retarget / mergeModel mutate) cho bảng nhỏ đã được
+    // chấp nhận. Ghi chú scale phải TỒN TẠI (không bị dọn mất) — pointer
+    // post-beta review: verification doc của Task 11.
+    const src = read("src/lib/search-resolve.ts");
+    expect(src).toMatch(/beta scale/i);
+    expect(src).toMatch(/load toàn bộ per search/);
+    expect(src).toMatch(/compactForm/); // lý do kỹ thuật của full load
+    expect(src).toMatch(/verification doc của Task 11/); // pointer post-beta review
+  });
 });
 
 // ─── 7: seed script (S9/A7 — idempotent, dry-run mặc định, founder content) ──
@@ -465,6 +491,86 @@ describe("seedSearchAliases — S9/A7 (offline seed, content founder-reviewed)",
     const applied = await seedSearchAliases(true);
     expect(applied).toMatchObject({ mode: "apply", created: 0 });
     expect(dbState.aliases).toHaveLength(0);
+  });
+
+  // ── b5-review T5: founder RETARGET — file là source of truth (A7), seed
+  // update-in-place + audit count; KHÔNG còn đường "báo existing rồi bỏ qua"
+  // (correction của founder không bao giờ áp dụng, deployed silently lệch
+  // khỏi content đã review) và KHÔNG cần manual SQL delete.
+
+  it("founder RETARGET model alias → dry-run báo retargeted (KHÔNG ghi); --apply update-in-place; chạy lại = existing (idempotent)", async () => {
+    const original = founderFile([
+      { alias: "soundlink", target: "model", productModelId: "model-soundlink" },
+    ]);
+    await seedSearchAliases(true, original); // row ban đầu (m1)
+
+    // founder sửa file: retarget sang model-charge5
+    const retargetFile = founderFile([
+      { alias: "soundlink", target: "model", productModelId: "model-charge5" },
+    ]);
+
+    const dry = await seedSearchAliases(false, retargetFile);
+    expect(dry.mode).toBe("dry-run");
+    expect(dry.retargeted).toBe(1); // SẼ retarget khi --apply
+    expect(dry.planned).toBe(0);
+    expect(dry.existing).toBe(0);
+    expect(dry.created).toBe(0);
+    // dry-run KHÔNG ghi — row vẫn trỏ đích cũ
+    expect(dbState.aliases).toHaveLength(1);
+    expect(dbState.aliases[0]!["productModelId"]).toBe("model-soundlink");
+
+    const applied = await seedSearchAliases(true, retargetFile);
+    expect(applied.mode).toBe("apply");
+    expect(applied.retargeted).toBe(1); // AUDIT count
+    expect(applied.created).toBe(0);
+    expect(applied.existing).toBe(0);
+    // update-in-place THEO (alias, target) — KHÔNG row mới
+    expect(dbState.aliases).toHaveLength(1);
+    expect(dbState.aliases[0]!["productModelId"]).toBe("model-charge5");
+    expect(dbState.aliases[0]!["brandId"]).toBeNull();
+
+    // idempotent: chạy lại cùng file → existing, 0 retarget
+    const again = await seedSearchAliases(true, retargetFile);
+    expect(again.retargeted).toBe(0);
+    expect(again.existing).toBe(1);
+    expect(again.created).toBe(0);
+    expect(dbState.aliases).toHaveLength(1);
+    expect(dbState.aliases[0]!["productModelId"]).toBe("model-charge5");
+  });
+
+  it("founder RETARGET brand alias → update brandId in-place (khóa (alias, target) không đổi)", async () => {
+    const original = founderFile([
+      { alias: "loa jbl", target: "brand", brandId: "brand-jbl" },
+    ]);
+    await seedSearchAliases(true, original);
+
+    const retargetFile = founderFile([
+      { alias: "loa jbl", target: "brand", brandId: "brand-bose" },
+    ]);
+
+    const applied = await seedSearchAliases(true, retargetFile);
+    expect(applied.retargeted).toBe(1);
+    expect(dbState.aliases).toHaveLength(1);
+    expect(dbState.aliases[0]!["brandId"]).toBe("brand-bose");
+    expect(dbState.aliases[0]!["productModelId"]).toBeNull();
+    expect(dbState.aliases[0]!["alias"]).toBe("loa jbl");
+    expect(dbState.aliases[0]!["target"]).toBe("brand");
+  });
+
+  it("retarget sang target KHÔNG tồn tại trong catalog → typed error, KHÔNG ghi (fail closed trước mutate)", async () => {
+    const original = founderFile([
+      { alias: "soundlink", target: "model", productModelId: "model-soundlink" },
+    ]);
+    await seedSearchAliases(true, original);
+
+    const badFile = founderFile([
+      { alias: "soundlink", target: "model", productModelId: "model-khong-co" },
+    ]);
+
+    await expect(seedSearchAliases(true, badFile)).rejects.toThrow(/SEED_ALIAS_TARGET_MISSING/);
+    // KHÔNG mutate — row vẫn trỏ đích cũ
+    expect(dbState.aliases).toHaveLength(1);
+    expect(dbState.aliases[0]!["productModelId"]).toBe("model-soundlink");
   });
 
   it("từ chối khi thiếu DATABASE_URL (env thật — trước khi nạp db.client)", async () => {
