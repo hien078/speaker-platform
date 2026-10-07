@@ -157,6 +157,28 @@ describe("searchResultCtr — reconciliation", () => {
     });
   });
 
+  it("click của actor KHÁC qua ss copy KHÔNG credit session (S-14/Review Focus 7 — actor binding)", () => {
+    // Fixture: s1 buyer-a (kết quả L1), s2 buyer-b (kết quả L9). buyer-b mở
+    // link ?ss=s1 COPY từ buyer-a → click L1 với searchSessionId s1 (event
+    // HỢP LỆ được emit: ss tồn tại + L1 ∈ result set đã ghi — Task 7/8 chỉ
+    // chặn ss FABRICATED), rồi buyer-b click kết quả session riêng của mình.
+    //
+    // TÍNH TAY (default excludeInternal):
+    //   denominator = 2 (s1, s2 — đều có ≥ 1 kết quả hiển thị)
+    //   numerator   = 1 (CHỈ s2 — click trên s1 là click của buyer-b,
+    //   KHÔNG phải click của buyer-a: ss copy không chế tạo CTR cho session
+    //   gốc — Review Focus 7, plan L120/L919)
+    const copied: ProductEventRow[] = [
+      row({ name: "search_submitted", actorPseudonym: "buyer-a", searchSessionId: "s1", occurredAt: at(0), metadata: { resultCount: 3, resultListingIds: ["L1"] } }),
+      row({ name: "search_submitted", actorPseudonym: "buyer-b", searchSessionId: "s2", occurredAt: at(10), metadata: { resultCount: 2, resultListingIds: ["L9"] } }),
+      // buyer-b click qua ss COPY của s1 — actor click ≠ actor session
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-b", searchSessionId: "s1", listingId: "L1", occurredAt: at(20) }),
+      // buyer-b click kết quả session riêng của mình — bound
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-b", searchSessionId: "s2", listingId: "L9", occurredAt: at(30) }),
+    ];
+    expect(searchResultCtr(copied)).toEqual({ numerator: 1, denominator: 2, rate: 0.5 });
+  });
+
   it("fixture rỗng → rate null", () => {
     expect(searchResultCtr([])).toEqual({ numerator: 0, denominator: 0, rate: null });
   });
@@ -253,6 +275,41 @@ describe("listingToChat — reconciliation (FIXTURE window 24h)", () => {
       numerator: 0,
       denominator: 1,
       rate: 0,
+    });
+  });
+
+  it("unit window CHƯA đóng vẫn vào denominator — KHÔNG as-of (b5-review T9 no-change)", () => {
+    // TÍNH TAY (windowMs 24h): view @0 (window [0, 1440] chưa đóng tại thời
+    // điểm đánh giá), CHƯA có conversation → denominator 1, numerator 0.
+    // Conversation ĐẾ @60 (trong window) → 1/1 — unit "chưa chín" được đếm
+    // ở cả hai thời điểm đánh giá, KHÔNG có khái niệm "immature"/as-of.
+    //
+    // Quyết định no-change (không thêm asOf/maturity cutoff):
+    //  - Spec §5.8.1 chỉ chốt "within the attribution window" — KHÔNG có khái
+    //    niệm as-of/maturity/censoring nào; thêm cutoff là TỰ CHẾ định nghĩa
+    //    metric (spec §4.11 Policy Non-Invention — plan Global Constraints).
+    //  - Plan A1 (L1280): GIÁ TRỊ window PENDING_FOUNDER_DECISION — dashboard
+    //    (Task 10) render metric này ở trạng thái pending CÓ TÊN, không render
+    //    số; "rate understated khi window chưa đóng" không ship trong Batch 5.
+    //  - Engine interface pin (plan L1053): opts = { windowMs } & MetricOpts —
+    //    KHÔNG asOf. Maturity semantics thuộc founder window decision (A1 —
+    //    Batch 8 Founder Decision Register), đảo lại cùng quyết định window.
+    const openWindow: ProductEventRow[] = [
+      row({ name: "listing_viewed", actorPseudonym: "buyer-a", listingId: "L1", occurredAt: at(0), metadata: { ownerView: false, fromSearch: false } }),
+    ];
+    expect(listingToChat(openWindow, { windowMs: WINDOW_24H })).toEqual({
+      numerator: 0,
+      denominator: 1,
+      rate: 0,
+    });
+    const closedLater: ProductEventRow[] = [
+      ...openWindow,
+      row({ name: "conversation_started", actorPseudonym: "buyer-a", listingId: "L1", conversationId: "K1", occurredAt: at(60) }),
+    ];
+    expect(listingToChat(closedLater, { windowMs: WINDOW_24H })).toEqual({
+      numerator: 1,
+      denominator: 1,
+      rate: 1,
     });
   });
 
@@ -354,6 +411,25 @@ describe("searchToChat — reconciliation (UNBOUNDED click chain)", () => {
     expect(searchToChat(multi)).toEqual({ numerator: 3, denominator: 3, rate: 1 });
   });
 
+  it("click của actor KHÁC qua ss copy KHÔNG credit session — kể cả khi chính người click chat (S-14/Review Focus 7)", () => {
+    // Fixture: ss1 buyer-a (kết quả L1). buyer-b mở link ?ss=ss1 copy, click
+    // L1 (event HỢP LỆ: ss tồn tại + L1 ∈ result set), rồi buyer-b start
+    // conversation trên L1. buyer-a KHÔNG bao giờ click/chat — session của
+    // buyer-a không được credit.
+    //
+    // TÍNH TAY (default excludeInternal):
+    //   denominator = 1 (ss1)
+    //   numerator   = 0 — click trên ss1 là click của buyer-b (≠ actor
+    //   session buyer-a): chain session→click phải CÙNG ACTOR (Review Focus
+    //   7 — ss copy không chế tạo conversion cho session gốc, plan L120/L919)
+    const copied: ProductEventRow[] = [
+      row({ name: "search_submitted", actorPseudonym: "buyer-a", searchSessionId: "ss1", occurredAt: at(0), metadata: { resultCount: 3, resultListingIds: ["L1"] } }),
+      row({ name: "search_result_clicked", actorPseudonym: "buyer-b", searchSessionId: "ss1", listingId: "L1", occurredAt: at(60) }),
+      row({ name: "conversation_started", actorPseudonym: "buyer-b", listingId: "L1", conversationId: "K1", occurredAt: at(120) }),
+    ];
+    expect(searchToChat(copied)).toEqual({ numerator: 0, denominator: 1, rate: 0 });
+  });
+
   it("fixture rỗng → rate null", () => {
     expect(searchToChat([])).toEqual({ numerator: 0, denominator: 0, rate: null });
   });
@@ -412,6 +488,36 @@ describe("sellerResponseRate — reconciliation (FIXTURE response window 12h)", 
     ];
     expect(
       sellerResponseRate(doubleResponse, { responseWindowMs: RESPONSE_WINDOW_12H }),
+    ).toEqual({ numerator: 1, denominator: 1, rate: 1 });
+  });
+
+  it("anchor window CHƯA đóng vẫn vào denominator — KHÔNG as-of (b5-review T9 no-change)", () => {
+    // TÍNH TAY (responseWindowMs 12h): anchor @0, CHƯA có response → 0/1.
+    // Response @60 (1h — trong window) → 1/1. Tại thời điểm đánh giá giữa
+    // hai sự kiện, conversation này được đếm là "chưa được trả lời" dù
+    // seller chưa có đủ window để trả lời — bias đã biết, ghi nhận no-change.
+    //
+    // Quyết định no-change (không thêm asOf/maturity cutoff):
+    //  - Spec §5.8.1 chỉ chốt "within the defined response window" — không
+    //    as-of/maturity; cutoff là định nghĩa metric MỚI → spec §4.11 Policy
+    //    Non-Invention (plan Global Constraints).
+    //  - Plan A1 (L1280): GIÁ TRỊ response window PENDING_FOUNDER_DECISION —
+    //    dashboard (Task 10) render pending CÓ TÊN, không ship số understated.
+    //  - Engine interface pin (plan L1064): opts = { responseWindowMs } &
+    //    MetricOpts — KHÔNG asOf. Maturity semantics thuộc founder window
+    //    decision (A1 — Batch 8 Founder Decision Register).
+    const openWindow: ProductEventRow[] = [
+      row({ name: "conversation_buyer_first_message", actorPseudonym: "buyer-a", conversationId: "C1", listingId: "L1", occurredAt: at(0) }),
+    ];
+    expect(
+      sellerResponseRate(openWindow, { responseWindowMs: RESPONSE_WINDOW_12H }),
+    ).toEqual({ numerator: 0, denominator: 1, rate: 0 });
+    const responded: ProductEventRow[] = [
+      ...openWindow,
+      row({ name: "message_first_response", actorPseudonym: "seller-1", conversationId: "C1", listingId: "L1", occurredAt: at(60), metadata: { responseMs: 3_600_000 } }),
+    ];
+    expect(
+      sellerResponseRate(responded, { responseWindowMs: RESPONSE_WINDOW_12H }),
     ).toEqual({ numerator: 1, denominator: 1, rate: 1 });
   });
 

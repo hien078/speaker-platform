@@ -16,6 +16,12 @@
  *  - Actor/session chỉ tồn tại dưới dạng pseudonym (S-10) — engine không bao giờ
  *    chạm raw user id; mọi join qua actorPseudonym/listingId/conversationId/
  *    searchSessionId.
+ *  - Actor binding S-14/Review Focus 7 (b5-review): click chỉ credit session
+ *    khi actorPseudonym của click === actorPseudonym của session — ss (?ss=)
+ *    copy/chia sẻ sang người khác không chế tạo CTR/search_to_chat cho session
+ *    gốc (plan L120 threat "fabricated or copied ss", L919 expectation
+ *    "forged/copied ss không chế tạo được CTR"). Anonymous null===null vẫn
+ *    bound — giới hạn pseudonymity, residual như A4.
  *  - Window là THAM SỐ (listingToChat.windowMs, sellerResponseRate.responseWindowMs)
  *    — giá trị production PENDING_FOUNDER_DECISION (A1); fixture test dùng
  *    window CÓ NHÃN, không phải policy.
@@ -103,7 +109,12 @@ export function zeroResultRate(
  * Numerator: eligible search sessions có ≥ 1 result click (dedup SESSION-level
  * theo searchSessionId — click 2 kết quả vẫn là 1). Denominator: eligible search
  * sessions có ≥ 1 kết quả hiển thị (resultCount > 0). Click join theo
- * searchSessionId (S-14: click chỉ emit khi listing ∈ result set đã ghi).
+ * searchSessionId (S-14: click chỉ emit khi listing ∈ result set đã ghi)
+ * VÀ actor binding (Review Focus 7): click chỉ credit session khi
+ * actorPseudonym của click === actorPseudonym của session — ss (?ss=) copy/
+ * chia sẻ sang người khác không chế tạo CTR cho session gốc. Anonymous
+ * null===null vẫn bound (giới hạn pseudonymity — hai người ẩn danh không
+ * phân biệt được; residual như A4).
  */
 export function searchResultCtr(
   events: ProductEventRow[],
@@ -116,20 +127,23 @@ export function searchResultCtr(
       keep(e, o) &&
       (resultCountOf(e) ?? 0) > 0,
   );
-  const clickedSessionIds = new Set(
-    events
-      .filter(
-        (e) =>
-          e.name === "search_result_clicked" &&
-          keep(e, o) &&
-          e.searchSessionId !== null,
-      )
-      .map((e) => e.searchSessionId as string),
-  );
+  // Click GHÍ theo session + actor (S-14/Review Focus 7): ss copy chỉ
+  // credit session khi actor click là actor CỦA session đó.
+  const clickActorsBySession = new Map<string, Set<string | null>>();
+  for (const e of events) {
+    if (e.name !== "search_result_clicked" || !keep(e, o) || e.searchSessionId === null) {
+      continue;
+    }
+    const actors = clickActorsBySession.get(e.searchSessionId) ?? new Set<string | null>();
+    actors.add(e.actorPseudonym);
+    clickActorsBySession.set(e.searchSessionId, actors);
+  }
   const denominator = sessions.length;
-  const numerator = sessions.filter(
-    (s) => s.searchSessionId !== null && clickedSessionIds.has(s.searchSessionId),
-  ).length;
+  const numerator = sessions.filter((s) => {
+    if (s.searchSessionId === null) return false;
+    const actors = clickActorsBySession.get(s.searchSessionId);
+    return actors !== undefined && actors.has(s.actorPseudonym);
+  }).length;
   return { numerator, denominator, rate: rateOf(numerator, denominator) };
 }
 
@@ -211,6 +225,9 @@ export function listingToChat(
  * QUA KẾT QUẢ ĐÃ CLICK — chain: search_result_clicked.listingId →
  * conversation_started (cùng actor pseudonym, cùng listing, tại hoặc sau
  * click) — KHÔNG time bound (S-16: "eventually" của spec là unbounded).
+ * Click trong chain phải là click CỦA ACTOR SESSION (actor binding —
+ * Review Focus 7): ss (?ss=) copy/chia sẻ sang người khác không chế tạo
+ * conversion cho session gốc.
  * Denominator: mọi qualified search session (D1). KHÔNG window parameter.
  */
 export function searchToChat(
@@ -242,6 +259,9 @@ export function searchToChat(
     clicks.some(
       (click) =>
         click.searchSessionId === session.searchSessionId &&
+        // Actor binding (S-14/Review Focus 7): click phải là click CỦA
+        // ACTOR session — ss copy của người khác không credit session gốc.
+        click.actorPseudonym === session.actorPseudonym &&
         conversations.some(
           (c) =>
             (c.actorPseudonym as string) === (click.actorPseudonym as string) &&

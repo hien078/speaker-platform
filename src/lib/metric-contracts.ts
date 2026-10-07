@@ -132,6 +132,7 @@ export const METRIC_CONTRACTS: Record<MetricName, MetricContract> = {
     inclusionRules: [
       "eligible search session = search_submitted đã emit với metadata.resultCount > 0 (có ≥ 1 kết quả hiển thị)",
       "session được tính là clicked khi có ≥ 1 row search_result_clicked join theo searchSessionId (S-14: click chỉ emit khi listing nằm trong result set đã ghi)",
+      "actor binding (Review Focus 7): click chỉ credit session khi actorPseudonym của click === actorPseudonym của session — ss (?ss=) copy/chia sẻ sang người khác KHÔNG chế tạo CTR cho session gốc; anonymous null===null vẫn bound (giới hạn pseudonymity — residual như A4)",
     ],
     exclusionRules: [
       "test/internal users where configured",
@@ -186,6 +187,7 @@ export const METRIC_CONTRACTS: Record<MetricName, MetricContract> = {
     inclusionRules: [
       "qualified search session = search_submitted đã emit, không internal (D1)",
       "chain: search_result_clicked.listingId → conversation_started CÙNG actor pseudonym + CÙNG listing, tại hoặc sau thời điểm click — KHÔNG time bound (S-16)",
+      "actor binding (Review Focus 7): click trong chain phải là click CỦA ACTOR session (actorPseudonym click === actorPseudonym session) — ss copy không chế tạo conversion cho session gốc",
     ],
     exclusionRules: [
       "test/internal users where configured",

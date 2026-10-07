@@ -248,3 +248,20 @@ describe("contract pending — phần unambiguous được ghi rõ, phần thi�
     expect(contract.attributionWindow).toBe(PENDING_FOUNDER_DECISION);
   });
 });
+
+// ─── actor binding S-14 (b5-review — Review Focus 7: ss copy không chế tạo CTR) ─
+
+describe("actor binding S-14 — click phải là click CỦA ACTOR session", () => {
+  it("search_result_ctr_v1 + search_to_chat_v1 khai báo actor binding trong inclusionRules (Review Focus 7)", () => {
+    // Plan Review Focus 7 (L120): threat = "a fabricated OR COPIED ss param
+    // manufacturing search_result_clicked events"; plan L919 (Task 8):
+    // "forged/copied ss không chế tạo được CTR". Task 7/8 chỉ chặn ss
+    // FABRICATED (tồn tại + ∈ result set) — ss COPY từ người khác VẪN được
+    // emit; engine phải bind actor để metric không bị thổi phồng.
+    for (const name of ["search_result_ctr_v1", "search_to_chat_v1"] as const) {
+      const joined = METRIC_CONTRACTS[name].inclusionRules.join(" | ");
+      expect(joined, name).toMatch(/actor binding/i);
+      expect(joined, name).toMatch(/Review Focus 7/);
+    }
+  });
+});
