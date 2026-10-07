@@ -20,6 +20,7 @@ import { describe, expect, it } from "vitest";
 import { isProvinceCode, PROVINCE_CODES } from "@/src/lib/provinces";
 import {
   DESCRIPTION_MAX,
+  FOREIGN_ID_MAX,
   FREE_TEXT_MAX,
   LISTING_EDIT_RATE,
   LISTING_FULFILLMENT_METHODS,
@@ -451,6 +452,66 @@ describe("legacyListingEditSchema — structured fields validate-when-present (r
   });
 });
 
+// ─── 3c. Legacy schema — L4: upper bounds (description/brandId/productModelId) ─
+
+describe("legacyListingEditSchema — L4: upper bounds không thêm requiredness", () => {
+  it("description quá DESCRIPTION_MAX → DESCRIPTION_INVALID (CÙNG bound với draft/beta — không chỉ ≥20)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ description: "x".repeat(DESCRIPTION_MAX + 1) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:DESCRIPTION_INVALID");
+    // trong bound vẫn passes (≥20 ≤4000 — rule hiện có giữ nguyên)
+    expect(
+      legacyListingEditSchema.safeParse(legacyInput({ description: "x".repeat(DESCRIPTION_MAX) }))
+        .success,
+    ).toBe(true);
+  });
+
+  it("brandId quá FOREIGN_ID_MAX → BRAND_INVALID (khi CÓ — null/blank vẫn passes, KHÔNG required)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ brandId: "x".repeat(FOREIGN_ID_MAX + 1) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:BRAND_INVALID");
+    // presence KHÔNG bắt buộc — null/blank grandfathered
+    expect(legacyListingEditSchema.safeParse(legacyInput({ brandId: null })).success).toBe(true);
+    expect(legacyListingEditSchema.safeParse(legacyInput({ brandId: "" })).success).toBe(true);
+  });
+
+  it("productModelId quá FOREIGN_ID_MAX → MODEL_INVALID (khi có)", () => {
+    expect(() =>
+      validateListingSubmission(
+        legacyInput({ productModelId: "x".repeat(FOREIGN_ID_MAX + 1) }),
+        "legacy",
+      ),
+    ).toThrowError("LISTING_VALIDATION_FAILED:MODEL_INVALID");
+    expect(legacyListingEditSchema.safeParse(legacyInput({ productModelId: null })).success).toBe(
+      true,
+    );
+  });
+
+  it("cùng bound FOREIGN_ID_MAX cho draft + beta (parity — legacy KHÔNG chặt hơn draft)", () => {
+    const overLong = "x".repeat(FOREIGN_ID_MAX + 1);
+    expect(draftListingSchema.safeParse(draftInput({ brandId: overLong })).success).toBe(false);
+    expect(
+      betaListingSubmissionSchema.safeParse(betaInput({ brandId: overLong })).success,
+    ).toBe(false);
+    expect(
+      draftListingSchema.safeParse(draftInput({ productModelId: overLong })).success,
+    ).toBe(false);
+    // trong bound (uuid 36 ký tự là thực tế) passes cả ba regime
+    const uuid = "b".repeat(36);
+    expect(draftListingSchema.safeParse(draftInput({ brandId: uuid })).success).toBe(true);
+    expect(legacyListingEditSchema.safeParse(legacyInput({ brandId: uuid })).success).toBe(true);
+    expect(
+      betaListingSubmissionSchema.safeParse(betaInput({ brandId: uuid })).success,
+    ).toBe(true);
+  });
+});
+
 // ─── 4. Draft schema — base + structured tùy chọn (spec §4.4/§5.6.2) ───────────
 
 describe("draftListingSchema — draft trước verification (spec §4.4)", () => {
@@ -489,6 +550,35 @@ describe("draftListingSchema — draft trước verification (spec §4.4)", () =
     expect(caught).toBeInstanceOf(Error);
     const issues = (caught as { issues?: Array<{ message?: string }> }).issues ?? [];
     expect(issues.some((i) => i.message === "PROVINCE_REQUIRED")).toBe(true);
+  });
+
+  it("L3 — draft province SAI → PROVINCE_INVALID emit đúng MỘT lần (required ở checkProvince, value-check sống MỘT chỗ trong when-present)", () => {
+    const messages = (input: ListingSubmissionInput): string[] => {
+      const res = draftListingSchema.safeParse(input);
+      return res.success ? [] : res.error.issues.map((i) => i.message);
+    };
+    // present-but-invalid: PROVINCE_INVALID đúng 1 lần, KHÔNG kèm PROVINCE_REQUIRED
+    // (trước fix: checkProvince + checkStructuredWhenPresent cùng emit → 2 lần)
+    const invalid = messages(draftInput({ provinceLevelCode: "binh-duong" }));
+    expect(invalid.filter((m) => m === "PROVINCE_INVALID")).toHaveLength(1);
+    expect(invalid).not.toContain("PROVINCE_REQUIRED");
+    // thiếu: PROVINCE_REQUIRED đúng 1 lần, KHÔNG kèm PROVINCE_INVALID
+    const missing = messages(draftInput({ provinceLevelCode: null }));
+    expect(missing.filter((m) => m === "PROVINCE_REQUIRED")).toHaveLength(1);
+    expect(missing).not.toContain("PROVINCE_INVALID");
+    // parity: beta/legacy province sai cũng emit đúng MỘT lần
+    const betaRes = betaListingSubmissionSchema.safeParse(
+      betaInput({ provinceLevelCode: "binh-duong" }),
+    );
+    expect(
+      betaRes.success ? [] : betaRes.error.issues.map((i) => i.message),
+    ).toEqual(["PROVINCE_INVALID"]);
+    const legacyRes = legacyListingEditSchema.safeParse(
+      legacyInput({ provinceLevelCode: "binh-duong" }),
+    );
+    expect(
+      legacyRes.success ? [] : legacyRes.error.issues.map((i) => i.message),
+    ).toEqual(["PROVINCE_INVALID"]);
   });
 
   it("draft 0 ảnh hợp lệ; > 8 ảnh → IMAGE_TOO_MANY (0..8)", () => {

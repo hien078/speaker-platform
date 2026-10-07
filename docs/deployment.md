@@ -16,10 +16,35 @@ Cron mỗi giờ ──► POST /api/cron/auto-release (Bearer CRON_SECRET) ─�
 | Thông số | Tối thiểu | Khuyến nghị |
 |---|---|---|
 | CPU | 1 vCPU | 2 vCPU |
-| RAM | 1 GB | 2 GB |
+| RAM | 1 GB | **2 GB** (xem budget bên dưới) |
 | Disk | 10 GB | 20 GB (ảnh upload + DB) |
 | OS | Ubuntu 22.04+ | Ubuntu 24.04 |
 | Docker | 24+ | 24+ |
+
+### Bộ nhớ (RAM) — budget chi tiết (Batch 4 Task 3 review fix 2)
+
+Khuyến nghị **2GB RAM cho production** — budget worst-case của stack
+(1 container app + 1 container db + nginx trên cùng host):
+
+| Thành phần | Đỉnh bộ nhớ | Vì sao bounded |
+|---|---|---|
+| Next.js baseline (server + SSR) | ~250MB | — |
+| 1 re-encode ảnh 50MP progressive JPEG + EXIF rotate | ~300MB transient (decode RGBA + buffer xoay) | Semaphore **1 re-encode đồng thời** + hàng chờ **bounded 2** (`REENCODE_MAX_QUEUE` — đầy → 503 ngay, không cho 20 waiter giữ ~300MB body buffer) + **1 upload in-flight/user** (`src/lib/image-process.ts`, `app/api/upload/route.ts`) |
+| Body buffer của 2 waiter trong hàng | ~15MB | Hàng chờ bounded 2 × ~5.5MB/request |
+| Container app (`mem_limit: 768m`) | ≈ 550-600MB worst case | OOM-kill land vào container (`restart: unless-stopped`), không lan sang db/host |
+| Container db (`mem_limit: 512m`) | ~128MB shared_buffers + working set | Postgres 16 mặc định; bound chặn query lớn kéo host |
+
+Lưu ý ngoài budget trên: **Next image optimizer (`next/image`) dùng sharp
+NGOÀI semaphore re-encode** — nếu bật optimization cho ảnh remote/inline thì
+cộng thêm bộ nhớ decode của nó vào budget (hiện `/uploads` được serve tĩnh,
+không qua optimizer).
+
+**Quyết định ghi nhận (recorded decision):** cap JPEG giữ **50MP**
+(`IMAGE_MAX_PIXELS` — admitting cảm biến 48MP phone). Một decode 50MP
+progressive JPEG ~300MB transient là trần CHẤP NHẬN được vì đã bounded bởi
+semaphore 1-đồng-thời + hàng chờ bounded + 1 in-flight/user trên host 2GB;
+PNG/GIF/WebP 8-bit 24MP, interlaced/>8-bit 12MP (xem `src/lib/image-process.ts`).
+Host 1GB (tối thiểu): hạ `mem_limit` app xuống 512m + hạ cap ảnh theo runbook.
 
 ## 2. Các bước triển khai
 

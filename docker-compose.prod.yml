@@ -58,13 +58,18 @@ services:
     build: .
     container_name: loaviet-app
     restart: unless-stopped
-    # M1 (Batch 4 Task 3 review): bound bộ nhớ app — sharp re-encode decode
-    # theo định dạng (PNG interlaced/16-bit ~200-400MB/lần nếu không bound);
-    # trong app đã có semaphore 1-re-encode-đồng-thời + sharp.cache(false) +
-    # sharp.concurrency(1) (src/lib/image-process.ts) nên worst-case process ≈
-    # baseline Next ~250MB + 1 decode ~150-200MB ≈ 450-500MB. 768m chặn OOM
-    # lan sang db/host; OOM-kill land vào container (restart tự lên lại).
-    # Host 1GB: hạ xuống 512m + hạ cap ảnh (image-process.ts) theo runbook.
+    # M1 (Batch 4 Task 3 review + fix 2): bound bộ nhớ app — sharp re-encode
+    # decode theo định dạng (PNG interlaced/16-bit ~200-400MB/lần nếu không
+    # bound). Trong app đã có semaphore 1-re-encode-đồng-thời + HÀNG CHỜ
+    # BOUNDED (REENCODE_MAX_QUEUE=2 — đầy reject ngay, không cho 20 waiter giữ
+    # ~300MB body buffer) + 1 upload in-flight/user + sharp.cache(false) +
+    # sharp.concurrency(1) (src/lib/image-process.ts, app/api/upload/route.ts)
+    # nên worst-case process ≈ baseline Next ~250MB + 1 decode 50MP JPEG
+    # progressive + EXIF rotate ~300MB transient + ~15MB body buffer của 2
+    # waiter ≈ 550-600MB. 768m chặn OOM lan sang db/host; OOM-kill land vào
+    # container (restart tự lên lại). Budget chi tiết + khuyến nghị RAM host
+    # (2GB cho production): docs/deployment.md §1. Host 1GB: hạ xuống 512m +
+    # hạ cap ảnh (image-process.ts) theo runbook.
     mem_limit: 768m
     ports:
       # CHỈ bind loopback — nginx (cùng host) proxy sang đây; KHÔNG expose

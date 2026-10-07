@@ -1,10 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { writeFile, mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import { getCurrentUser } from "@/src/lib/auth";
+import { getCurrentUser, type SessionUser } from "@/src/lib/auth";
 import { checkRateLimit, rateLimitRequest, tooManyRequestsResponse } from "@/src/lib/rate-limit";
 import { validateImage } from "@/src/lib/image-validate";
-import { IMAGE_MAX_BYTES, reencodeImage } from "@/src/lib/image-process";
+import {
+  IMAGE_MAX_BYTES,
+  reencodeImage,
+  reencodeQueueHasCapacity,
+} from "@/src/lib/image-process";
 import { isUserSuspended } from "@/src/lib/moderation";
 import { db } from "@/src/prisma/db.client";
 import { captureError } from "@/src/lib/observability";
@@ -19,6 +23,16 @@ import { captureError } from "@/src/lib/observability";
  * - rate limit IP (hiện có) + rate limit PER-USER ≤ per-IP (§7.1);
  * - user đang bị đình chỉ (Batch 3 isUserSuspended — đọc FRESH từ DB) →
  *   403 ACCOUNT_SUSPENDED (L4);
+ * - H1 (review fix 2 — bound bộ nhớ body-buffer + hàng chờ re-encode):
+ *   (a) hàng chờ re-encode BOUNDED (REENCODE_MAX_QUEUE — image-process.ts):
+ *       đầy → TOO_BUSY NGAY, không cho 20 request xếp hàng giữ ~300MB buffer;
+ *   (b) capacity pre-check (reencodeQueueHasCapacity) TRƯỚC formData()/
+ *       arrayBuffer — server bận từ chối KHÔNG đọc body (~10-15MB/request);
+ *       pre-check chỉ là early-exit, cap thật vẫn do acquireReencodeSlot
+ *       enforce bên trong reencodeImage (TOCTOU giữa 2 điểm chấp nhận được);
+ *   (c) tối đa MỘT upload in-flight mỗi user (in-process Set — topology 1
+ *       instance như rate-limit.ts): request thứ 2 cùng user → 429 typed
+ *       UPLOAD_IN_PROGRESS, slot trả trong finally trên MỌI path;
  * - multipart hỏng → 400 INVALID_BODY (L3 — KHÔNG để exception formData leak
  *   thành 500);
  * - magic bytes + sharp decode + caps (validateImage — caps 50MP/12k px từ
@@ -27,18 +41,27 @@ import { captureError } from "@/src/lib/observability";
  *   (EXIF/GPS), auto-orient trước strip, resize-bounded — file ghi ra là
  *   buffer ĐÃ re-encode, KHÔNG BAO GIỜ buffer gốc (Review Focus 1);
  * - semaphore decode-memory bound (M1 — image-process.ts): re-encode bận quá
- *   (hết chờ hàng) → 503 TOO_BUSY + Retry-After, KHÔNG ghi file/row;
+ *   (hàng đầy/hết chờ hàng) → 503 TOO_BUSY + Retry-After, KHÔNG ghi file/row;
  * - storageKey random UUID + ".webp" (không dùng tên file client); row
  *   ListingImageUpload (ownership) ghi TRƯỚC file — row mồ côi vô hại
  *   (storageKey unique, không có file), FILE mồ côi public-reachable không
- *   owner mới là vấn đề; writeFile fail → unlink file partial best-effort (L2)
- *   + xoá row best-effort + 500.
+ *   owner mới là vấn đề; writeFile fail → unlink file partial best-effort
+ *   (L2 — lỗi unlink đi qua captureError, KHÔNG nuốt im lặng) + xoá row
+ *   best-effort + 500.
  * Response shape { url } GIỮ NGUYÊN — ImagePicker giữ hoạt động.
  * Production: thay bằng Cloudinary / S3 (ownership table đã trừu tượng hóa).
  */
 
 /** Dư lượng cho multipart envelope ngoài phần file (~512KB) — ngưỡng Content-Length sớm */
 const CONTENT_LENGTH_GRACE = 512 * 1024;
+
+/**
+ * H1c — tối đa MỘT upload đang xử lý mỗi user (in-process Set, keyed theo
+ * user id — cùng topology 1-instance với rate-limit.ts). Check+add đồng bộ
+ * (không await giữa hai lệnh) nên không race; delete trong finally của POST
+ * nên MỌI path (kể cả throw) đều trả slot.
+ */
+const uploadsInFlightByUser = new Set<string>();
 
 export async function POST(request: Request) {
   // 0. Early body reject — KHÔNG buffer body quá lớn (spec §7.5 encoded-size limit)
@@ -86,7 +109,42 @@ export async function POST(request: Request) {
     return Response.json({ error: "ACCOUNT_SUSPENDED" }, { status: 403 });
   }
 
-  // 5. Parse multipart — L3: multipart hỏng là LỖI NGƯỜI DÙNG (400 typed),
+  // 5. H1b — capacity pre-check TRƯỚC formData()/arrayBuffer: server đang bận
+  //    (slot + hàng chờ re-encode đầy) → 503 NGAY, KHÔNG đọc body. Mỗi request
+  //    nếu đi tiếp sẽ buffer ~10-15MB (formData + Buffer copy) trước khi tới
+  //    lượt acquire — từ chối sớm ở đây là tầng chặn OOM thật sự. Pre-check chỉ
+  //    là early-exit: cap vẫn do acquireReencodeSlot enforce (bên dưới).
+  if (!reencodeQueueHasCapacity()) {
+    return Response.json(
+      { error: "TOO_BUSY" },
+      { status: 503, headers: { "Retry-After": "5" } },
+    );
+  }
+
+  // 6. H1c — tối đa 1 upload in-flight mỗi user: has+add đồng bộ (không await
+  //    giữa hai lệnh) nên 2 request song song không lọt cả hai; slot trả trong
+  //    finally bên dưới trên MỌI path (kể cả throw bên trong ingestUpload).
+  if (uploadsInFlightByUser.has(user.id)) {
+    return Response.json(
+      { error: "UPLOAD_IN_PROGRESS" },
+      { status: 429, headers: { "Retry-After": "5" } },
+    );
+  }
+  uploadsInFlightByUser.add(user.id);
+  try {
+    return await ingestUpload(request, user);
+  } finally {
+    uploadsInFlightByUser.delete(user.id);
+  }
+}
+
+/**
+ * Body processing (formData → validate → re-encode → row → file → response) —
+ * chạy trong slot in-flight per-user (H1c). Mọi return path KHÔNG ghi gì khi
+ * thất bại; mọi throw được caller bắt (finally vẫn trả slot).
+ */
+async function ingestUpload(request: Request, user: SessionUser): Promise<Response> {
+  // 7. Parse multipart — L3: multipart hỏng là LỖI NGƯỜI DÙNG (400 typed),
   //    không phải 500; KHÔNG buffer gì trước bước này.
   let formData: FormData;
   try {
@@ -100,12 +158,12 @@ export async function POST(request: Request) {
     return Response.json({ error: "Thiếu file" }, { status: 400 });
   }
 
-  // 6. file.size TRƯỚC khi buffer
+  // 8. file.size TRƯỚC khi buffer
   if (file.size > IMAGE_MAX_BYTES) {
     return Response.json({ error: "Ảnh tối đa 5MB" }, { status: 400 });
   }
 
-  // 7. Magic bytes + sharp decode + caps (50MP/12k px — Batch 4)
+  // 9. Magic bytes + sharp decode + caps (50MP/12k px — Batch 4)
   const buf = Buffer.from(await file.arrayBuffer());
   const verdict = await validateImage(buf, file.type, IMAGE_MAX_BYTES);
   if (!verdict.ok) {
@@ -119,9 +177,9 @@ export async function POST(request: Request) {
     );
   }
 
-  // 8. Re-encode WebP — strip EXIF/GPS, auto-orient, resize-bounded (fail → KHÔNG lưu file)
-  //    M1a: semaphore đầy (hết chờ hàng) → 503 typed — client retry sau, KHÔNG
-  //    ghi file/row, KHÔNG treo request.
+  // 10. Re-encode WebP — strip EXIF/GPS, auto-orient, resize-bounded (fail → KHÔNG lưu file)
+  //     M1a: semaphore đầy (hàng đầy H1/hết chờ hàng) → 503 typed — client retry
+  //     sau, KHÔNG ghi file/row, KHÔNG treo request.
   const out = await reencodeImage(buf);
   if (!out.ok) {
     if (out.reason === "TOO_BUSY") {
@@ -139,7 +197,7 @@ export async function POST(request: Request) {
     );
   }
 
-  // 9. ROW FIRST — storageKey random dùng cho CẢ row lẫn file (tạo trước cả hai)
+  // 11. ROW FIRST — storageKey random dùng cho CẢ row lẫn file (tạo trước cả hai)
   const storageKey = `${randomUUID()}.webp`;
   const dir = path.join(process.cwd(), "public", "uploads");
   try {
@@ -157,14 +215,18 @@ export async function POST(request: Request) {
     return Response.json({ error: "UPLOAD_FAILED" }, { status: 500 });
   }
 
-  // 10. Ghi buffer ĐÃ re-encode — KHÔNG BAO GIỜ buffer gốc (Review Focus 1)
+  // 12. Ghi buffer ĐÃ re-encode — KHÔNG BAO GIỜ buffer gốc (Review Focus 1)
   try {
     await writeFile(path.join(dir, storageKey), out.buffer);
   } catch (e) {
     // L2: writeFile có thể đã ghi MỘT PHẦN file (ENOSPC/EIO giữa chừng) —
     // file partial public-reachable không owner là vấn đề → unlink best-effort
-    // (không chặn response; lỗi unlink đã capture bên dưới).
-    unlink(path.join(dir, storageKey)).catch(() => {});
+    // (không chặn response). Lỗi unlink KHÔNG được nuốt im lặng (review fix 2):
+    // capture qua captureError — meta chỉ storageKey (UUID sinh server-side,
+    // không path/PII người dùng).
+    unlink(path.join(dir, storageKey)).catch((unlinkErr) => {
+      captureError("upload", unlinkErr, { userId: user.id, storageKey });
+    });
     // File không ghi được → xoá row (best-effort): row mồ côi vô hại, FILE mồ côi
     // public-reachable không owner mới là vấn đề.
     try {
@@ -176,6 +238,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "UPLOAD_FAILED" }, { status: 500 });
   }
 
-  // 11. Response shape { url } giữ nguyên — ImagePicker giữ hoạt động
+  // 13. Response shape { url } giữ nguyên — ImagePicker giữ hoạt động
   return Response.json({ url: `/uploads/${storageKey}` });
 }

@@ -29,8 +29,10 @@ import type { Metadata as SharpMetadata } from "sharp";
  *
  * (M1a) SEMAPHORE process-wide quanh reencodeImage — tối đa
  *       REENCODE_MAX_CONCURRENT re-encode đồng thời; request thừa XẾP HÀNG chờ
- *       bounded (REENCODE_QUEUE_TIMEOUT_MS) → TOO_BUSY (route → 503 typed) —
- *       không bao giờ treo request, không bao giờ decode song song vô hạn.
+ *       bounded (REENCODE_MAX_QUEUE — H1 review fix 2: đầy → reject NGAY,
+ *       không cho 20 waiter giữ ~300MB buffer) trong REENCODE_QUEUE_TIMEOUT_MS
+ *       → TOO_BUSY (route → 503 typed) — không bao giờ treo request, không
+ *       bao giờ decode song song vô hạn, không bao giờ xếp hàng vô hạn.
  * (M1b) PIXEL CAP THEO ĐỊNH DẠNG — metadata() đọc TRƯỚC khi decode pixels,
  *       cap áp theo format/depth/interlace (recorded choice):
  *        - JPEG: giữ 50MP (IMAGE_MAX_PIXELS) — admitting cảm biến 48MP phone;
@@ -38,8 +40,9 @@ import type { Metadata as SharpMetadata } from "sharp";
  *        - PNG/GIF/WebP 8-bit: 24MP (IMAGE_NON_JPEG_MAX_PIXELS) — decode
  *          24MP×4 kênh ≈ 96MB;
  *        - interlaced (isProgressive — Adam7 PNG) HOẶC depth > 8 bit
- *          (bitsPerSample — PNG 16-bit): 12MP
- *          (IMAGE_HEAVY_DECODE_MAX_PIXELS) — decode ~2× bộ nhớ/pixel;
+ *          (depth !== "uchar" — "ushort" = 16-bit PNG; HOẶC bitsPerSample > 8
+ *          — L1 review fix 2): 12MP (IMAGE_HEAVY_DECODE_MAX_PIXELS) — decode
+ *          ~2× bộ nhớ/pixel; THIẾC signal depth hoàn toàn → fail-closed 12MP;
  *        - định dạng lạ (đã bị validateImage chặn — defensive): 12MP.
  * (M1c) sharp.cache(false) + sharp.concurrency(1) — tắt libvips pixel cache
  *       (mặc định giữ memory theo thread) + threadpool 1 thread process-wide.
@@ -61,6 +64,13 @@ export const IMAGE_RESIZE_MAX = { width: 2560, height: 2560 }; // resize TRƯỚ
 
 /** Tối đa 1 re-encode đồng thời (recorded choice — host 1-2GB chung Postgres). */
 export const REENCODE_MAX_CONCURRENT = 1;
+/**
+ * Hàng chờ tối đa REENCODE_MAX_QUEUE request (H1 — review fix 2): đầy → reject
+ * NGAY (route → 503 TOO_BUSY). KHÔNG cho xếp hàng vô hạn — mỗi waiter đang
+ * giữ body đã buffer (~10-15MB formData + Buffer copy), 20 waiter = ~300MB
+ * treo trong bộ nhớ vượt mem_limit 768m.
+ */
+export const REENCODE_MAX_QUEUE = 2;
 /** Chờ tối đa 15s trong hàng trước khi TOO_BUSY (route → 503) — 50MP decode ~2-5s. */
 export const REENCODE_QUEUE_TIMEOUT_MS = 15_000;
 
@@ -70,14 +80,21 @@ const reencodeWaiters: ReencodeWaiter[] = [];
 
 /**
  * Lấy slot semaphore (internal — test/ops hook, KHÔNG dùng cho logic app).
- * Resolve ngay khi có chỗ; hết `timeoutMs` mà vẫn xếp hàng → reject
- * REENCODE_QUEUE_TIMEOUT (caller map sang TOO_BUSY). FIFO: release() handoff
- * slot TRỰC TIẾP cho waiter đầu tiên (không đếm đôi).
+ * Resolve ngay khi có chỗ; hàng chờ đầy (REENCODE_MAX_QUEUE) → reject NGAY
+ * REENCODE_QUEUE_FULL (caller map sang TOO_BUSY); hết `timeoutMs` mà vẫn xếp
+ * hàng → reject REENCODE_QUEUE_TIMEOUT (caller map sang TOO_BUSY). FIFO:
+ * release() handoff slot TRỰC TIẾP cho waiter đầu tiên (không đếm đôi).
  */
 export async function acquireReencodeSlot(timeoutMs: number): Promise<void> {
   if (reencodeInFlight < REENCODE_MAX_CONCURRENT) {
     reencodeInFlight++;
     return;
+  }
+  // H1 — hàng chờ BOUNDED: đầy thì reject ngay, không cho request thừa xếp hàng
+  // giữ buffer chờ trong bộ nhớ (TOCTOU với reencodeQueueHasCapacity của route
+  // là chấp nhận được — đây là nơi enforce cap THẬT).
+  if (reencodeWaiters.length >= REENCODE_MAX_QUEUE) {
+    throw new Error("REENCODE_QUEUE_FULL");
   }
   await new Promise<void>((resolve, reject) => {
     const entry: ReencodeWaiter = {
@@ -101,6 +118,19 @@ export function releaseReencodeSlot(): void {
     return;
   }
   reencodeInFlight = Math.max(0, reencodeInFlight - 1);
+}
+
+/**
+ * Check sức chứa RẺ (H1b — route gọi TRƯỚC formData()/arrayBuffer): true khi
+ * acquire sẽ (a) lấy slot NGAY hoặc (b) còn chỗ xếp hàng. CHỈ là early-exit
+ * cho route từ chối KHÔNG đọc body (~10-15MB/request) khi server bận —
+ * bản thân acquireReencodeSlot vẫn enforce cap (pre-check không thay thế).
+ */
+export function reencodeQueueHasCapacity(): boolean {
+  return (
+    reencodeInFlight < REENCODE_MAX_CONCURRENT ||
+    reencodeWaiters.length < REENCODE_MAX_QUEUE
+  );
 }
 
 // ─── M1c — sharp process-wide: tắt pixel cache + threadpool 1 thread ─────────
@@ -134,19 +164,34 @@ const DECODE_OPTS = {
 } as const;
 
 /**
- * Pixel cap theo định dạng (M1b — recorded choice, xem header module):
- * JPEG 50MP; PNG/GIF/WebP 8-bit 24MP; interlaced hoặc >8-bit 12MP; lạ 12MP.
+ * Pixel cap theo định dạng (M1b — recorded choice, xem header module; L1 review
+ * fix 2: depth signal). Internal — test hook như acquire/release, KHÔNG dùng
+ * cho logic app.
+ *
  * (Structural type — chỉ các trường metadata pipeline đọc, tránh phụ thuộc
  * namespace type của sharp.)
  */
-function pixelCapFor(meta: {
+export function pixelCapFor(meta: {
   format?: string | undefined;
   isProgressive?: boolean | undefined;
   bitsPerSample?: number | undefined;
+  depth?: string | undefined;
 }): number {
   if (meta.format === "jpeg") return IMAGE_MAX_PIXELS;
+  // L1: >8-bit theo CẢ depth (libvips band format — "ushort" = 16-bit,
+  // "float" = 32-bit) LẪN bitsPerSample; depth non-"uchar" THẮNG dù
+  // bitsPerSample khai ≤8. THIẾC cả hai signal → fail-closed 12MP
+  // (KHÔNG mặc định 8-bit khi không biết — sharp 0.35 luôn báo depth cho
+  // jpeg/png/gif/webp nên đường fail-closed chỉ chặn định dạng lạ).
+  const hasDepthSignal = meta.depth !== undefined || meta.bitsPerSample !== undefined;
+  const over8Bit =
+    (meta.depth !== undefined && meta.depth !== "uchar") ||
+    (meta.bitsPerSample !== undefined && meta.bitsPerSample > 8);
   const heavy =
-    meta.isProgressive === true || (meta.bitsPerSample ?? 8) > 8 || meta.format === undefined;
+    meta.isProgressive === true ||
+    meta.format === undefined ||
+    !hasDepthSignal ||
+    over8Bit;
   if (heavy) return IMAGE_HEAVY_DECODE_MAX_PIXELS;
   return IMAGE_NON_JPEG_MAX_PIXELS;
 }
@@ -165,7 +210,8 @@ export async function reencodeImage(
 ): Promise<ReencodeResult> {
   if (!buf || buf.length === 0) return { ok: false, reason: "DECODE_FAILED" };
 
-  // M1a — slot semaphore TRƯỚC mọi decode (kể cả header): hết chờ → TOO_BUSY
+  // M1a — slot semaphore TRƯỚC mọi decode (kể cả header): hàng đầy (H1) hoặc
+  // hết chờ → TOO_BUSY (cả REENCODE_QUEUE_FULL lẫn REENCODE_QUEUE_TIMEOUT).
   try {
     await acquireReencodeSlot(opts?.queueTimeoutMs ?? REENCODE_QUEUE_TIMEOUT_MS);
   } catch {

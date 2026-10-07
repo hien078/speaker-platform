@@ -38,9 +38,12 @@ import {
   IMAGE_OUTPUT_MAX_BYTES,
   IMAGE_RESIZE_MAX,
   REENCODE_MAX_CONCURRENT,
+  REENCODE_MAX_QUEUE,
   REENCODE_QUEUE_TIMEOUT_MS,
   acquireReencodeSlot,
+  pixelCapFor,
   reencodeImage,
+  reencodeQueueHasCapacity,
   releaseReencodeSlot,
 } from "../../src/lib/image-process";
 
@@ -407,8 +410,9 @@ describe("reencodeImage — fail closed", () => {
 // ─── Review fix M1 — semaphore (decode memory bound, process-wide) ─────────────
 
 describe("reencodeImage — semaphore (M1: 1 concurrent, queue bounded)", () => {
-  it("constants pinned: REENCODE_MAX_CONCURRENT 1, queue timeout 15s", () => {
+  it("constants pinned: REENCODE_MAX_CONCURRENT 1, REENCODE_MAX_QUEUE 2, queue timeout 15s", () => {
     expect(REENCODE_MAX_CONCURRENT).toBe(1);
+    expect(REENCODE_MAX_QUEUE).toBe(2);
     expect(REENCODE_QUEUE_TIMEOUT_MS).toBe(15_000);
   });
 
@@ -444,12 +448,135 @@ describe("reencodeImage — semaphore (M1: 1 concurrent, queue bounded)", () => 
     expect(out2.ok).toBe(true);
   });
 
-  it("N reencodeImage song song → serialize qua semaphore, TẤT CẢ thành công (không deadlock)", async () => {
-    const inputs = await Promise.all(
-      Array.from({ length: 4 }, (_, i) => solidPng(40 + i, 30, "#224466")),
+  it(
+    "N reencodeImage song song → serialize qua semaphore: 3 (in-flight + queue) thành công, request THỨ 4 → TOO_BUSY NGAY (queue đầy — H1)",
+    async () => {
+      const inputs = await Promise.all(
+        Array.from({ length: 4 }, (_, i) => solidPng(40 + i, 30, "#224466")),
+      );
+      const outs = await Promise.all(inputs.map((b) => reencodeImage(b)));
+      // 1 decode + 2 waiter (REENCODE_MAX_QUEUE) — request thứ 4 bị reject
+      // NGAY chứ KHÔNG xếp hàng giữ buffer chờ (H1 — queue bounded).
+      const okCount = outs.filter((o) => o.ok).length;
+      const busyCount = outs.filter((o) => !o.ok && o.reason === "TOO_BUSY").length;
+      expect(okCount).toBe(3); // không deadlock — serialize vẫn chạy đủ 3
+      expect(busyCount).toBe(1);
+    },
+  );
+});
+
+// ─── Review fix 2 (H1) — hàng chờ BOUNDED + capacity pre-check cho route ──────
+
+describe("reencodeImage — hàng chờ bounded (H1: REENCODE_MAX_QUEUE)", () => {
+  it(
+    "hàng đầy (1 in-flight + 2 waiter) → acquire THỨ 4 reject NGAY REENCODE_QUEUE_FULL (không xếp hàng, không chờ timeout)",
+    async () => {
+      await acquireReencodeSlot(0); // giữ slot duy nhất — in-flight
+      const w1 = acquireReencodeSlot(60_000);
+      const w2 = acquireReencodeSlot(60_000);
+      try {
+        // 1 in-flight + 2 waiter = ĐẦY → acquire kế tiếp phải reject NGAY
+        // (nếu có xếp hàng chờ 60s thì test này treo — đây là điểm H1)
+        const t0 = Date.now();
+        await expect(acquireReencodeSlot(60_000)).rejects.toThrowError("REENCODE_QUEUE_FULL");
+        expect(Date.now() - t0).toBeLessThan(1_000);
+      } finally {
+        // dọn — 3 release: handoff w1, handoff w2, rồi giảm đếm về 0
+        releaseReencodeSlot();
+        releaseReencodeSlot();
+        releaseReencodeSlot();
+      }
+      await expect(w1).resolves.toBeUndefined();
+      await expect(w2).resolves.toBeUndefined();
+    },
+  );
+
+  it("reencodeQueueHasCapacity — pre-check RẺ cho route: true khi rảnh/còn chỗ, false khi slot + hàng đầy", async () => {
+    let w1: Promise<void> | null = null;
+    let w2: Promise<void> | null = null;
+    try {
+      expect(reencodeQueueHasCapacity()).toBe(true); // rảnh — acquire lấy slot ngay
+      await acquireReencodeSlot(0); // in-flight
+      expect(reencodeQueueHasCapacity()).toBe(true); // còn chỗ xếp hàng (queue 0 < 2)
+      w1 = acquireReencodeSlot(60_000);
+      expect(reencodeQueueHasCapacity()).toBe(true); // vẫn còn 1 chỗ (queue 1 < 2)
+      w2 = acquireReencodeSlot(60_000);
+      expect(reencodeQueueHasCapacity()).toBe(false); // slot + hàng ĐẦY (queue 2)
+    } finally {
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+    }
+    await expect(w1!).resolves.toBeUndefined();
+    await expect(w2!).resolves.toBeUndefined();
+    expect(reencodeQueueHasCapacity()).toBe(true); // sạch lại sau release
+  });
+
+  it("reencodeImage khi hàng ĐẦY → TOO_BUSY NGAY (KHÔNG chờ hết queue timeout)", async () => {
+    await acquireReencodeSlot(0); // in-flight
+    void acquireReencodeSlot(60_000).catch(() => {}); // waiter 1
+    void acquireReencodeSlot(60_000).catch(() => {}); // waiter 2 — đầy
+    try {
+      const input = await solidPng(20, 20, "#336699");
+      // queueTimeoutMs 60s: nếu pipeline có xếp hàng chờ thì test treo/timeout —
+      // queue đầy phải reject NGAY (<1s) với TOO_BUSY
+      const t0 = Date.now();
+      const out = await reencodeImage(input, { queueTimeoutMs: 60_000 });
+      expect(out).toEqual({ ok: false, reason: "TOO_BUSY" });
+      expect(Date.now() - t0).toBeLessThan(1_000);
+    } finally {
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+      releaseReencodeSlot();
+    }
+    // sau khi dọn — reencode chạy lại bình thường (không deadlock)
+    const out2 = await reencodeImage(await solidPng(20, 20, "#336699"));
+    expect(out2.ok).toBe(true);
+  });
+
+  it("slot được trả qua finally sau khi pipeline LỖI — acquire kế tiếp lấy NGAY (không phải xếp hàng)", async () => {
+    // PNG cắt cụt → header decode fail bên trong reencodeImage
+    const corrupt = (await solidPng(30, 30, "#0000ff")).subarray(0, 20);
+    const out = await reencodeImage(corrupt);
+    expect(out).toEqual({ ok: false, reason: "DECODE_FAILED" });
+    // slot ĐÃ trả qua finally → acquire kế tiếp resolve NGAY (timeout 0: nếu
+    // slot còn bị giữ thì phải reject sau 1 tick — ở đây phải lấy được ngay)
+    await expect(acquireReencodeSlot(0)).resolves.toBeUndefined();
+    releaseReencodeSlot(); // trả slot test vừa lấy — trạng thái sạch cho test sau
+  });
+});
+
+// ─── Review fix 2 (L1) — depth signal: non-"uchar" → heavy, thiếu → fail-closed ─
+
+describe("pixelCapFor — depth signal (L1: depth !== uchar + fail-closed khi thiếu)", () => {
+  it("uchar + ≤8 bit → 24MP; depth non-uchar (ushort/float) → 12MP; THIẾU depth+bitsPerSample → 12MP (fail-closed)", () => {
+    // 8-bit chuẩn — sharp 0.35 báo depth "uchar" cho jpeg/png/gif/webp 8-bit
+    expect(pixelCapFor({ format: "png", depth: "uchar", bitsPerSample: 8 })).toBe(
+      IMAGE_NON_JPEG_MAX_PIXELS,
     );
-    const outs = await Promise.all(inputs.map((b) => reencodeImage(b)));
-    for (const out of outs) expect(out.ok).toBe(true);
+    // bitsPerSample missing nhưng depth "uchar" vẫn xác nhận 8-bit (jpeg/webp thật)
+    expect(pixelCapFor({ format: "webp", depth: "uchar" })).toBe(IMAGE_NON_JPEG_MAX_PIXELS);
+    // depth > 8 bit — "ushort" = 16-bit (PNG 16-bit), "float" = 32-bit float
+    expect(pixelCapFor({ format: "png", depth: "ushort", bitsPerSample: 16 })).toBe(
+      IMAGE_HEAVY_DECODE_MAX_PIXELS,
+    );
+    // depth non-uchar THẮNG cả bitsPerSample khai 8 (L1: check depth IN ADDITION)
+    expect(pixelCapFor({ format: "png", depth: "ushort", bitsPerSample: 8 })).toBe(
+      IMAGE_HEAVY_DECODE_MAX_PIXELS,
+    );
+    expect(pixelCapFor({ format: "tiff", depth: "float" })).toBe(IMAGE_HEAVY_DECODE_MAX_PIXELS);
+    // bitsPerSample > 8 (không cần depth) → 12MP
+    expect(pixelCapFor({ format: "png", depth: "uchar", bitsPerSample: 16 })).toBe(
+      IMAGE_HEAVY_DECODE_MAX_PIXELS,
+    );
+    // THIẾU signal depth hoàn toàn → fail-closed 12MP (KHÔNG mặc định 8-bit)
+    expect(pixelCapFor({ format: "png" })).toBe(IMAGE_HEAVY_DECODE_MAX_PIXELS);
+    // interlaced → 12MP; JPEG giữ 50MP (recorded choice); format lạ → 12MP
+    expect(pixelCapFor({ format: "png", isProgressive: true, depth: "uchar", bitsPerSample: 8 })).toBe(
+      IMAGE_HEAVY_DECODE_MAX_PIXELS,
+    );
+    expect(pixelCapFor({ format: "jpeg", depth: "uchar" })).toBe(IMAGE_MAX_PIXELS);
+    expect(pixelCapFor({ format: undefined })).toBe(IMAGE_HEAVY_DECODE_MAX_PIXELS);
   });
 });
 

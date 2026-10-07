@@ -130,8 +130,14 @@ vi.mock("@/src/lib/image-process", async (importOriginal) => {
 
 import { POST } from "../../app/api/upload/route";
 import { resetRateLimits } from "@/src/lib/rate-limit";
-import { IMAGE_MAX_BYTES, reencodeImage } from "@/src/lib/image-process";
-import { writeFile } from "node:fs/promises";
+import {
+  IMAGE_MAX_BYTES,
+  acquireReencodeSlot,
+  reencodeImage,
+  reencodeQueueHasCapacity,
+  releaseReencodeSlot,
+} from "@/src/lib/image-process";
+import { unlink, writeFile } from "node:fs/promises";
 import nextConfig from "../../next.config";
 
 async function tinyPng(): Promise<Buffer> {
@@ -324,6 +330,101 @@ describe("POST /api/upload — re-encode busy → 503 (M1a)", () => {
     expect(fsState.writes.length).toBe(0);
     expect(dbState.uploads.length).toBe(0);
     expect(orderState.events).toEqual([]); // chặn TRƯỚC mkdir/row/write
+  });
+});
+
+// ─── Review fix 2 (H1) — queue bounded: pre-check TRƯỚC body + 1 in-flight/user ─
+
+describe("POST /api/upload — H1: capacity pre-check + per-user in-flight", () => {
+  it("H1b — queue re-encode ĐẦY (slot + 2 waiter) → 503 TOO_BUSY TRƯỚC formData (KHÔNG đọc body)", async () => {
+    const request = uploadRequest(pngFile(await tinyPng()));
+    const formDataSpy = vi.spyOn(request, "formData");
+    // chiếm slot duy nhất + đầy hàng chờ (2 waiter) — pre-check phải fail
+    await acquireReencodeSlot(60_000);
+    void acquireReencodeSlot(60_000).catch(() => {}); // waiter 1
+    void acquireReencodeSlot(60_000).catch(() => {}); // waiter 2 — đầy
+    try {
+      expect(reencodeQueueHasCapacity()).toBe(false); // precondition
+      const res = await POST(request);
+
+      expect(res.status).toBe(503);
+      expect(((await res.json()) as { error: string }).error).toBe("TOO_BUSY");
+      expect(res.headers.get("retry-after")).toBeDefined();
+      expect(formDataSpy).not.toHaveBeenCalled(); // KHÔNG buffer body ~10-15MB
+      expect(fsState.writes.length).toBe(0);
+      expect(dbState.uploads.length).toBe(0);
+      expect(orderState.events).toEqual([]); // chặn TRƯỚC mkdir/row/write
+    } finally {
+      releaseReencodeSlot(); // handoff waiter 1
+      releaseReencodeSlot(); // handoff waiter 2
+      releaseReencodeSlot(); // đếm về 0 — sạch cho test sau
+    }
+  });
+
+  it("H1c — 2 upload song song CÙNG user → request thứ 2 bị 429 UPLOAD_IN_PROGRESS (không đọc body), first vẫn hoàn tất 200", async () => {
+    const input = await tinyPng();
+    // reencodeImage treo cho request ĐẦU — giữ nó in-flight khi request 2 tới
+    let finishFirst!: (value: Awaited<ReturnType<typeof reencodeImage>>) => void;
+    let reencodeEntered!: () => void;
+    const entered = new Promise<void>((r) => {
+      reencodeEntered = r;
+    });
+    vi.mocked(reencodeImage).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          reencodeEntered();
+          finishFirst = resolve;
+        }),
+    );
+
+    const first = POST(uploadRequest(pngFile(input)));
+    await entered; // request 1 đã vào reencode → đang in-flight
+
+    const secondRequest = uploadRequest(pngFile(input));
+    const formDataSpy = vi.spyOn(secondRequest, "formData");
+    const second = await POST(secondRequest);
+
+    expect(second.status).toBe(429);
+    expect(((await second.json()) as { error: string }).error).toBe("UPLOAD_IN_PROGRESS");
+    expect(second.headers.get("retry-after")).toBeDefined();
+    expect(formDataSpy).not.toHaveBeenCalled(); // chặn TRƯỚC khi buffer body
+    expect(fsState.writes.length).toBe(0); // request 2 không ghi gì
+
+    // hoàn tất request 1 → 200 (row + file), slot in-flight được trả
+    finishFirst({ ok: true, buffer: Buffer.from(input), width: 1, height: 1 });
+    const res1 = await first;
+    expect(res1.status).toBe(200);
+    expect(fsState.writes.length).toBe(1);
+    expect(dbState.uploads.length).toBe(1);
+  });
+
+  it("H1c — slot in-flight được trả qua finally sau khi upload LỖI → upload kế tiếp KHÔNG bị 429", async () => {
+    vi.mocked(reencodeImage).mockImplementationOnce(
+      async () => ({ ok: false, reason: "REENCODE_FAILED" }),
+    );
+    const res1 = await POST(uploadRequest(pngFile(await tinyPng())));
+    expect(res1.status).toBe(400);
+
+    // finally đã trả slot → request kế tiếp cùng user chạy bình thường
+    const res2 = await POST(uploadRequest(pngFile(await tinyPng())));
+    expect(res2.status).toBe(200);
+    expect(fsState.writes.length).toBe(1); // chỉ request 2 ghi file
+  });
+
+  it("L2 — unlink fail cũng đi qua captureError (KHÔNG nuốt im lặng), response vẫn 500 + row dọn", async () => {
+    vi.mocked(writeFile).mockImplementationOnce(async () => {
+      throw new Error("ENOSPC");
+    });
+    vi.mocked(unlink).mockRejectedValueOnce(new Error("EBUSY"));
+    const res = await POST(uploadRequest(pngFile(await tinyPng())));
+
+    expect(res.status).toBe(500);
+    // flush microtask cho .catch handler của unlink chạy
+    await new Promise((r) => setTimeout(r, 0));
+    expect(
+      obsState.errors.some((e) => e.scope === "upload" && e.message.includes("EBUSY")),
+    ).toBe(true);
+    expect(dbState.deletes).toEqual([{ storageKey: dbState.createdKeys[0] }]);
   });
 });
 

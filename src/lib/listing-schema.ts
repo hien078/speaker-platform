@@ -72,6 +72,15 @@ export const FREE_TEXT_MAX = 2_000;
 /** description — bound chống unbounded rows (validation addition của Batch 4). */
 export const DESCRIPTION_MAX = 4_000;
 
+/**
+ * brandId/productModelId — bound chiều dài FK (L4 — review fix 2): Brand.id /
+ * ProductModel.id là uuid() 36 ký tự, 64 = headroom cho format id khác (cuid
+ * 25, ulid 26). Chống unbounded id string vào Listing.brandId/productModelId
+ * write path; áp validate-WHEN-PRESENT cho CẢ BA regime (cùng limits — legacy
+ * KHÔNG chặt hơn draft), KHÔNG thêm requiredness.
+ */
+export const FOREIGN_ID_MAX = 64;
+
 /** locationDisplayName — hiển thị thô, KHÔNG phải địa chỉ nhà riêng (spec §5.6). */
 export const LOCATION_DISPLAY_MAX = 120;
 
@@ -236,12 +245,42 @@ const checkCondition = (v: ListingBase, ctx: RefineCtx): void => {
   }
 };
 
-/** Rule beta/draft: province ∈ 34 mã registry (FD-1) — city derive từ province (item 12). */
-const checkProvince = (v: ListingBase, ctx: RefineCtx): void => {
+/**
+ * Rule beta/draft: province BẮT BUỘC (FD-1) — requiredness riêng (L3: draft gọi
+ * hàm NÀY, value-check sống MỘT chỗ trong checkStructuredWhenPresent nên
+ * PROVINCE_INVALID không bị emit hai lần).
+ */
+const checkProvinceRequired = (v: ListingBase, ctx: RefineCtx): void => {
   if (isBlank(v.provinceLevelCode)) {
     issue(ctx, "provinceLevelCode", "PROVINCE_REQUIRED");
-  } else if (!isProvinceCode(v.provinceLevelCode)) {
+  }
+};
+
+/** Value-check province khi CÓ — shared legacy/draft (L3: emit đúng MỘT lần). */
+const checkProvinceValue = (v: ListingBase, ctx: RefineCtx): void => {
+  if (!isBlank(v.provinceLevelCode) && !isProvinceCode(v.provinceLevelCode)) {
     issue(ctx, "provinceLevelCode", "PROVINCE_INVALID");
+  }
+};
+
+/** Rule beta: province ∈ 34 mã registry (FD-1) — required + value (một chỗ). */
+const checkProvince = (v: ListingBase, ctx: RefineCtx): void => {
+  checkProvinceRequired(v, ctx);
+  checkProvinceValue(v, ctx);
+};
+
+/**
+ * Rule CHUNG (L4 — validate-WHEN-PRESENT): brandId/productModelId là FK tới
+ * Brand/ProductModel (uuid() 36 ký tự) — bound chiều dài khi CÓ, KHÔNG thêm
+ * requiredness (legacy grandfathered; draft tùy chọn; beta required riêng).
+ * Chống unbounded id string vào Listing.brandId/productModelId write path.
+ */
+const checkForeignIds = (v: ListingBase, ctx: RefineCtx): void => {
+  if (!isBlank(v.brandId) && v.brandId.length > FOREIGN_ID_MAX) {
+    issue(ctx, "brandId", "BRAND_INVALID");
+  }
+  if (!isBlank(v.productModelId) && v.productModelId.length > FOREIGN_ID_MAX) {
+    issue(ctx, "productModelId", "MODEL_INVALID");
   }
 };
 
@@ -305,8 +344,14 @@ const checkLocationDisplay = (v: ListingBase, ctx: RefineCtx): void => {
  * knownDefects / 50k fulfillment entries / giá trị rác qua chúng (Task 4 write
  * theo input đã parse). Cùng bộ check cho cả hai regime — KHÔNG thêm
  * requiredness mới cho legacy (chỉ value-check khi có).
+ *
+ * L3 (review fix 2): value-check province sống Ở ĐÂY (một chỗ) — draft gọi
+ * checkProvinceRequired riêng nên PROVINCE_INVALID không bị emit hai lần.
+ * L4 (review fix 2): brandId/productModelId bound FOREIGN_ID_MAX khi có.
  */
 const checkStructuredWhenPresent = (v: ListingBase, ctx: RefineCtx): void => {
+  // brandId/productModelId — bound FK khi có (L4)
+  checkForeignIds(v, ctx);
   // inventoryContext — giá trị ∈ inventory_context khi có (§5.6)
   if (!isBlank(v.inventoryContext) &&
       !(INVENTORY_CONTEXTS as readonly string[]).includes(v.inventoryContext)) {
@@ -328,10 +373,8 @@ const checkStructuredWhenPresent = (v: ListingBase, ctx: RefineCtx): void => {
       issue(ctx, "fulfillmentMethods", "FULFILLMENT_DUPLICATE");
     }
   }
-  // province — mã ∈ 34 registry (FD-1) khi có
-  if (!isBlank(v.provinceLevelCode) && !isProvinceCode(v.provinceLevelCode)) {
-    issue(ctx, "provinceLevelCode", "PROVINCE_INVALID");
-  }
+  // province — mã ∈ 34 registry (FD-1) khi có (value-check MỘT chỗ — L3)
+  checkProvinceValue(v, ctx);
   // locationDisplayName — capped khi có (§5.9)
   if (!isBlank(v.locationDisplayName) &&
       v.locationDisplayName.length > LOCATION_DISPLAY_MAX) {
@@ -344,7 +387,8 @@ const checkStructuredWhenPresent = (v: ListingBase, ctx: RefineCtx): void => {
 /**
  * Regime "beta" — requiredness đầy đủ (spec §6.3). Thứ tự check cố định:
  * title → description → price → category → condition → brand → model →
- * inventoryContext → free-text → fulfillment → province → location → images.
+ * brand/model bound (L4) → inventoryContext → free-text → fulfillment →
+ * province → location → images.
  */
 export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
   listingBaseObject.superRefine((v, ctx) => {
@@ -355,6 +399,7 @@ export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
     checkCondition(v, ctx);
     if (isBlank(v.brandId)) issue(ctx, "brandId", "BRAND_REQUIRED");
     if (isBlank(v.productModelId)) issue(ctx, "productModelId", "MODEL_REQUIRED");
+    checkForeignIds(v, ctx); // L4 — bound FK, cùng limits với draft/legacy
     checkInventoryContext(v, ctx);
     checkFreeTexts(v, ctx);
     checkFulfillment(v, ctx);
@@ -379,11 +424,17 @@ export const betaListingSubmissionSchema: z.ZodType<ListingSubmissionInput> =
  * → bỏ qua. Base object type chúng là z.string()/z.array unbounded nên nếu
  * legacy bỏ qua hoàn toàn, 1MB knownDefects / 50k fulfillment entries lọt
  * qua → unbounded rows. KHÔNG thêm requiredness (legacy giữ nguyên hành vi).
+ *
+ * L4 (review fix 2): description ≤ DESCRIPTION_MAX (CÙNG bound draft/beta —
+ * checkDescription) + brandId/productModelId ≤ FOREIGN_ID_MAX khi có — upper
+ * bounds KHÔNG thêm requiredness gì mới.
  */
 export const legacyListingEditSchema: z.ZodType<ListingSubmissionInput> =
   listingBaseObject.superRefine((v, ctx) => {
     checkTitle(v, ctx);
-    if (v.description.length < 20) issue(ctx, "description", "DESCRIPTION_INVALID");
+    // L4: ≥20 (rule hiện có) + ≤ DESCRIPTION_MAX — cùng checkDescription
+    // draft/beta dùng, cùng code DESCRIPTION_INVALID.
+    checkDescription(v, ctx);
     checkPrice(v, ctx);
     checkCategory(v, ctx);
     checkStructuredWhenPresent(v, ctx);
@@ -406,10 +457,11 @@ export const draftListingSchema: z.ZodType<ListingSubmissionInput> =
     checkPrice(v, ctx);
     checkCategory(v, ctx);
     checkCondition(v, ctx);
-    checkProvince(v, ctx);
+    // L3: requiredness ở đây (PROVINCE_REQUIRED); VALUE-check sống MỘT chỗ
+    // trong checkStructuredWhenPresent — không emit PROVINCE_INVALID hai lần.
+    checkProvinceRequired(v, ctx);
     // structured TUYỆN CHỌN — validate GIÁ TRỊ khi seller cung cấp (cùng bộ
-    // check với legacy — checkStructuredWhenPresent; province đã required ở
-    // checkProvince nên ở đây chỉ còn value-check khi có)
+    // check với legacy — checkStructuredWhenPresent)
     checkStructuredWhenPresent(v, ctx);
     checkImageCount(v, ctx);
     checkImageDuplicates(v, ctx);
