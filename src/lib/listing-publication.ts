@@ -17,11 +17,11 @@
  *  - `assertListingContentValid`: category → schema → model → images — dùng
  *    bởi non-transition update (item 1: update không chuyển trạng thái vẫn
  *    validate content).
- *  - `checkListingPublication`: KHÔNG throw — dùng BỞI approveListingAction
- *    (DUY NHẤT — một cơ chế một consumer, tránh mơ hồ) để build
- *    { sellerMissing, listingIssues } cho audit hai reason tách bạch
+ *  - `checkListingPublication`: KHÔNG throw VỚI POLICY ERROR — dùng BỞI
+ *    approveListingAction (DUY NHẤT — một cơ chế một consumer, tránh mơ hồ)
+ *    để build { sellerMissing, listingIssues } cho audit hai reason tách bạch
  *    (publication_requirements_unmet + missing=… / listing_content_invalid +
- *    issues=… — Task 4).
+ *    issues=… — Task 4). Lỗi INFRA được néM TIẾP (LOW 3 — fail closed visible).
  *
  * PII (spec §4.8): mọi code lỗi là typed code — KHÔNG free text/PII trong
  * AuditEvent.detail (redactDetail ở caller).
@@ -59,10 +59,49 @@ export type ListingPublicationCheck = {
   listingIssues: string[];
 };
 
-/** Typed code của một error publication (message LÀ code — KHÔNG PII). */
+/**
+ * Typed code của một error publication POLICY (message LÀ code — KHÔNG PII).
+ * Chỉ gọi SAU isPolicyContentError — không dùng cho lỗi lạ.
+ */
 const codeOf = (e: unknown): string => {
   if (e instanceof Error && e.message.length > 0) return e.message;
   return "UNKNOWN";
+};
+
+/**
+ * LOW 3 (review fix): prefix code schema (listing-schema.ts
+ * validateListingSubmission — Error("LISTING_VALIDATION_FAILED:<code>")).
+ */
+const LISTING_VALIDATION_PREFIX = "LISTING_VALIDATION_FAILED:";
+
+/**
+ * LOW 3 (review fix): allowlist typed policy code — MỌI code content stage có
+ * thể throw (category/schema-prefix/model/images). Lỗi NGOÀI tập này (db/
+ * network/programming — vd SqlQueryError kèm SQL text) KHÔNG được thu vào
+ * `listingIssues` (vào audit `issues=` = lộ SQL text) và KHÔNG được
+ * masquerade thành policy block — được NÉM TIẾP từ collectListingContentIssues
+ * để fail closed VISIBLE. Recorded choice: RETROW (không map UNKNOWN) — infra
+ * error phải thấy được ở caller (approveListingAction reject, submit
+ * redirect-path ném tiếp), KHÔNG im lặng thành "content invalid".
+ */
+const CONTENT_POLICY_ERROR_CODES: ReadonlySet<string> = new Set([
+  "CATEGORY_NOT_FOUND",
+  "CATEGORY_NOT_PUBLICATION_ALLOWED",
+  "MODEL_INVALID",
+  "MODEL_BRAND_MISMATCH",
+  "IMAGE_NOT_OWNED",
+  "IMAGE_URL_INVALID",
+  "IMAGE_DUPLICATE",
+  "IMAGE_SLOT_MISMATCH",
+]);
+
+/** Policy error? (typed code HOẶC prefix schema) — false ⇒ infra/lỗi lạ. */
+const isPolicyContentError = (e: unknown): boolean => {
+  if (!(e instanceof Error)) return false;
+  return (
+    e.message.startsWith(LISTING_VALIDATION_PREFIX) ||
+    CONTENT_POLICY_ERROR_CODES.has(e.message)
+  );
 };
 
 // ─── Canonical model — B4 DB check (spec §6.3 Step 1) ──────────────────────────
@@ -127,6 +166,7 @@ const collectListingContentIssues = async (
     });
     regime = listingRegimeForCategorySlug(category.slug);
   } catch (e) {
+    if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
     issues.push(codeOf(e));
   }
 
@@ -136,6 +176,7 @@ const collectListingContentIssues = async (
     try {
       validateListingSubmission(input, regime);
     } catch (e) {
+      if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
       issues.push(codeOf(e));
     }
     try {
@@ -146,6 +187,7 @@ const collectListingContentIssues = async (
         regime,
       });
     } catch (e) {
+      if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
       issues.push(codeOf(e));
     }
     try {
@@ -156,6 +198,7 @@ const collectListingContentIssues = async (
         imageSlots: input.imageSlots,
       });
     } catch (e) {
+      if (!isPolicyContentError(e)) throw e; // LOW 3 — infra fail closed visible
       issues.push(codeOf(e));
     }
   }
@@ -178,10 +221,16 @@ export async function assertListingContentValid(
 }
 
 /**
- * Non-throwing — dùng BỞI approveListingAction (duy nhất) để build danh sách
- * thiếu cho audit (reason publication_requirements_unmet + missing=… khi
- * seller thiếu; listing_content_invalid + issues=… khi content sai — Task 4).
- * Seller gate qua Batch 2 checkSellerPublicationRequirements (đọc FRESH từ DB).
+ * Non-throwing VỚI POLICY ERROR — dùng BỞI approveListingAction (duy nhất) để
+ * build danh sách thiếu cho audit (reason publication_requirements_unmet +
+ * missing=… khi seller thiếu; listing_content_invalid + issues=… khi content
+ * sai — Task 4). Seller gate qua Batch 2 checkSellerPublicationRequirements
+ * (đọc FRESH từ DB).
+ *
+ * LOW 3 (review fix): policy error được THU (không throw) nhưng lỗi INFRA
+ * (db/network — SqlQueryError kèm SQL text) được NÉM TIẾP từ
+ * collectListingContentIssues → hàm này throw → approveListingAction fail
+ * closed VISIBLE (KHÔNG approve, KHÔNG audit issues= chứa SQL text).
  */
 export async function checkListingPublication(
   input: ListingPublicationInput,

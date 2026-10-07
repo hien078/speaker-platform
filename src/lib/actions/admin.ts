@@ -73,10 +73,39 @@ export async function approveListingAction(formData: FormData): Promise<void> {
   }
 
   // CAS theo status đã đọc — hai admin duyệt song song không double-approve.
+  // MEDIUM 1 (review fix — gate-then-claim TOCTOU): where thêm `updatedAt` đọc
+  // TRƯỚC review (optimistic version). updateListingAction trên listing
+  // pending (content-change, status giữ pending) commit giữa review và claim →
+  // updateAll tự bump updatedAt (execution default onUpdate timestampNow) →
+  // claim 0 rows → KHÔNG approve content chưa được review.
   const claimed = await db.orm.public.Listing
-    .where({ id: listingId, status: "pending" })
+    .where({ id: listingId, status: "pending", updatedAt: listing.updatedAt })
     .updateAll({ status: "approved", rejectionReason: null });
-  if (claimed.length === 0) return;
+  if (claimed.length === 0) {
+    // Phân loại NGOÀI claim: row vẫn pending → content đổi tay giữa review và
+    // claim (updatedAt bump) → audit typed reason, KHÔNG approve (admin duyệt
+    // lại — review content MỚI). Row không còn pending → admin khác đã xử lý →
+    // no-op im lặng (Batch 2 behavior giữ nguyên).
+    const fresh = await db.orm.public.Listing.first({ id: listingId });
+    if (fresh !== null && fresh.status === "pending") {
+      // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
+      // reason typed code, KHÔNG PII).
+      try {
+        await auditEvent({
+          actorId: admin.user.id,
+          subjectId: listing.sellerId,
+          action: "listing.approve_blocked",
+          resourceType: "Listing",
+          resourceId: listingId,
+          sessionId: admin.session.id,
+          reason: "listing_changed_during_review",
+        });
+      } catch {
+        /* fail-open: audit lỗi không mở đường approve */
+      }
+    }
+    return; // no approval
+  }
 
   await audit(admin.user.id, "approve_listing", "Listing", listingId, listing.title);
   await auditEvent({

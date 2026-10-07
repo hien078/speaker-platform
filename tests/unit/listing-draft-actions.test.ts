@@ -798,6 +798,20 @@ describe("saveListingDraftAction — draft được phép trước verification"
     expect(dbState.listings).toHaveLength(0);
   });
 
+  it("LOW 2 — draft province LẠ (không thuộc 34 mã registry) → typed PROVINCE_INVALID, KHÔNG text không code", async () => {
+    const seller = mkUser({ id: "seller-fresh", role: "seller" });
+    dbState.users.push(seller);
+    login(seller);
+
+    const state = await saveListingDraftAction(
+      {},
+      betaForm({ provinceLevelCode: "khong-ton-tai" }),
+    );
+
+    expect(state.error).toContain("PROVINCE_INVALID");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
   it("saveListingDraftAction trên listing bị moderation takedown → LISTING_MODERATION_LOCKED (R5 — isModerationLocked, không hardcode)", async () => {
     const seller = mkUser({ id: "seller-fresh", role: "seller" });
     dbState.users.push(seller);
@@ -925,7 +939,7 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     expect(String(auditsOf("listing.submit_blocked")[0]!.reason)).toBe("MODEL_INVALID");
   });
 
-  it("giá trị error lạ/forged (không nằm trong allowlist) → ?error=CONTENT_INVALID (generic — KHÔNG free text)", async () => {
+  it("LOW 3 — giá trị error lạ/forged (KHÔNG phải policy code) → NÉM TIẾP (fail closed visible): KHÔNG redirect ?error=, KHÔNG audit reason chứa free text", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -934,11 +948,14 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     login(seller);
     gateState.failPublishWith = "weird driver text with <script>alert(1)</script> and PII x@y.vn";
 
-    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
-
-    expect(url).toBe(`/sell/${draft.id}/edit?error=CONTENT_INVALID`);
-    expect(url).not.toContain("<script>");
-    expect(String(auditsOf("listing.submit_blocked")[0]!.reason)).toBe("CONTENT_INVALID");
+    // Lỗi lạ (không phải seller-gate/content code) → propagate — KHÔNG
+    // masquerade thành redirect CONTENT_INVALID (che khuất lỗi infra).
+    await expect(
+      submitListingAction(fd({ listingId: draft.id })),
+    ).rejects.toThrowError(/weird driver text/);
+    expect(draft.status).toBe("draft");
+    // KHÔNG audit — free text/PII KHÔNG bao giờ vào reason/detail
+    expect(dbState.audits).toHaveLength(0);
   });
 
   it("input XÂY TỪ DB ROW, KHÔNG tin formData (title/category forged trong formData bị bỏ qua)", async () => {
@@ -1004,7 +1021,7 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
     expect(takenDown.status).toBe("removed");
   });
 
-  it("racing status change (status đổi tay giữa read và claim) → CAS 0 rows → LISTING_CONCURRENT_CHANGE, KHÔNG partial write", async () => {
+  it("racing status change (status đổi tay giữa read và claim) → CAS 0 rows → redirect ?error=CONCURRENT_CHANGE, KHÔNG partial write", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -1017,10 +1034,80 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
       (draft as Row).status = "pending";
     };
 
+    // MEDIUM 1 review fix: CAS 0 rows → THROW ra khỏi callback, classify NGOÀI
+    // tx → redirect ?error=CONCURRENT_CHANGE (typed code trong allowlist) —
+    // KHÔNG còn néM 500 ra action.
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
+    expect(url).toBe(`/sell/${draft.id}/edit?error=CONCURRENT_CHANGE`);
+    // KHÔNG audit submitted — tx throw trước auditEventTx
+    expect(auditsOf("listing.submitted")).toHaveLength(0);
+  });
+
+  it("MEDIUM 1 — content-swap race: saveListingDraftAction commit content MỚI giữa gate và claim (updatedAt bump) → CAS 0 rows → ?error=CONCURRENT_CHANGE, status GIỮ draft (content mới KHÔNG vào pending ungated)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    login(seller);
+    // Race: draft-save song song commit content mới (updateAll tự bump
+    // updatedAt — execution default onUpdate timestampNow) NGAY TRONG lúc gate
+    // chạy → claim theo updatedAt đọc TRƯỚC gate thua.
+    gateState.onPublishable = () => {
+      (draft as Row).updatedAt = "2026-10-07T01:23:45.678Z";
+      (draft as Row).title = "Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA GATE";
+    };
+
+    const url = await expectRedirect(() => submitListingAction(fd({ listingId: draft.id })));
+
+    expect(url).toBe(`/sell/${draft.id}/edit?error=CONCURRENT_CHANGE`);
+    // status GIỮ draft — content mới KHÔNG vào pending ungated
+    expect(draft.status).toBe("draft");
+    expect(draft.title).toBe("Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA GATE");
+    expect(auditsOf("listing.submitted")).toHaveLength(0);
+  });
+
+  it("LOW 4 — listingId malformed (không URL-safe) → silent return TRƯỚC rate-limit redirect: KHÔNG redirect phản ánh input, KHÔNG db read, KHÔNG audit", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    login(seller);
+    // tiêu hết bucket rate limit — redirect rate-limit là đường PHẢN CHẠNH
+    // listingId vào URL; malformed phải bị chặn TRƯỚC đó.
+    for (let i = 0; i < 20; i++) {
+      await submitListingAction(fd({ listingId: draft.id }));
+    }
+    expect(draft.status).toBe("pending");
+    dbState.audits.length = 0; // dọn audit của 20 lần setup — chỉ đếm lần malformed
+
+    // malformed listingId — KHÔNG throw NEXT_REDIRECT (silent return)
+    const url = await expectRedirect(() =>
+      submitListingAction(fd({ listingId: "../../admin\\x?injection#frag" })),
+    );
+    expect(url).toBe(""); // KHÔNG redirect — input KHÔNG bao giờ vào URL
+    expect(dbState.audits).toHaveLength(0); // KHÔNG audit — KHÔNG db read
+  });
+
+  it("LOW 3 — lỗi INFRA từ gate (KHÔNG phải policy code) → NÉM TIẾP (fail closed visible), KHÔNG masquerade redirect CONTENT_INVALID + audit submit_blocked", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const draft = seedListing(seller.id, "draft");
+    seedImage(draft.id, IMG_URL, "front");
+    login(seller);
+    gateState.failPublishWith = "SqlQueryError: connection terminated (SELECT * FROM ProductModel)";
+
+    // infra error propagate — KHÔNG redirect, KHÔNG audit (SQL text KHÔNG vào
+    // audit reason/detail)
     await expect(
       submitListingAction(fd({ listingId: draft.id })),
-    ).rejects.toThrowError(/LISTING_CONCURRENT_CHANGE/);
-    // KHÔNG audit submitted — tx throw trước auditEventTx
+    ).rejects.toThrowError(/connection terminated/);
+    expect(draft.status).toBe("draft");
+    expect(auditsOf("listing.submit_blocked")).toHaveLength(0);
     expect(auditsOf("listing.submitted")).toHaveLength(0);
   });
 

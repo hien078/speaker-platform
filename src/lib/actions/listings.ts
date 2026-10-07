@@ -80,6 +80,10 @@ const CONTENT_ERROR_TEXT: Record<string, string> = {
   MODEL_REQUIRED: "Chọn model sản phẩm",
   MODEL_BRAND_MISMATCH: "Model không thuộc thương hiệu đã chọn",
   BRAND_REQUIRED: "Chọn thương hiệu",
+  // LOW 3 (review fix): BRAND_INVALID do listing-schema checkForeignIds phát ra
+  // (brandId > FOREIGN_ID_MAX) — phải nằm trong allowlist để lỗi typed KHÔNG bị
+  // néM TIẾP như lỗi lạ (fail-closed 500) trên runPublicationGate/submit.
+  BRAND_INVALID: "Thương hiệu không hợp lệ",
   IMAGE_NOT_OWNED: "Ảnh không thuộc về bạn — tải ảnh lại từ thiết bị",
   IMAGE_URL_INVALID: "Đường dẫn ảnh không hợp lệ",
   IMAGE_DUPLICATE: "Ảnh bị trùng lặp",
@@ -126,6 +130,9 @@ const SUBMIT_ERROR_PARAM_CODES: ReadonlySet<string> = new Set([
   ...CONTENT_ERROR_CODES,
   "RATE_LIMITED",
   "CONTENT_INVALID",
+  // MEDIUM 1 (review fix): CAS claim thua vì content đổi tay giữa gate và claim
+  // (updatedAt bump) → redirect ?error=CONCURRENT_CHANGE (typed code).
+  "CONCURRENT_CHANGE",
 ]);
 
 const submitErrorParam = (code: string): string => {
@@ -138,6 +145,29 @@ const submitBlockedReason = (code: string): string => {
   if (code.startsWith("SELLER_PUBLICATION_BLOCKED")) return code; // typed requirement keys
   return submitErrorParam(code);
 };
+
+/**
+ * LOW 3 (review fix): policy error của submit gate — seller-gate prefix HOẶC
+ * content code trong allowlist. Lỗi NGOÀI tập này (db/network/programming —
+ * vd SqlQueryError kèm SQL text) KHÔNG được coi là "blocked": submit/toggle
+ * NÉM TIẾP cho fail closed VISIBLE (KHÔNG masquerade thành redirect
+ * CONTENT_INVALID + audit submit_blocked — che khuất lỗi infra).
+ */
+const isSubmitBlockError = (e: unknown): boolean => {
+  if (!(e instanceof Error)) return false;
+  if (e.message.startsWith("SELLER_PUBLICATION_BLOCKED")) return true;
+  return isKnownContentCode(e.message);
+};
+
+/**
+ * LOW 4 (review fix): listingId từ formData là input NGƯỜI DÙNG — validate
+ * format TRƯỚC khi phản ánh vào redirect URL (open-redirect/header-injection
+ * qua Location). Listing.id là uuid() nhưng pattern giữ lỏng URL-safe segment
+ * (A-Za-z0-9_- , ≤64) — chặn mọi ký tự có thể thoát khỏi path (/ ? # % CRLF
+ * space), đủ cho uuid lẫn id fixture; malformed → silent return (KHÔNG redirect
+ * phản ánh input, KHÔNG db read).
+ */
+const LISTING_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** Thông báo rate limit tiếng Việt kèm code ổn định. */
 const rateLimitedText = (retryAfterSec: number): string =>
@@ -235,17 +265,21 @@ function listingFormInput(formData: FormData): ListingFormInput {
 /**
  * city (cột NON-NULL — item 12): beta derive từ province =
  * PROVINCE_CODES[provinceLevelCode] (canonical 34-unit displayName — FD-1);
- * legacy (không province) giữ text form. Mã lạ → null → typed error ở caller
- * (schema đã chặn PROVINCE_INVALID trước đó — đây là belt-and-braces cho cột
- * non-null, KHÔNG bao giờ chuỗi rỗng).
+ * legacy (không province) giữ text form. LOW 2 (review fix): province lạ →
+ * typed PROVINCE_INVALID, province+city thiếu → typed PROVINCE_REQUIRED —
+ * KHÔNG BAO GIỜ text không có code ("Chọn khu vực") vì code ổn định là thứ
+ * test/redirect ?error=/audit reason dùng chung.
  */
-function deriveCity(input: ListingFormInput): string | null {
+type DerivedCity = { city: string } | { error: "PROVINCE_INVALID" | "PROVINCE_REQUIRED" };
+
+function deriveCity(input: ListingFormInput): DerivedCity {
   if (input.provinceLevelCode != null) {
     const displayName: string | undefined = PROVINCE_CODES[input.provinceLevelCode];
-    if (displayName === undefined) return null;
-    return displayName;
+    if (displayName === undefined) return { error: "PROVINCE_INVALID" };
+    return { city: displayName };
   }
-  return input.city.length > 0 ? input.city : null;
+  if (input.city.length === 0) return { error: "PROVINCE_REQUIRED" };
+  return { city: input.city };
 }
 
 /** Json value cho cột fulfillmentMethods (Json?) — null khi không có. */
@@ -313,9 +347,10 @@ export async function createListingAction(
   const category = await db.orm.public.Category.first({ id: input.categoryId });
   if (!category) return { error: "Chọn danh mục" };
 
-  // city (cột non-null) — beta derive từ province (item 12)
-  const city = deriveCity(input);
-  if (city === null) return { error: "Chọn khu vực" };
+  // city (cột non-null) — beta derive từ province (item 12); LOW 2: typed error
+  const cityRes = deriveCity(input);
+  if ("error" in cityRes) return { error: contentErrorText(cityRes.error) };
+  const city = cityRes.city;
 
   // ─── Publication gate MỘT LẦN (spec §4.4 + Batch 4 content) — TRƯỚC mọi write ───
   const blocked = await runPublicationGate({
@@ -442,9 +477,12 @@ export async function saveListingDraftAction(
     return { error: contentErrorText("CATEGORY_NOT_PUBLICATION_ALLOWED") };
   }
 
-  // city (cột non-null) — draft HIỆU DỤNG yêu cầu tỉnh (city derive từ province)
-  const city = deriveCity(input);
-  if (city === null) return { error: "Chọn khu vực" };
+  // city (cột non-null) — draft HIỆU DỤNG yêu cầu tỉnh (city derive từ province);
+  // LOW 2: typed PROVINCE_INVALID/PROVINCE_REQUIRED (schema đã chặn trước — đây
+  // là belt-and-braces cho cột non-null, KHÔNG bao giờ chuỗi rỗng)
+  const cityRes = deriveCity(input);
+  if ("error" in cityRes) return { error: contentErrorText(cityRes.error) };
+  const city = cityRes.city;
 
   // ─── Ảnh: draft cũng KHÔNG nhận URL lạ (rule 1/2/3) — 0 ảnh OK ───
   try {
@@ -592,6 +630,9 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
     try {
       await assertListingPublishable(input);
     } catch (e) {
+      // LOW 3 (review fix): CHỈ policy error là "blocked" — lỗi infra NÉM TIẾP,
+      // fail closed VISIBLE (KHÔNG masquerade silent-return + audit typed code).
+      if (!isSubmitBlockError(e)) throw e;
       blocked = e instanceof Error ? e.message : "CONTENT_INVALID";
       // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
       // reason chỉ typed code, KHÔNG PII). KHÔNG redirect trong catch.
@@ -671,9 +712,11 @@ export async function updateListingAction(
     if (!brand) return { error: "Thương hiệu không hợp lệ" };
   }
 
-  // city (cột non-null): beta derive từ province; legacy giữ text form
-  const city = deriveCity(input);
-  if (city === null) return { error: "Chọn khu vực" };
+  // city (cột non-null): beta derive từ province; legacy giữ text form.
+  // LOW 2: typed PROVINCE_INVALID/PROVINCE_REQUIRED — KHÔNG text không code.
+  const cityRes = deriveCity(input);
+  if ("error" in cityRes) return { error: contentErrorText(cityRes.error) };
+  const city = cityRes.city;
 
   // currentCategorySlug TỪ DB ROW (trust boundary — KHÔNG tin formData)
   const currentCategory = await db.orm.public.Category.first({ id: listing.categoryId });
@@ -694,6 +737,11 @@ export async function updateListingAction(
     listing.categoryId !== input.categoryId ||
     listing.condition !== input.condition ||
     listing.negotiable !== input.negotiable ||
+    // LOW 1 (review fix): acceptExchange + city (legacy free-text) cũng là
+    // content công khai — đổi chúng trên approved phải qua lại review, KHÔNG
+    // giữ nguyên approved (bypass review).
+    listing.acceptExchange !== input.acceptExchange ||
+    listing.city !== city ||
     (listing.brandId ?? null) !== (input.brandId ?? null) ||
     (listing.productModelId ?? null) !== (input.productModelId ?? null) ||
     (listing.inventoryContext ?? null) !== (input.inventoryContext ?? null) ||
@@ -818,10 +866,21 @@ export async function updateListingAction(
  * listing.submit_blocked + redirect NGOÀI catch (Global Constraints —
  * redirect() KHÔNG BAO GIỜ trong catch). Thành công → CAS claim draft→pending
  * + audit listing.submitted (policyVersion) trong cùng tx.
+ *
+ * MEDIUM 1 (review fix — gate-then-claim TOCTOU): claim CAS thêm `updatedAt`
+ * (optimistic version) = giá trị đọc TRƯỚC gate. saveListingDraftAction/
+ * updateListingAction commit content mới giữa read và claim → updateAll tự
+ * bump updatedAt (execution default onUpdate timestampNow — contract.json) →
+ * claim 0 rows → CONCURRENT_CHANGE redirect (content mới KHÔNG vào pending
+ * ungated). 0 rows → THROW ra khỏi callback, classify NGOÀI tx.
  */
 export async function submitListingAction(formData: FormData): Promise<void> {
   const user = await requireUser();
   const listingId = String(formData.get("listingId") ?? "");
+
+  // LOW 4 (review fix): validate format TRƯỚC khi phản ánh vào redirect URL —
+  // malformed → silent return (KHÔNG open-redirect qua Location, KHÔNG db read).
+  if (listingId !== "" && !LISTING_ID_RE.test(listingId)) return;
 
   // ─── Rate limit (§7.1) — 20/h/user cho create/draft/submit ───
   const rl = checkRateLimit(`listing:submit:${user.id}`, LISTING_MUTATION_RATE);
@@ -849,6 +908,10 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   try {
     await assertListingPublishable(input);
   } catch (e) {
+    // LOW 3 (review fix): CHỈ policy error là "blocked" — lỗi infra (db/
+    // network, kèm SQL text) được NÉM TIẾP, fail closed VISIBLE (KHÔNG
+    // masquerade thành redirect CONTENT_INVALID + audit submit_blocked).
+    if (!isSubmitBlockError(e)) throw e;
     blocked = e instanceof Error ? e.message : "CONTENT_INVALID";
     // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
     // reason chỉ typed code từ allowlist, KHÔNG PII/free text). KHÔNG redirect
@@ -875,23 +938,40 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   }
 
   // ─── CAS claim draft→pending + audit trong cùng tx (audit sống chết với transition) ───
-  // 0 rows → THROW ra khỏi callback, classify NGOÀI tx (status đổi tay).
-  await db.transaction(async (tx) => {
-    const claimed = await tx.orm.public.Listing
-      .where({ id: listing.id, status: "draft" })
-      .updateAll({ status: "pending" });
-    if (claimed.length === 0) {
-      throw new Error("LISTING_CONCURRENT_CHANGE");
-    }
-    await auditEventTx(tx, {
-      actorId: user.id,
-      subjectId: user.id,
-      action: "listing.submitted",
-      resourceType: "Listing",
-      resourceId: listing.id,
-      policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+  // MEDIUM 1: where thêm updatedAt đọc TRƯỚC gate — content đổi tay giữa gate và
+  // claim (updatedAt tự bump) → 0 rows. 0 rows → THROW ra khỏi callback,
+  // classify NGOÀI tx (Global Constraints).
+  let concurrent = false;
+  try {
+    await db.transaction(async (tx) => {
+      const claimed = await tx.orm.public.Listing
+        .where({ id: listing.id, status: "draft", updatedAt: listing.updatedAt })
+        .updateAll({ status: "pending" });
+      if (claimed.length === 0) {
+        throw new Error("LISTING_CONCURRENT_CHANGE");
+      }
+      await auditEventTx(tx, {
+        actorId: user.id,
+        subjectId: user.id,
+        action: "listing.submitted",
+        resourceType: "Listing",
+        resourceId: listing.id,
+        policyVersion: SELLER_RULES_POLICY_VERSION, // §4.6
+      });
     });
-  });
+  } catch (e) {
+    // Classify NGOÀI tx: CONCURRENT_CHANGE → redirect typed code (seller
+    // submit lại — gate chạy trên content MỚI); lỗi khác néM TIẾP (fail closed).
+    if (e instanceof Error && e.message === "LISTING_CONCURRENT_CHANGE") {
+      concurrent = true;
+    } else {
+      throw e;
+    }
+  }
+  // redirect NGOÀI catch (Global Constraints) — ?error= typed code trong allowlist.
+  if (concurrent) {
+    return redirect(`/sell/${listing.id}/edit?error=CONCURRENT_CHANGE`);
+  }
 
   revalidatePath("/sell/my");
   revalidatePath("/admin/listings");
@@ -918,10 +998,19 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
 
   const orderItems = await db.orm.public.OrderItem.where({ listingId }).all();
   if (orderItems.length > 0) {
-    // đã nằm trong đơn — chỉ cho ẩn. CAS theo status đã đọc (SHOULD-FIX 3):
-    // 0 rows = row đổi tay giữa read và write → typed error, KHÔNG clobber.
+    // MEDIUM 2 (review fix — review bypass via hidden): đường ẩn chỉ áp dụng
+    // cho approved. Trước đây hide BẤT KỲ status nào khi có đơn — pending/
+    // rejected/draft bị hide xong seller toggle hidden→approved (chỉ qua
+    // seller gate, KHÔNG qua admin review) → review bypass. Status khác +
+    // có đơn → typed error, status GIỮ NGUYÊN.
+    if (listing.status !== "approved") {
+      throw new Error("LISTING_HAS_ORDERS");
+    }
+    // đã nằm trong đơn — chỉ cho ẩn (approved → hidden). CAS theo approved
+    // (SHOULD-FIX 3): 0 rows = row đổi tay giữa read và write → typed error,
+    // KHÔNG clobber.
     const claimed = await db.orm.public.Listing
-      .where({ id: listingId, status: listing.status })
+      .where({ id: listingId, status: "approved" })
       .updateAll({ status: "hidden" });
     if (claimed.length === 0) throw new Error("LISTING_MODERATION_LOCKED");
   } else {

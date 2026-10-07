@@ -879,7 +879,14 @@ describe("R5 source contract — isModerationLocked consumed bởi cả ba guard
   });
 
   it("admin.ts approve/reject là CONDITIONAL pending-only writes (R5/R7 — .where({ id, status: \"pending\" }))", () => {
-    const conditional = adminSrc.match(/\.where\(\{ id: listingId, status: "pending" \}\)/g) ?? [];
-    expect(conditional).toHaveLength(2); // approve + reject
+    // reject: CAS pending-only giữ nguyên Batch 3
+    const rejectCas = adminSrc.match(/\.where\(\{ id: listingId, status: "pending" \}\)/g) ?? [];
+    expect(rejectCas).toHaveLength(1); // reject
+    // approve: CAS pending-only + updatedAt (MEDIUM 1 review fix — optimistic
+    // version đọc TRƯỚC review; status vẫn pending-only, KHÔNG bao giờ approve
+    // row không còn pending)
+    const approveCas =
+      adminSrc.match(/\.where\(\{ id: listingId, status: "pending", updatedAt: listing\.updatedAt \}\)/g) ?? [];
+    expect(approveCas).toHaveLength(1); // approve
   });
 });

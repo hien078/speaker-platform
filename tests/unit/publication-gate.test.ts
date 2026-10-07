@@ -84,6 +84,7 @@ const dbState = vi.hoisted(() => ({
   audits: [] as Array<Record<string, unknown>>,
   adminAudits: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
+  orderItems: [] as Array<Record<string, unknown>>,
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -145,6 +146,15 @@ vi.mock("@/src/prisma/db.client", () => {
         return hit.map((r) => ({ ...r }));
       },
       delete: async () => {
+        const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
+        for (const r of hit) {
+          const i = rows.indexOf(r);
+          if (i >= 0) rows.splice(i, 1);
+        }
+        return hit.map((r) => ({ ...r }));
+      },
+      deleteAll: async () => {
+        // applyImageDiff (listings.ts) xoá ảnh bỏ qua deleteAll — mock fidelity
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         for (const r of hit) {
           const i = rows.indexOf(r);
@@ -275,6 +285,11 @@ vi.mock("@/src/prisma/db.client", () => {
       liftedAt: null,
       liftReasonCode: null,
     })),
+    OrderItem: makeModel(dbState.orderItems, () => ({
+      id: `oi-${dbState.orderItems.length + 1}`,
+      quantity: 1,
+      price: 0,
+    })),
   };
   const orm = { public: models };
   return {
@@ -297,6 +312,14 @@ const gateState = vi.hoisted(() => ({
   publishableCalls: 0,
   contentValidCalls: 0,
   checkPublicationCalls: 0,
+  /** Khi ≠ null: wrapper assertListingPublishable THROW giá trị này thay vì chạy thật. */
+  failPublishWith: null as string | null,
+  /** Side-effect chạy khi assertListingPublishable được gọi (mô phỏng race đổi row). */
+  onPublishable: null as null | (() => void),
+  /** Side-effect chạy khi checkListingPublication được gọi (mô phỏng race đổi row giữa review và claim). */
+  onCheckPublication: null as null | (() => void),
+  /** Khi ≠ null: wrapper checkListingPublication THROW giá trị này thay vì chạy thật (lỗi infra). */
+  failCheckWith: null as string | null,
 }));
 
 vi.mock("@/src/lib/seller-verification-policy", async (importOriginal) => {
@@ -316,6 +339,8 @@ vi.mock("@/src/lib/listing-publication", async (importOriginal) => {
     ...actual,
     assertListingPublishable: async (input: unknown): Promise<void> => {
       gateState.publishableCalls += 1;
+      gateState.onPublishable?.();
+      if (gateState.failPublishWith !== null) throw new Error(gateState.failPublishWith);
       return actual.assertListingPublishable(input as never);
     },
     assertListingContentValid: async (input: unknown): Promise<void> => {
@@ -324,6 +349,8 @@ vi.mock("@/src/lib/listing-publication", async (importOriginal) => {
     },
     checkListingPublication: async (input: unknown): Promise<unknown> => {
       gateState.checkPublicationCalls += 1;
+      gateState.onCheckPublication?.();
+      if (gateState.failCheckWith !== null) throw new Error(gateState.failCheckWith);
       return actual.checkListingPublication(input as never);
     },
   };
@@ -623,6 +650,10 @@ beforeEach(() => {
   gateState.publishableCalls = 0;
   gateState.contentValidCalls = 0;
   gateState.checkPublicationCalls = 0;
+  gateState.failPublishWith = null;
+  gateState.onPublishable = null;
+  gateState.onCheckPublication = null;
+  gateState.failCheckWith = null;
   dbState.users.push({ ...ADMIN_OPS });
   dbState.categories.push({ ...CATEGORY }, { ...CAT_LEGACY });
   dbState.brands.push({ ...BRAND });
@@ -1391,5 +1422,266 @@ describe("item 14 — suspended seller bị chặn trên submitListingAction (đ
     const evt = dbState.audits.find((r) => r.action === "listing.submit_blocked");
     expect(evt).toMatchObject({ actorId: seller.id, resourceId: listing.id });
     expect(String(evt!.reason)).toContain("account_not_suspended");
+  });
+});
+
+// ─── 12. MEDIUM 1 (review fix) — approve CAS theo updatedAt (TOCTOU) ─────────
+
+describe("approveListingAction — CAS updatedAt: content đổi giữa review và claim (MEDIUM 1)", () => {
+  const setupPending = () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+    return { seller, listing };
+  };
+
+  it("seller sửa content (updateListingAction trên pending) giữa review và claim → updatedAt bump → CAS 0 rows → KHÔNG approve + audit reason 'listing_changed_during_review', status GIỮ pending", async () => {
+    const { listing } = setupPending();
+    // Race: updateListingAction song song commit content mới NGAY TRONG lúc
+    // checkListingPublication chạy (trước CAS) — updateAll tự bump updatedAt.
+    gateState.onCheckPublication = () => {
+      (listing as Row).updatedAt = "2026-10-07T01:23:45.678Z";
+      (listing as Row).title = "Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW";
+    };
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    // KHÔNG approve — admin đã review content CŨ, content MỚI chưa qua review
+    expect(listing.status).toBe("pending");
+    expect(listing.title).toBe("Loa JBL Charge 5 chính hãng CONTENT MỚI CHƯA REVIEW");
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      subjectId: listing.sellerId,
+      resourceType: "Listing",
+      resourceId: listing.id,
+      reason: "listing_changed_during_review",
+    });
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+    expect(dbState.adminAudits).toHaveLength(0); // legacy audit cũng KHÔNG ghi
+  });
+
+  it("admin KHÁC duyệt song song (status đổi, KHÔNG phải content) → CAS 0 rows → no-op im lặng, KHÔNG audit listing_changed_during_review", async () => {
+    const { listing } = setupPending();
+    gateState.onCheckPublication = () => {
+      (listing as Row).status = "approved"; // admin khác thắng race
+    };
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("approved");
+    expect(dbState.audits.filter((r) => r.action === "listing.approve_blocked")).toHaveLength(0);
+    // event listing.approved của ADMIN KHÁC không phải của lần này — không audit thêm
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+    expect(dbState.adminAudits).toHaveLength(0);
+  });
+
+  it("LOW 3 — lỗi INFRA từ checkListingPublication (KHÔNG phải policy) → NÉM TIẾP (fail closed visible), KHÔNG approve, KHÔNG audit chứa SQL text", async () => {
+    const { listing } = setupPending();
+    gateState.failCheckWith = "SqlQueryError: connection terminated (SELECT * FROM SellerVerification)";
+
+    await expect(
+      approveListingAction(fd({ listingId: listing.id })),
+    ).rejects.toThrowError(/connection terminated/);
+
+    expect(listing.status).toBe("pending"); // KHÔNG approve
+    expect(dbState.audits).toHaveLength(0); // KHÔNG audit — SQL text KHÔNG vào issues=
+    expect(dbState.adminAudits).toHaveLength(0);
+  });
+});
+
+// ─── 13. MEDIUM 2 (review fix) — delete-hide chỉ cho approved ────────────────
+
+describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng cho approved (MEDIUM 2)", () => {
+  it.each([
+    ["rejected", "rejected"],
+    ["draft", "draft"],
+    ["pending", "pending"],
+  ])("listing %s CÓ đơn → LISTING_HAS_ORDERS (typed), status GIỮ NGUYÊN — KHÔNG hide (không mở đường hidden→approved bypass review)", async (_label, status) => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedListing(seller.id, status);
+    dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
+    login(seller);
+
+    await expect(
+      deleteListingAction(fd({ listingId: listing.id })),
+    ).rejects.toThrowError(/LISTING_HAS_ORDERS/);
+
+    // status GIỮ NGUYÊN — KHÔNG bao giờ thành hidden → KHÔNG toggle được lên approved
+    expect(listing.status).toBe(status);
+    expect(dbState.listings.find((l) => l["id"] === listing.id)).toBeDefined();
+  });
+
+  it("listing approved CÓ đơn → hidden (CAS trên approved — hành vi giữ nguyên, không xóa)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
+    login(seller);
+
+    await deleteListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("hidden");
+    expect(dbState.listings).toHaveLength(1); // KHÔNG xóa
+  });
+
+  it("review-bypass chain ĐÓNG: rejected + đơn → delete bị chặn → toggle hidden→approved KHÔNG thể xảy ra (status không bao giờ thành hidden)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "rejected");
+    dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
+    login(seller);
+
+    // delete bị chặn typed error
+    await expect(
+      deleteListingAction(fd({ listingId: listing.id })),
+    ).rejects.toThrowError(/LISTING_HAS_ORDERS/);
+    // toggle trên rejected → KHÔNG phải hidden → không có đường hidden→approved
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("rejected"); // vẫn rejected — KHÔNG thể đạt approved
+  });
+});
+
+// ─── 14. LOW 1 (review fix) — contentChanged += acceptExchange + city ────────
+
+describe("updateListingAction — contentChanged mở rộng thêm acceptExchange + city (LOW 1)", () => {
+  it("đổi acceptExchange trên approved → pending (content công khai, phải qua lại review)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+
+    const url = await expectRedirect(() =>
+      updateListingAction({}, listingForm({ listingId: listing.id, acceptExchange: "on" })),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending");
+    expect(listing.acceptExchange).toBe(true);
+  });
+
+  it("đổi city (legacy free-text — không province) trên approved → pending", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    // listing legacy: category legacy, structured NULL, ảnh seed gắn (rule 2)
+    const listing = seedListing(seller.id, "approved", {
+      categoryId: CAT_LEGACY.id,
+      brandId: null,
+      productModelId: null,
+      inventoryContext: null,
+      fulfillmentMethods: null,
+      provinceLevelCode: null,
+      locationDisplayName: null,
+      city: "Hà Nội",
+    });
+    seedImage(listing.id, "/img/listings/seed-1.svg", null);
+    login(seller);
+
+    const url = await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({
+          listingId: listing.id,
+          categoryId: CAT_LEGACY.id,
+          brandId: "",
+          productModelId: "",
+          inventoryContext: "",
+          fulfillmentMethods: [] as string[],
+          provinceLevelCode: "",
+          locationDisplayName: "",
+          city: "Đà Nẵng",
+          images: ["/img/listings/seed-1.svg"],
+          imageSlots: [] as string[],
+        }),
+      ),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("pending"); // city đổi → qua lại review
+    expect(listing.city).toBe("Đà Nẵng");
+  });
+
+  it("KHÔNG đổi acceptExchange/city (cùng giá trị) → KHÔNG vào pending oan (guard không over-block)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+
+    // form giữ nguyên mọi giá trị (acceptExchange vắng = false, city derive từ
+    // province ha-noi = "Hà Nội" = stored) → KHÔNG content change → GIỮ approved
+    const url = await expectRedirect(() =>
+      updateListingAction({}, listingForm({ listingId: listing.id })),
+    );
+
+    expect(url).toContain("/sell/my?updated=1");
+    expect(listing.status).toBe("approved");
+  });
+});
+
+// ─── 15. LOW 2 (review fix) — province typed error trên create/update ────────
+
+describe("create/update — province lạ/thiếu → typed PROVINCE_INVALID/PROVINCE_REQUIRED (LOW 2)", () => {
+  it("createListingAction với provinceLevelCode LẠ → typed PROVINCE_INVALID (KHÔNG text không code), KHÔNG row", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    login(seller);
+
+    const state = await createListingAction(
+      {},
+      listingForm({ provinceLevelCode: "khong-ton-tai" }),
+    );
+
+    expect(state.error).toContain("PROVINCE_INVALID");
+    expect(state.error).not.toContain("Chọn khu vực");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("createListingAction thiếu province VÀ city → typed PROVINCE_REQUIRED, KHÔNG row", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    login(seller);
+
+    const state = await createListingAction(
+      {},
+      listingForm({ provinceLevelCode: "", city: "" }),
+    );
+
+    expect(state.error).toContain("PROVINCE_REQUIRED");
+    expect(dbState.listings).toHaveLength(0);
+  });
+
+  it("updateListingAction với provinceLevelCode LẠ → typed PROVINCE_INVALID, KHÔNG write", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedUpload(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+
+    const state = await updateListingAction(
+      {},
+      listingForm({ listingId: listing.id, provinceLevelCode: "khong-ton-tai" }),
+    );
+
+    expect(state.error).toContain("PROVINCE_INVALID");
+    expect(listing.status).toBe("approved"); // KHÔNG transition
+    expect(listing.provinceLevelCode).toBe("ha-noi"); // KHÔNG write
   });
 });

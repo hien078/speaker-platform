@@ -172,6 +172,11 @@ const spyState = vi.hoisted(() => ({
   sellerGateCalls: 0,
   lastSellerGateId: undefined as string | undefined,
   imagesCalls: 0,
+  /**
+   * LOW 3 (review fix): khi ≠ null — wrapper assertListingImagesOwned THROW giá
+   * trị này thay vì chạy thật (mô phỏng lỗi infra db từ images stage).
+   */
+  imagesFailWith: null as string | null,
 }));
 
 vi.mock("@/src/lib/seller-verification-policy", async (importOriginal) => {
@@ -200,6 +205,7 @@ vi.mock("@/src/lib/listing-images", async (importOriginal) => {
     }): Promise<void> => {
       spyState.imagesCalls += 1;
       spyState.order.push("images");
+      if (spyState.imagesFailWith !== null) throw new Error(spyState.imagesFailWith);
       return actual.assertListingImagesOwned(input);
     },
   };
@@ -385,6 +391,7 @@ beforeEach(() => {
   spyState.sellerGateCalls = 0;
   spyState.lastSellerGateId = undefined;
   spyState.imagesCalls = 0;
+  spyState.imagesFailWith = null;
   dbState.categories.push({ ...CAT_BETA }, { ...CAT_LEGACY });
   seedModel({ id: "model-charge-5", brandId: "brand-1", categoryId: CAT_BETA.id, status: "approved" });
 });
@@ -646,5 +653,54 @@ describe("checkListingPublication — không throw (approve audit variant)", () 
     expect(check.ok).toBe(false);
     expect(check.sellerMissing).toEqual([]);
     expect(check.listingIssues).toContain("CATEGORY_NOT_PUBLICATION_ALLOWED");
+  });
+});
+
+// ─── 5. LOW 3 (review fix) — lỗi infra KHÔNG vào listingIssues (rethrow) ──────
+
+describe("LOW 3 — lỗi infra (db/network) được NÉM TIẾP, KHÔNG masquerade thành policy issue", () => {
+  it("checkListingPublication: images stage gặp SqlQueryError (kèm SQL text) → THROW (fail closed visible), SQL text KHÔNG vào listingIssues/issues=", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    spyState.imagesFailWith =
+      "SqlQueryError: connection terminated (SELECT * FROM ListingImageUpload WHERE storageKey = $1)";
+
+    // KHÔNG resolve với issues chứa SQL text — PHẢI reject để caller
+    // (approveListingAction) fail closed VISIBLE.
+    await expect(
+      checkListingPublication(publicationInput()),
+    ).rejects.toThrowError(/connection terminated/);
+  });
+
+  it("assertListingContentValid: lỗi infra → THROW (KHÔNG masquerade LISTING_VALIDATION_FAILED)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    spyState.imagesFailWith = "ECONNREFUSED 127.0.0.1:5432";
+
+    await expect(
+      assertListingContentValid(publicationInput()),
+    ).rejects.toThrowError(/ECONNREFUSED/);
+  });
+
+  it("assertListingPublishable: lỗi infra từ content stage → THROW xuyên qua (seller gate pass, images stage fail infra)", async () => {
+    seedVerifiedSeller();
+    seedUpload();
+    spyState.imagesFailWith = "SqlQueryError: SSL connection has been closed unexpectedly";
+
+    await expect(
+      assertListingPublishable(publicationInput()),
+    ).rejects.toThrowError(/SSL connection/);
+    // seller gate đã chạy (policy error được phân loại ĐÚNG — infra KHÔNG đè)
+    expect(spyState.sellerGateCalls).toBe(1);
+  });
+
+  it("policy error VẪN được thu (không rethrow) — IMAGE_NOT_OWNED vào listingIssues như trước", async () => {
+    seedVerifiedSeller();
+    // KHÔNG seed upload → ảnh /uploads/<uuid>.webp không ownership row →
+    // IMAGE_NOT_OWNED (policy code) — được THU, không rethrow.
+    const check = await checkListingPublication(publicationInput());
+    expect(check.ok).toBe(false);
+    expect(check.listingIssues).toContain("IMAGE_NOT_OWNED");
+    expect(check.listingIssues.every((c) => !c.includes("SELECT"))).toBe(true);
   });
 });
