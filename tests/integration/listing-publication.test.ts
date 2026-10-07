@@ -551,7 +551,8 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
     await login(sellerId);
 
     // approved → hidden (transition RA khỏi công khai — luôn được phép, KHÔNG gate)
-    await toggleListingVisibilityAction(fd({ listingId }));
+    // b4-holistic round-4: hide thành công redirect /sell/my — bọc expectRedirect
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
     expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
 
     // SUSPEND membership (founding_seller — KHÁC UserSuspension)
@@ -600,7 +601,8 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
       })),
     ));
     const hiddenId = await seedBetaListing({ sellerId, cat, status: "approved" });
-    await toggleListingVisibilityAction(fd({ listingId: hiddenId })); // → hidden
+    // b4-holistic round-4: hide thành công redirect /sell/my — bọc expectRedirect
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: hiddenId }))); // → hidden
     expect((await db.orm.public.Listing.first({ id: hiddenId }))!.status).toBe("hidden");
     const pendingId = await seedBetaListing({ sellerId, cat, status: "pending" });
 
@@ -971,5 +973,54 @@ d("b4-holistic — listing.submitted audit + PriceHistory discipline (real DB)",
     expect(row!.price).toBe(1_800_000); // KHÔNG write
     const priceRows = await db.orm.public.PriceHistory.where({ modelId: cat.modelId }).all();
     expect(priceRows).toHaveLength(0); // KHÔNG public price row
+  });
+});
+
+// ─── b4-holistic round-4 — stale ?error= banner edit page: lưu nháp update ───
+
+/**
+ * CONFIRMED LOW (round-4): draft 0 ảnh "Gửi duyệt" → redirect
+ * /sell/X/edit?error=IMAGE_REQUIRED. Seller thêm ảnh + "Lưu nháp" —
+ * saveListingDraftAction nhánh UPDATE return {ok:true} KHÔNG redirect → URL
+ * vẫn mang ?error=IMAGE_REQUIRED → banner đỏ "Thêm ít nhất 1 ảnh sản phẩm"
+ * hiện CẠNH banner xanh "Đã lưu nháp" (listing vẫn draft nên submitError
+ * render). Fix: nhánh update redirect ?saved=draft như nhánh create — URL
+ * sạch sau MỌI action thành công.
+ */
+d("saveListingDraftAction update — redirect URL sạch ?saved=draft (b4-holistic round-4 LOW)", () => {
+  it("lưu nháp DRAFT CÓ SẴN → redirect /sell/<id>/edit?saved=draft (KHÔNG return {ok:true} để ?error= cũ dính)", async () => {
+    const sellerId = await mkUser("seller");
+    created.users.push(sellerId);
+    const cat = await mkBetaCatalog();
+    const storageKey = await mkUploadRow(sellerId);
+    await login(sellerId);
+
+    // create branch → draft (redirect ?saved=draft như hợp đồng hiện có)
+    const draftUrl = await expectRedirect(() =>
+      saveListingDraftAction({}, betaForm(cat, {
+        images: [`/uploads/${storageKey}`],
+        imageSlots: ["front"],
+      })),
+    );
+    const draftId = parseDraftId(draftUrl);
+
+    // update branch: lưu nháp lần 2 trên CÙNG draft (form giữ nguyên) —
+    // TRƯỚC fix: return {ok:true} không redirect → ?error= của lần submit
+    // bị chặn trước đó dính lại trên URL → banner đỏ + xanh cạnh nhau.
+    const updateForm = betaForm(cat, {
+      images: [`/uploads/${storageKey}`],
+      imageSlots: ["front"],
+    });
+    updateForm.set("listingId", draftId);
+    const updateUrl = await expectRedirect(() => saveListingDraftAction({}, updateForm));
+
+    expect(updateUrl).toBe(`/sell/${draftId}/edit?saved=draft`);
+    // row vẫn draft — audit draft_updated (không draft_created mới)
+    const row = await db.orm.public.Listing.first({ id: draftId });
+    expect(row!.status).toBe("draft");
+    const updated = await db.orm.public.AuditEvent
+      .where({ action: "listing.draft_updated", resourceId: draftId })
+      .all();
+    expect(updated).toHaveLength(1);
   });
 });

@@ -632,7 +632,8 @@ afterEach(() => {
 // ─── 1. saveListingDraftAction — draft TRƯỚC verification (spec §4.4) ─────────
 
 /** Tạo draft MỚI: action redirect sang /sell/<id>/edit?saved=draft (NGOÀI try) —
- *  trả url redirect để test assert; draft update trả { ok: true } (không redirect). */
+ *  trả url redirect để test assert. b4-holistic round-4: draft UPDATE cũng
+ *  redirect ?saved=draft (URL sạch — ?error= của submit lần trước không dính). */
 async function createDraftExpectRedirect(form: FormData): Promise<string> {
   try {
     await saveListingDraftAction({}, form);
@@ -720,12 +721,15 @@ describe("saveListingDraftAction — draft được phép trước verification"
     seedImage(draft.id, IMG_URL, "front");
 
     // giữ nguyên category beta — draft update pass
-    const state1 = await saveListingDraftAction(
-      {},
-      betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+    // b4-holistic round-4: nhánh update redirect ?saved=draft (URL sạch —
+    // ?error= của submit lần trước không dính lại sau lưu nháp thành công).
+    const updateUrl = await expectRedirect(() =>
+      saveListingDraftAction(
+        {},
+        betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+      ),
     );
-    expect(state1.error).toBeUndefined();
-    expect(state1.ok).toBe(true); // banner "Đã lưu nháp" chỉ khi ghi thật
+    expect(updateUrl).toBe(`/sell/${draft.id}/edit?saved=draft`);
     expect(draft.title).toBe("Loa JBL Charge 5 chính hãng SỬA NHÁP");
     expect(dbState.listings).toHaveLength(1); // update — KHÔNG tạo draft trùng
     expect(draft.status).toBe("draft");
@@ -1402,13 +1406,15 @@ describe("b4-holistic — listing.submitted audit trên MỌI đường vào rev
     seedImage(draft.id, IMG_URL, "front");
     login(seller);
 
-    const state = await saveListingDraftAction(
-      {},
-      betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+    // b4-holistic round-4: nhánh update redirect ?saved=draft (URL sạch)
+    const updateUrl = await expectRedirect(() =>
+      saveListingDraftAction(
+        {},
+        betaForm({ listingId: draft.id, title: "Loa JBL Charge 5 chính hãng SỬA NHÁP" }),
+      ),
     );
 
-    expect(state.error).toBeUndefined();
-    expect(state.ok).toBe(true);
+    expect(updateUrl).toBe(`/sell/${draft.id}/edit?saved=draft`);
     expect(draft.title).toBe("Loa JBL Charge 5 chính hãng SỬA NHÁP");
   });
 

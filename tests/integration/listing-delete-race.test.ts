@@ -252,7 +252,8 @@ d("deleteListingAction vs takedown — REAL-DB race (item 1 HIGH)", () => {
       .updateAll({ status: "pending" });
     await login(sellerId);
 
-    await deleteListingAction(fd({ listingId }));
+    // b4-holistic round-4: delete thành công redirect /sell/my URL sạch
+    await expectRedirect(() => deleteListingAction(fd({ listingId })));
 
     const listing = await db.orm.public.Listing.first({ id: listingId });
     expect(listing).toBeNull(); // row gone

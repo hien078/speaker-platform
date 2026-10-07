@@ -845,7 +845,7 @@ describe("toggleListingVisibilityAction — gate hidden → approved (spec §4.4
     const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
     expect(listing.status).toBe("approved");
   });
@@ -857,7 +857,7 @@ describe("toggleListingVisibilityAction — gate hidden → approved (spec §4.4
     const listing = seedListing(seller.id, "approved");
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
     expect(listing.status).toBe("hidden"); // ẩn luôn được phép (gỡ khỏi công khai)
   });
@@ -1059,9 +1059,9 @@ describe("publication gate — seller đang bị đình chỉ (spec §7.8, Revie
     expect(listing.status).toBe("approved");
 
     login(seller);
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("hidden");
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("approved");
   });
 });
@@ -1336,7 +1336,7 @@ describe("per-path gate pins — create/submit/update-into-pending/toggle gọi 
     const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
     expect(gateState.publishableCalls).toBe(1);
     expect(listing.status).toBe("approved");
@@ -1733,7 +1733,7 @@ describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng 
     dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1, price: 1 });
     login(seller);
 
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listing.status).toBe("hidden");
     expect(dbState.listings).toHaveLength(1); // KHÔNG xóa
@@ -1752,7 +1752,7 @@ describe("deleteListingAction — đường ẩn khi CÓ đơn chỉ áp dụng 
     const url = await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
     expect(url).toBe("/sell/my?error=LISTING_HAS_ORDERS");
     // toggle trên rejected → KHÔNG phải hidden → không có đường hidden→approved
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("rejected"); // vẫn rejected — KHÔNG thể đạt approved
   });
 });
@@ -1945,7 +1945,7 @@ describe("toggleListingVisibilityAction — hidden→show review backfill (b4-ho
     const listing = seedListing(seller.id, "hidden", { approvedContentAt: "2026-10-01T00:00:00.000Z" });
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
     expect(listing.status).toBe("approved");
     expect(dbState.audits.filter((r) => r.action === "listing.submitted")).toHaveLength(0);
@@ -1977,13 +1977,13 @@ describe("toggleListingVisibilityAction — hidden→show review backfill (b4-ho
     expect(listing.status).toBe("approved");
 
     login(seller);
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("hidden");
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("approved"); // fast path — approvedContentAt còn nguyên
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("hidden");
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listing.status).toBe("approved");
     // KHÔNG audit submit nào — không có content-change, không vào review
     expect(dbState.audits.filter((r) => r.action === "listing.submitted")).toHaveLength(0);
@@ -2036,7 +2036,7 @@ describe("grandfatherStoredBounds — toggle/approve của legacy row không đ�
     const listing = seedLegacyOverBounds(seller.id, "hidden", 9, 4_001);
     login(seller);
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
 
     expect(listing.status).toBe("approved"); // KHÔNG silent-block — luật cũ cho phép row này
   });

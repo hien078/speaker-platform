@@ -681,6 +681,15 @@ export async function saveListingDraftAction(
   if (createdId !== null) {
     redirect(`/sell/${createdId}/edit?saved=draft`);
   }
+  // b4-holistic round-4 (LOW — stale ?error= banner edit page): nhánh UPDATE
+  // cũng redirect ?saved=draft như nhánh create — TRƯỚC fix return {ok:true}
+  // không redirect → URL vẫn mang ?error=IMAGE_REQUIRED của lần "Gửi duyệt"
+  // bị chặn trước đó → banner đỏ "Thêm ít nhất 1 ảnh" hiện CẠNH banner xanh
+  // "Đã lưu nháp" sau khi seller đã thêm ảnh và lưu thành công. Navigation
+  // cùng segment → form state (bước đang sửa) giữ nguyên, chỉ URL sạch.
+  if (existing !== null) {
+    redirect(`/sell/${existing.id}/edit?saved=draft`);
+  }
   return { ok: true };
 }
 
@@ -823,7 +832,14 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
     if (claimed.length === 0) redirect("/sell/my?error=CONCURRENT_CHANGE");
   }
 
+  // b4-holistic round-4 (LOW — stale banner /sell/my): path thành công
+  // (approved→hidden, hidden→approved fast path) redirect BARE /sell/my —
+  // TRƯỚC fix chỉ revalidatePath → Next render lại CÙNG URL → ?error=/
+  // ?submitted= của action TRƯỚC đó dính lại sau action mới thành công
+  // (banner đỏ "Tin đang có đơn hàng liên quan" cạnh tin vừa ẨN xong).
+  // Redirect path hidden→pending ?submitted=1 đã throw ở trên (không tới đây).
   revalidatePath("/sell/my");
+  redirect("/sell/my");
 }
 
 /**
@@ -1275,7 +1291,10 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
     // biết vì sao không xóa được).
     if (listing.status === "hidden") {
       revalidatePath("/sell/my");
-      return;
+      // b4-holistic round-4 (LOW — stale banner /sell/my): no-op cũng redirect
+      // BARE /sell/my — ?error= của action trước đó không dính lại sau lần
+      // "Xóa" không làm gì (tin đã ẩn).
+      redirect("/sell/my");
     }
     if (listing.status !== "approved") {
       // b4-holistic (LOW form-action-contract): void form action KHÔNG throw
@@ -1307,5 +1326,11 @@ export async function deleteListingAction(formData: FormData): Promise<void> {
     await db.orm.public.CartItem.where({ listingId }).deleteAll();
   }
 
+  // b4-holistic round-4 (LOW — stale banner /sell/my): path kết thúc thành công
+  // (approved+tham chiếu → ẩn; xóa thật) redirect BARE /sell/my — ?error=/
+  // ?submitted=/?created=/?updated= của action TRƯỚC đó không dính lại sau
+  // action mới thành công (trước fix chỉ revalidatePath → Next render lại
+  // CÙNG URL → banner cũ vẫn hiện cạnh kết quả mới).
   revalidatePath("/sell/my");
+  redirect("/sell/my");
 }

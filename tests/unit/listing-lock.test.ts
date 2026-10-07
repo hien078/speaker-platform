@@ -467,6 +467,22 @@ const fd = (entries: Record<string, string>): FormData => {
   return form;
 };
 
+/**
+ * Action kết thúc bằng redirect() → throw NEXT_REDIRECT — coi là THÀNH CÔNG.
+ * b4-holistic round-4: toggle/delete path thành công giờ redirect /sell/my
+ * (URL sạch — banner ?error=/?submitted= của lần trước không dính lại).
+ */
+const expectRedirect = async (fn: () => Promise<unknown>): Promise<string> => {
+  try {
+    await fn();
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.startsWith("NEXT_REDIRECT:")) return msg.slice("NEXT_REDIRECT:".length);
+    throw e;
+  }
+  return "";
+};
+
 /** updateListing formData HỢP LỆ (title/desc/price/city/images). */
 const listingForm = (over?: Record<string, string>): FormData => {
   const form = fd({
@@ -866,10 +882,10 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
     // thẳng approved; NULL thì chuyển pending (xem describe b4-holistic-2 dưới).
     listing.approvedContentAt = "2026-10-01T00:00:00.000Z";
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
 
-    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId: listing.id })));
     expect(listingRow(listing.id)).toMatchObject({ status: "approved" });
   });
 
@@ -878,7 +894,7 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
     const listing = seedListing(seller.id, "pending");
     dbState.images.push({ id: "img-1", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0 });
 
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listingRow(listing.id)).toBeUndefined(); // row gone
     expect(dbState.images).toHaveLength(0); // ảnh được dọn
@@ -889,7 +905,7 @@ describe("lock KHÔNG over-block — seller vẫn thao tác trên approved/hidde
     const listing = seedListing(seller.id, "approved");
     dbState.orderItems.push({ id: "oi-1", orderId: "order-1", listingId: listing.id, quantity: 1 });
 
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
     expect(dbState.listings).toHaveLength(1); // KHÔNG xóa
@@ -929,7 +945,7 @@ describe("b4-holistic-2 — deleteListingAction pre-check ExchangeOffer.myListin
     const listing = seedListing(seller.id, "approved");
     seedOffer(listing.id);
 
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" });
     expect(dbState.listings).toHaveLength(1); // row SỐNG — FK không bị đâm
@@ -944,7 +960,7 @@ describe("b4-holistic-2 — deleteListingAction pre-check ExchangeOffer.myListin
     // b4-holistic round-3 (verified fix): hidden + orders/offer → no-op
     // (Batch 3 behavior) — banner LISTING_HAS_ORDERS chỉ cho status CHƯA ẩn
     // (draft/pending/rejected — row sống sót, seller cần biết vì sao).
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listingRow(listing.id)).toMatchObject({ status: "hidden" }); // GIỮ NGUYÊN
     expect(dbState.exchangeOffers).toHaveLength(1);
@@ -974,7 +990,7 @@ describe("b4-holistic-2 — deleteListingAction pre-check ExchangeOffer.myListin
     const listing = seedListing(seller.id, "pending");
     dbState.images.push({ id: "img-1", listingId: listing.id, url: "/uploads/a.jpg", sortOrder: 0 });
 
-    await deleteListingAction(fd({ listingId: listing.id }));
+    await expectRedirect(() => deleteListingAction(fd({ listingId: listing.id })));
 
     expect(listingRow(listing.id)).toBeUndefined();
   });

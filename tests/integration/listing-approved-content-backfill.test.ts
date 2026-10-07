@@ -315,12 +315,13 @@ d("backfill approvedContentAt (b4-holistic round-4 LOW deploy-risk)", () => {
     await runBackfillOp();
     await login(sellerId);
 
-    // hide (approved → hidden — approvedContentAt GIỮ NGUYÊN)
-    await toggleListingVisibilityAction(fd({ listingId }));
+    // hide (approved → hidden — approvedContentAt GIỮ NGUYÊN) — path thành công
+    // redirect /sell/my URL sạch (b4-holistic round-4) → bọc expectRedirect.
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
     expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
 
     // show lại → APPROVED fast path (content đã duyệt — KHÔNG pending chờ duyệt lại)
-    await toggleListingVisibilityAction(fd({ listingId }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
     const reshowed = await db.orm.public.Listing.first({ id: listingId });
     expect(reshowed!.status).toBe("approved");
     expect(reshowed!.approvedContentAt).not.toBeNull();
@@ -340,7 +341,8 @@ d("backfill approvedContentAt (b4-holistic round-4 LOW deploy-risk)", () => {
 
     // KHÔNG chạy backfill — row vẫn NULL như pre-deploy chưa migrate
     await login(sellerId);
-    await toggleListingVisibilityAction(fd({ listingId })); // hide
+    // hide thành công → redirect /sell/my (round-4) → bọc expectRedirect
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId }))); // hide
     const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
 
     // hiện lại → PENDING + audit listing.submitted (via=show_again) — hành vi

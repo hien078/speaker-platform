@@ -339,10 +339,12 @@ d("toggle hidden→show — review backfill approvedContentAt (b4-holistic-2 LOW
     expect(approved!.approvedContentAt).toBeTruthy(); // review version của content
 
     // hide → hiện lại: fast path approved (KHÔNG vào review lặp)
+    // b4-holistic round-4: path thành công giờ redirect /sell/my (URL sạch)
+    // — bọc expectRedirect cho NEXT_REDIRECT.
     await login(sellerId);
-    await toggleListingVisibilityAction(fd({ listingId }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
     expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
-    await toggleListingVisibilityAction(fd({ listingId }));
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
     const reshowed = await db.orm.public.Listing.first({ id: listingId });
     expect(reshowed!.status).toBe("approved"); // fast path
     // approvedContentAt KHÔNG bị đụng bởi hide/show
@@ -479,7 +481,9 @@ d("deleteListingAction pre-check ExchangeOffer.myListingId (b4-holistic-2 LOW)",
     await seedOffer(listingId, buyerId);
     await login(sellerId);
 
-    await deleteListingAction(fd({ listingId }));
+    // b4-holistic round-4: path thành công (approved+offer → ẩn) redirect
+    // /sell/my URL sạch — bọc expectRedirect.
+    await expectRedirect(() => deleteListingAction(fd({ listingId })));
 
     const row = await db.orm.public.Listing.first({ id: listingId });
     expect(row!.status).toBe("hidden"); // ẩn như đường OrderItem — KHÔNG 23503 crash
@@ -495,10 +499,11 @@ d("deleteListingAction pre-check ExchangeOffer.myListingId (b4-holistic-2 LOW)",
     await seedOffer(listingId, buyerId);
     await login(sellerId);
 
-    // b4-holistic round-3 (verified fix): hidden + offer → NO-OP im lặng
+    // b4-holistic round-3 (verified fix): hidden + offer → NO-OP về DỮ LIỆU
     // (Batch 3 behavior — tin ĐÃ ẩn, xóa không còn nghĩa gì; banner
-    // LISTING_HAS_ORDERS chỉ cho status CHƯA ẩn). KHÔNG redirect, KHÔNG throw.
-    await deleteListingAction(fd({ listingId }));
+    // LISTING_HAS_ORDERS chỉ cho status CHƯA ẩn). b4-holistic round-4: no-op
+    // giờ redirect /sell/my URL sạch (banner cũ không dính) — bọc expectRedirect.
+    await expectRedirect(() => deleteListingAction(fd({ listingId })));
 
     const row = await db.orm.public.Listing.first({ id: listingId });
     expect(row!.status).toBe("hidden"); // GIỮ NGUYÊN — offer vẫn tham chiếu sống
@@ -553,5 +558,103 @@ d("toggleWishlistAction — add chỉ approved, remove mọi status (b4-holistic
     expect(await db.orm.public.WishlistItem
       .where({ userId: buyerId, listingId: pendingId })
       .first()).toBeNull();
+  });
+});
+
+// ─── 5. b4-holistic round-4 — banner /sell/my: action thành công redirect URL SẠCH ──
+
+/**
+ * CONFIRMED LOW (round-4): ?error=/?submitted=1/?created=1/?updated=1 dính
+ * trên URL /sell/my — action THÀNH CÔNG sau đó (toggle/delete) chỉ
+ * revalidatePath, KHÔNG redirect → Next render lại CÙNG URL → banner đỏ của
+ * lần TRƯỚC vẫn hiện sau action mới thành công (vd "Tin đang có đơn hàng
+ * liên quan" đỏ cạnh tin vừa ẨN thành công). Fix: mọi path thành công của
+ * toggleListingVisibilityAction + deleteListingAction redirect /sell/my
+ * (bare URL — navigation xoá sạch query).
+ */
+d("toggle/delete thành công → redirect /sell/my URL SẠCH (b4-holistic round-4 LOW)", () => {
+  it("toggle ẨN (approved→hidden) → redirect /sell/my — ?error=/?submitted= của lần trước KHÔNG dính lại", async () => {
+    const sellerId = await mkVerifiedSeller();
+    created.users.push(sellerId);
+    const legacyCat = await mkCategory("loa-thung-pa", "Loa thùng PA");
+    const listingId = await seedLegacyListing({ sellerId, categoryId: legacyCat, status: "approved" });
+    await login(sellerId);
+
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
+
+    expect(url).toBe("/sell/my"); // bare URL — query cũ XOÁNG
+    expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
+  });
+
+  it("toggle HIỆN fast path (hidden→approved, approvedContentAt SET) → redirect /sell/my", async () => {
+    const sellerId = await mkVerifiedSeller();
+    created.users.push(sellerId);
+    const legacyCat = await mkCategory("loa-thung-pa", "Loa thùng PA");
+    const listingId = await seedLegacyListing({ sellerId, categoryId: legacyCat, status: "approved" });
+    // approvedContentAt SET — content đã duyệt (fast path, KHÔNG vào review)
+    await db.orm.public.Listing
+      .where({ id: listingId })
+      .updateAll({ approvedContentAt: new Date().toISOString() });
+    await login(sellerId);
+    // b4-holistic round-4: hide thành công redirect /sell/my — bọc expectRedirect
+    await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId }))); // → hidden
+
+    const url = await expectRedirect(() => toggleListingVisibilityAction(fd({ listingId })));
+
+    expect(url).toBe("/sell/my");
+    expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("approved");
+  });
+
+  it("delete THẬT (không đơn/offer) → redirect /sell/my — row XOÁ", async () => {
+    const sellerId = await mkVerifiedSeller();
+    created.users.push(sellerId);
+    const legacyCat = await mkCategory("loa-thung-pa", "Loa thùng PA");
+    const listingId = await seedLegacyListing({ sellerId, categoryId: legacyCat, status: "approved" });
+    await login(sellerId);
+
+    const url = await expectRedirect(() => deleteListingAction(fd({ listingId })));
+
+    expect(url).toBe("/sell/my");
+    expect(await db.orm.public.Listing.first({ id: listingId })).toBeNull();
+  });
+
+  it("delete hidden+offer NO-OP → redirect /sell/my (banner cũ không dính sau no-op)", async () => {
+    const sellerId = await mkVerifiedSeller();
+    const buyerId = await mkUser("buyer");
+    created.users.push(sellerId, buyerId);
+    const legacyCat = await mkCategory("loa-thung-pa", "Loa thùng PA");
+    const listingId = await seedLegacyListing({ sellerId, categoryId: legacyCat, status: "hidden" });
+    // offer tham chiếu (FK NO ACTION) — hidden + offer → NO-OP im lặng (round-3)
+    const targetSellerId = await mkVerifiedSeller();
+    created.users.push(targetSellerId);
+    const target = await db.orm.public.Listing.create({
+      sellerId: targetSellerId,
+      categoryId: legacyCat,
+      title: "Tin mục tiêu trao đổi",
+      slug: `trao-doi-muc-tieu-${uid()}`,
+      description: "Tin mục tiêu của offer trao đổi",
+      condition: "good",
+      price: 5_000_000,
+      status: "approved",
+      city: "Hà Nội",
+    });
+    created.listings.push(target.id);
+    const offer = await db.orm.public.ExchangeOffer.create({
+      listingId: target.id,
+      buyerId,
+      myListingId: listingId,
+      myItemDescription: null,
+      cashTopup: 0,
+      status: "proposed",
+    });
+    created.offers.push(offer.id);
+    await login(sellerId);
+
+    const url = await expectRedirect(() => deleteListingAction(fd({ listingId })));
+
+    // NO-OP về dữ liệu (row GIỮ hidden) nhưng URL SẠCH — ?error=LISTING_HAS_
+    // ORDERS của lần delete tin khác trước đó KHÔNG dính lại.
+    expect(url).toBe("/sell/my");
+    expect((await db.orm.public.Listing.first({ id: listingId }))!.status).toBe("hidden");
   });
 });
