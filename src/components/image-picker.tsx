@@ -39,6 +39,13 @@ const UPLOAD_ERROR_TEXT: Record<string, string> = {
   INVALID_CONTENT_LENGTH: "Yêu cầu tải ảnh không hợp lệ",
   INVALID_BODY: "Yêu cầu tải ảnh không hợp lệ",
   UPLOAD_FAILED: "Không tải được ảnh lên — thử lại",
+  // b4-holistic round-4 (LOW regression ×2): 429 UPLOAD_QUOTA (quota 24h/user
+  // — app/api/upload/route.ts) thiếu trong map → picker hiển thị RAW CODE
+  // tiếng Anh "UPLOAD_QUOTA" — đúng lớp lỗi raw-code round-1 đã fix, tái xuất
+  // qua commit quota. Route gửi kèm message tiếng Việt có số liệu thật
+  // ("Bạn đã tải tối đa 60 ảnh trong 24 giờ.") — uploadErrorText ưu tiên
+  // message đó; map là belt-and-braces khi message vắng.
+  UPLOAD_QUOTA: "Bạn đã đạt giới hạn ảnh tải lên trong 24 giờ — thử lại sau",
 };
 
 /** Số lần thử tối đa cho một file (lần đầu + retry theo Retry-After). */
@@ -64,15 +71,15 @@ function enqueueUpload<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /** POST một file qua hàng đợi chung, kèm retry bounded cho 429/503 typed. */
-async function uploadFile(file: File): Promise<{ url?: string; error?: string }> {
+async function uploadFile(file: File): Promise<{ url?: string; error?: string; message?: string }> {
   return enqueueUpload(async () => {
     for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt++) {
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: fd });
-      let json: { url?: string; error?: string } = {};
+      let json: { url?: string; error?: string; message?: string } = {};
       try {
-        json = (await res.json()) as { url?: string; error?: string };
+        json = (await res.json()) as { url?: string; error?: string; message?: string };
       } catch {
         json = {}; // body không phải JSON (proxy 413/502…) → generic dưới
       }
@@ -93,8 +100,14 @@ async function uploadFile(file: File): Promise<{ url?: string; error?: string }>
   });
 }
 
-/** Text hiển thị cho error code — own-property-safe, KHÔNG raw code tiếng Anh. */
-function uploadErrorText(json: { error?: string }): string {
+/**
+ * Text hiển thị cho error — own-property-safe, KHÔNG raw code tiếng Anh.
+ * b4-holistic round-4: ƯU TIÊN message tiếng Việt của route (kèm số liệu thật
+ * — vd "Bạn đã tải tối đa 60 ảnh trong 24 giờ.") TRƯỚC map/code — text từ
+ * route của chính app (same-origin), không phải input người dùng.
+ */
+function uploadErrorText(json: { error?: string; message?: string }): string {
+  if (typeof json.message === "string" && json.message !== "") return json.message;
   const code = typeof json.error === "string" ? json.error : "";
   if (Object.hasOwn(UPLOAD_ERROR_TEXT, code)) return UPLOAD_ERROR_TEXT[code]!;
   // Chuỗi tiếng Việt có sẵn của route ("Ảnh tối đa 5MB"…) hiển thị nguyên văn;
@@ -132,11 +145,23 @@ export function ImagePicker({
   const [urls, setUrls] = useState<string[]>(initialUrls);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * Số file ĐANG upload (chưa vào urls) — b4-holistic round-4 (LOW partial):
+   * reservation budget toàn tin. Trước fix: count chỉ publish sau TOÀN BỘ
+   * file xong (re-encode mất vài giây/file) → parent totalImages vẫn cũ
+   * trong lúc upload → pick slot khác cùng lúc vượt cap toàn tin (mỗi save
+   * IMAGE_TOO_MANY sau khi đốt n× budget upload token). Sau fix: reserve
+   * NGAY khi pick; pendingFiles giữ reservation qua remove() giữa chừng
+   * (không nhả budget khi vẫn còn file đang upload).
+   */
+  const [pendingFiles, setPendingFiles] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   function publish(next: string[]): void {
     setUrls(next);
-    onCountChange?.(next.length);
+    // count báo lên parent = ảnh ĐÃ gắn + file đang upload (reservation) —
+    // tổng đúng ngân sách đã CHI trong mọi khoảnh khắc.
+    onCountChange?.(next.length + pendingFiles);
   }
 
   async function onPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -144,17 +169,24 @@ export function ImagePicker({
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     if (urls.length + files.length > max) {
-      setError(`Vượt quá số ảnh cho phép (${max} ảnh còn lại)`);
+      setError(`Vượt quá số ảnh cho phép (${max - urls.length} ảnh còn lại)`);
       return;
     }
 
     setUploading(true);
+    // RESERVE budget NGAY khi pick (trước khi file đầu chạy upload) —
+    // parent totalImages tăng ngay → slotBudget các picker KHÁC thu lại →
+    // pick ở slot khác trong lúc upload không vượt cap toàn tin.
+    setPendingFiles(files.length);
+    onCountChange?.(urls.length + files.length);
     const uploaded: string[] = [];
     for (const file of files) {
       const json = await uploadFile(file);
       if (typeof json.url === "string" && json.url !== "") uploaded.push(json.url);
       else setError(uploadErrorText(json));
     }
+    // xong TOÀN BỘ file → count THẬT (upload fail → nhả budget thừa)
+    setPendingFiles(0);
     publish([...urls, ...uploaded]);
     setUploading(false);
     if (inputRef.current) inputRef.current.value = "";

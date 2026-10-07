@@ -56,6 +56,11 @@ describe("ImagePicker — upload queue + Vietnamese messages (b4-holistic)", () 
       "INVALID_CONTENT_LENGTH",
       "INVALID_BODY",
       "UPLOAD_FAILED",
+      // b4-holistic round-4 (LOW regression ×2): 429 UPLOAD_QUOTA (quota 24h
+      // route app/api/upload) thiếu trong map → picker hiển thị RAW CODE tiếng
+      // Anh "UPLOAD_QUOTA" — đúng lớp lỗi round-1 đã fix, tái xuất qua commit
+      // quota. Route gửi kèm message tiếng Việt — picker ưu tiên message.
+      "UPLOAD_QUOTA",
     ]) {
       expect(source).toContain(`${code}:`);
     }
@@ -65,6 +70,36 @@ describe("ImagePicker — upload queue + Vietnamese messages (b4-holistic)", () 
     expect(source).toContain(': "Upload thất bại — thử lại"');
   });
 
+  it("b4-holistic round-4: uploadErrorText ƯU TIÊN message tiếng Việt của route TRƯỚC khi rơi vào map/code", () => {
+    // Route quota gửi {error:'UPLOAD_QUOTA', message:'Bạn đã tải tối đa 60 ảnh
+    // trong 24 giờ.'} — message kèm SỐ LIỆU thật (cap) chính xác hơn map tĩnh.
+    // Trước fix: message bị bỏ qua, code không có trong map → raw "UPLOAD_QUOTA".
+    expect(source).toMatch(
+      /if \(typeof json\.message === "string" && json\.message !== ""\) return json\.message;/,
+    );
+    // json type có message (uploadFile trả về nguyên body json của route)
+    expect(source).toMatch(/json: \{ url\?: string; error\?: string; message\?: string \}/);
+  });
+
+  it("b4-holistic round-4 (LOW partial): RESERVE budget NGAY khi pick — onCountChange TRƯỚC vòng upload", () => {
+    // Trước fix: count chỉ publish sau TOÀN BỘ file xong (re-encode mất vài
+    // giây/file) → parent totalImages vẫn 0 trong lúc upload → pick slot khác
+    // cùng lúc vượt cap toàn tin (mỗi save IMAGE_TOO_MANY sau khi đốt n× budget
+    // upload token). Sau fix: reserve = urls.length + files.length NGAY khi
+    // check pass, publish count THẬT sau (upload fail → nhả budget).
+    const onPickStart = source.indexOf("async function onPick");
+    const loopStart = source.indexOf("for (const file of files)", onPickStart);
+    expect(onPickStart).toBeGreaterThanOrEqual(0);
+    expect(loopStart).toBeGreaterThan(onPickStart);
+    const beforeLoop = source.slice(onPickStart, loopStart);
+    expect(beforeLoop).toContain("onCountChange?.(urls.length + files.length)");
+    // pendingFiles giữ reservation qua remove() giữa chừng upload
+    expect(source).toContain("const [pendingFiles, setPendingFiles] = useState(0)");
+    expect(source).toMatch(/onCountChange\?\.\(next\.length \+ pendingFiles\)/);
+    // message tràn hiển thị CÒN LẠI (max - urls.length), KHÔNG phải max nguyên
+    expect(source).toContain("(${max - urls.length} ảnh còn lại)");
+  });
+
   it("res.json() bọc try/catch — body không phải JSON không crash picker", () => {
     expect(source).toMatch(/try \{\s*json = \(await res\.json\(\)\)/);
     expect(source).toMatch(/} catch \{\s*json = \{\};/);
@@ -72,7 +107,8 @@ describe("ImagePicker — upload queue + Vietnamese messages (b4-holistic)", () 
 
   it("onCountChange báo count lên parent mỗi thay đổi (thêm qua publish, xoá qua publish)", () => {
     expect(source).toContain("onCountChange?: (count: number) => void");
-    expect(source).toContain("onCountChange?.(next.length)");
+    // count = ảnh đã gắn + file đang upload (reservation — b4-holistic round-4)
+    expect(source).toMatch(/onCountChange\?\.\(next\.length \+ pendingFiles\)/);
     // chặn per-picker TRƯỚC upload theo max (budget toàn tin do parent truyền)
     expect(source).toContain("if (urls.length + files.length > max)");
   });
