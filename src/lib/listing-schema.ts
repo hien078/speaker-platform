@@ -471,6 +471,11 @@ const buildLegacyListingEditSchema = (
     checkDescription(v, ctx, opts.grandfatherStoredBounds === true);
     checkPrice(v, ctx);
     checkCategory(v, ctx);
+    // b4-holistic round-3 (LOW — unchecked enum): condition=bogus từ form
+    // legacy trước fix đi thẳng vào updateAll → DB CHECK violation → 500
+    // generic thay vì typed CONDITION_INVALID (condition là cột non-null,
+    // form legacy luôn gửi — giá trị lạ chỉ qua direct action POST).
+    checkCondition(v, ctx);
     checkStructuredWhenPresent(v, ctx);
     if (v.imageUrls.length === 0) issue(ctx, "imageUrls", "IMAGE_REQUIRED");
     checkImageCount(v, ctx, opts.grandfatherStoredBounds === true);

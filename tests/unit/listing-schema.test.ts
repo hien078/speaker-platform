@@ -316,6 +316,17 @@ describe("legacyListingEditSchema — chỉ validation hiện có (không thêm)
     ).toThrowError("LISTING_VALIDATION_FAILED:TITLE_INVALID");
   });
 
+  it("b4-holistic round-3 — condition=bogus → CONDITION_INVALID typed (KHÔNG 500 DB CHECK)", () => {
+    // Trước fix: legacyListingEditSchema KHÔNG check condition → updateAll ghi
+    // thẳng vào DB → CHECK violation rethrown → generic 500 thay vì typed code.
+    expect(
+      legacyListingEditSchema.safeParse(legacyInput({ condition: "bogus" })).success,
+    ).toBe(false);
+    expect(() =>
+      validateListingSubmission(legacyInput({ condition: "bogus" }), "legacy"),
+    ).toThrowError("LISTING_VALIDATION_FAILED:CONDITION_INVALID");
+  });
+
   it("vẫn enforce description ≥20", () => {
     expect(
       legacyListingEditSchema.safeParse(legacyInput({ description: "ngắn" })).success,
