@@ -139,8 +139,12 @@ declare -a FAILED=()
 # data/uploads (NGOÀI public/) và GET /uploads/<key> đi qua route handler
 # app/uploads/[key] đọc đĩa MỌI request. Smoke: ghi file .webp THẬT (sharp)
 # vào uploads dir SAU khi server start — GET phải 200 + image/webp.
+# LƯU Ý: standalone server.js chạy process.chdir(__dirname) → UPLOADS_DIR
+# mặc định (cwd/data/uploads) resolve về .next/standalone/data/uploads —
+# parity Docker (cwd=/app, server.js tại /app → /app/data/uploads, volume
+# compose mount đúng chỗ đó).
 SMOKE_UPLOAD_KEY="99998888-7777-6666-5555-444433332221.webp"
-SMOKE_UPLOADS_DIR="$PWD/data/uploads"
+SMOKE_UPLOADS_DIR="$PWD/.next/standalone/data/uploads"
 mkdir -p "$SMOKE_UPLOADS_DIR"
 node -e '
 const sharp = require("sharp");

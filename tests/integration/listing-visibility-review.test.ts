@@ -486,7 +486,7 @@ d("deleteListingAction pre-check ExchangeOffer.myListingId (b4-holistic-2 LOW)",
     expect(await db.orm.public.ExchangeOffer.where({ myListingId: listingId }).first()).not.toBeNull();
   });
 
-  it("hidden + offer → redirect LISTING_HAS_ORDERS (typed), row GIỮ NGUYÊN hidden — KHÔNG crash 23503", async () => {
+  it("hidden + offer → NO-OP im lặng (b4-holistic round-3 — tin đã ẩn), row GIỮ NGUYÊN hidden — KHÔNG crash 23503", async () => {
     const sellerId = await mkVerifiedSeller();
     const buyerId = await mkUser("buyer");
     created.users.push(sellerId, buyerId);
@@ -495,9 +495,11 @@ d("deleteListingAction pre-check ExchangeOffer.myListingId (b4-holistic-2 LOW)",
     await seedOffer(listingId, buyerId);
     await login(sellerId);
 
-    const url = await expectRedirect(() => deleteListingAction(fd({ listingId })));
+    // b4-holistic round-3 (verified fix): hidden + offer → NO-OP im lặng
+    // (Batch 3 behavior — tin ĐÃ ẩn, xóa không còn nghĩa gì; banner
+    // LISTING_HAS_ORDERS chỉ cho status CHƯA ẩn). KHÔNG redirect, KHÔNG throw.
+    await deleteListingAction(fd({ listingId }));
 
-    expect(url).toBe("/sell/my?error=LISTING_HAS_ORDERS"); // typed banner — KHÔNG error boundary
     const row = await db.orm.public.Listing.first({ id: listingId });
     expect(row!.status).toBe("hidden"); // GIỮ NGUYÊN — offer vẫn tham chiếu sống
   });

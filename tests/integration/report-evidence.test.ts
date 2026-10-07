@@ -319,8 +319,8 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
     const res = await submit({
       targetType: "listing",
       targetId: listing,
-      reasonCode: "off_platform_contact",
-      note: "số điện thoại trong phần lỗi",
+      reasonCode: "suspected_scam",
+      note: "nghi lừa đảo — số điện thoại trong phần lỗi",
     });
     expect(res.success).toBeTruthy();
 

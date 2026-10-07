@@ -6,7 +6,7 @@ import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 import type { JsonValue } from "@prisma/orm-postgres/target/codec-types";
 import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
-import { listingSlug, slugify } from "@/src/lib/utils";
+import { listingSlug } from "@/src/lib/utils";
 import { isModerationLocked } from "@/src/lib/moderation";
 import {
   assertListingPublishable,
