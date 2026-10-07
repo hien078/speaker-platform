@@ -9,8 +9,10 @@
  * idempotent, KHÔNG expose HTTP/admin UI):
  *
  *  1. Fail closed: thiếu DATABASE_URL trong env THẬT → từ chối;
- *     NODE_ENV=production → từ chối trừ khi --allow-production tường minh —
- *     CẢ dry-run lẫn --apply (review fix L10), 0 row + không audit.
+ *     NODE_ENV=production → từ chối --apply trừ khi --allow-production
+ *     tường minh (b4-holistic round-4: guard thu hẹp CHỈ --apply — dry-run
+ *     chỉ đọc được PHÉP, compose migrate set NODE_ENV=production), 0 row +
+ *     không audit.
  *  2. Dry-run báo cáo plan (counts) và KHÔNG mutate gì (0 row, không audit).
  *  3. Input founder file SAI SHAPE (review fix H2) → typed error, KHÔNG
  *     write gì (0 Category/Brand/ProductModel row, không audit) — CẢ
@@ -174,24 +176,27 @@ afterAll(async () => {
 // ─── 1. Fail closed (env thật trước khi db.client nạp) ──────────────────────
 
 d("beta catalog seed — scripts/seed-beta-catalog.ts (plan Task 7)", () => {
-  it("fail closed: thiếu DATABASE_URL trong env thật → từ chối; NODE_ENV=production → từ chối trừ khi --allow-production (CẢ dry-run lẫn --apply — review fix L10)", async () => {
+  it("fail closed: thiếu DATABASE_URL trong env thật → từ chối; NODE_ENV=production → từ chối --apply trừ khi --allow-production (dry-run được phép — b4-holistic round-4)", async () => {
     // DATABASE_URL phải nằm trong env THẬT (process.env) TRƯỚC db.client nạp
     // (L3 — backfill precedent): thiếu → typed refusal, KHÔNG chạm DB.
     vi.stubEnv("DATABASE_URL", "");
     await expect(seedBetaCatalog(false)).rejects.toThrowError(/DATABASE_URL/);
     vi.unstubAllEnvs();
 
-    // NODE_ENV=production: seed catalog vào DB thật phải là hành động có chủ
-    // đích — từ chối trừ khi allowProduction tường minh (dry-run KHÔNG mutate
-    // nên an toàn để đi qua).
+    // b4-holistic round-4: guard NODE_ENV thu hẹp CHỈ --apply — dry-run (chỉ
+    // đọc + in plan) ĐƯỢC PHÉP dưới NODE_ENV=production (compose service
+    // migrate set production — dry-run là bước BẮT BUỘC trong docs/deployment.md
+    // §2 bước 5; trước fix guard cũ chặn cả dry-run → bước doc không chạy được).
     vi.stubEnv("NODE_ENV", "production");
-    await expect(seedBetaCatalog(false)).rejects.toThrowError(/SEED_REFUSED_PRODUCTION/);
-    const allowed = await seedBetaCatalog(false, undefined, { allowProduction: true });
-    expect(allowed.mode).toBe("dry-run");
+    const dryRun = await seedBetaCatalog(false);
+    expect(dryRun.mode).toBe("dry-run"); // đọc plan được — KHÔNG bị guard chặn
     vi.unstubAllEnvs();
 
-    // L10: --apply (isApply=true) cũng từ chối khi NODE_ENV=production —
-    // refusal chặn TRƯỚC khi chạm DB → 0 row, không audit.
+    // --apply (isApply=true) vẫn từ chối khi NODE_ENV=production thiếu cờ —
+    // refusal chặn TRƯỚC khi chạm DB → 0 row, không audit (fail closed).
+    // (--allow-production pass-through pin ở unit seed-beta-catalog-guard;
+    // --apply THẬT pin ở case 4 dưới — không mutate ở đây để giữ DB sạch
+    // cho các case sau.)
     vi.stubEnv("NODE_ENV", "production");
     await expect(seedBetaCatalog(true)).rejects.toThrowError(/SEED_REFUSED_PRODUCTION/);
     vi.unstubAllEnvs();
