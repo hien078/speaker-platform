@@ -6,7 +6,16 @@
  *  - CHỈ xoá row CŨ HƠN grace VÀ KHÔNG có ListingImage nào mang url
  *    /uploads/<storageKey> (attached = sản phẩm đang sống — giữ nguyên);
  *  - upload MỚI (trong phiên soạn tin) không bao giờ bị dọn;
- *  - unlink ENOENT (file đã mất) KHÔNG phải lỗi; lỗi khác được báo.
+ *  - unlink lỗi khác ENOENT được báo (unlinkFailures).
+ *
+ * b4-holistic round-4 (LOW deploy-risk ×2 — volume không mount):
+ *  - --apply FAIL-CLOSED khi UPLOADS_DIR thiếu/không phải thư mục — operator
+ *    chạy qua image migrate theo doc mà quên mount volume uploads → MỌI unlink
+ *    ENOENT → trước fix: row bị xoá, ENOENT nuốt im lặng, file thật trên volume
+ *    production mồ côi MÃI MÃI (row nhận diện chúng đã gone). Giờ: throw TRƯỚC
+ *    khi xoá row đầu tiên.
+ *  - ENOENT trên ứng viên = ANOMALY (missingFiles + exit 1) — KHÔNG silent
+ *    success (file ứng viên không có trên đĩa = volume có thể sai chỗ).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -155,5 +164,60 @@ describe("cleanupUploads — dọn upload mồ côi (b4-holistic round-3)", () =
     const report = await cleanupUploads(true);
     expect(report.deletedRows).toBe(1);
     expect(report.unlinkFailures).toEqual([]);
+  });
+});
+
+// ─── b4-holistic round-4 (LOW deploy-risk) — volume uploads phải mount ───────
+
+describe("cleanupUploads — --apply fail-closed khi UPLOADS_DIR thiếu/không phải thư mục (b4-holistic round-4)", () => {
+  it("--apply UPLOADS_DIR KHÔNG tồn tại → THROW, KHÔNG xoá row nào (file mồ côi vĩnh viễn)", async () => {
+    dbState.uploads.push({ id: "u1", ownerUserId: "s1", storageKey: "orphan.webp", createdAt: OLD });
+    tmpState.dir = path.join(tmpdir(), "cleanup-uploads-khong-ton-tai-" + Date.now()); // KHÔNG mkdir
+
+    await expect(cleanupUploads(true)).rejects.toThrowError(/UPLOADS_DIR/);
+    // FAIL-CLOSED: row ownership GIỮ NGUYÊN — không xoá khi không thể chạm file
+    expect(dbState.uploads).toHaveLength(1);
+    expect(unlinkCalls.keys).toHaveLength(0);
+  });
+
+  it("--apply UPLOADS_DIR là FILE (không phải thư mục) → THROW, KHÔNG xoá row", async () => {
+    dbState.uploads.push({ id: "u1", ownerUserId: "s1", storageKey: "orphan.webp", createdAt: OLD });
+    // tmpState.dir trỏ vào MỘT FILE — stat() ok nhưng isDirectory() false
+    const filePath = path.join(tmpState.dir, "khong-phai-thu-muc.txt");
+    await writeFile(filePath, "x");
+    tmpState.dir = filePath;
+
+    await expect(cleanupUploads(true)).rejects.toThrowError(/UPLOADS_DIR/);
+    expect(dbState.uploads).toHaveLength(1);
+  });
+
+  it("dry-run UPLOADS_DIR KHÔNG tồn tại → KHÔNG throw (chỉ đọc DB — báo cáo ứng viên)", async () => {
+    dbState.uploads.push({ id: "u1", ownerUserId: "s1", storageKey: "orphan.webp", createdAt: OLD });
+    tmpState.dir = path.join(tmpdir(), "cleanup-uploads-dry-" + Date.now()); // KHÔNG mkdir
+
+    const report = await cleanupUploads(false);
+    expect(report.mode).toBe("dry-run");
+    expect(report.orphanCount).toBe(1); // báo cáo vẫn chạy (chỉ đọc)
+    expect(report.deletedRows).toBe(0);
+  });
+
+  it("ENOENT trên ứng viên (dir ĐÚNG nhưng file không có) → missingFiles anomaly — KHÔNG silent success", async () => {
+    dbState.uploads.push({ id: "u1", ownerUserId: "s1", storageKey: "vong-lap.webp", createdAt: OLD });
+    // tmpState.dir là dir THẬT (beforeEach mkdtemp) nhưng file không tồn tại —
+    // unlink throw ENOENT thật qua node:fs/promises actual.
+    const { unlink } = await import("node:fs/promises");
+    const unlinkMock = vi.mocked(unlink);
+    unlinkMock.mockImplementationOnce(async () => {
+      const err = new Error("ENOENT: no such file or directory") as NodeJS.ErrnoException;
+      err.code = "ENOENT";
+      throw err;
+    });
+
+    const report = await cleanupUploads(true);
+
+    expect(report.deletedRows).toBe(1); // row-first — row đã dọn
+    expect(report.deletedFiles).toBe(0);
+    expect(report.unlinkFailures).toEqual([]); // ENOENT KHÔNG phải unlink-failure
+    expect(report.missingFiles).toEqual(["vong-lap.webp"]); // anomaly ĐƯỢC BÁO
   });
 });

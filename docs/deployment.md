@@ -30,7 +30,19 @@ chạy `next start`/standalone ngoài Docker: chuyển file cũ
 trước khi bật bản này, nếu không ảnh cũ 404 qua route handler mới.
 
 Dọn ảnh mồ côi (upload chưa gắn vào tin nào): `scripts/cleanup-uploads.ts`
-(chạy qua image `migrate` như các script offline khác — xem §2 seed beta).
+— chạy qua service `migrate` (service đã mount volume `uploads` tại
+`/app/data/uploads` — b4-holistic round-4: thiếu volume này thì script
+`--apply` TỪ CHỐI fail-closed, không bao giờ xoá row ownership khi không
+chạm được file):
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/cleanup-uploads.ts              # dry-run (chỉ đọc DB)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/cleanup-uploads.ts --apply    # xoá thật (file + row)
+```
 
 ## 1. Yêu cầu server
 

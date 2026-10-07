@@ -21,6 +21,18 @@
  *    row (chạy lại lần sau tự lành).
  *  - dry-run MẶC ĐỊNH (chỉ đọc + báo cáo); --apply mới xoá. Idempotent.
  *
+ * b4-holistic round-4 (LOW deploy-risk ×2 — volume uploads KHÔNG mount):
+ * Operator chạy script qua image `migrate` theo docs/deployment.md mà service
+ * migrate KHÔNG mount volume `uploads` (chỉ service app có) → UPLOADS_DIR
+ * trống → MỌI unlink ENOENT → trước fix: row ownership bị xoá, ENOENT nuốt
+ * im lặng (không vào unlinkFailures), file THẬT trên volume production mồ côi
+ * MÃI MÃI (row nhận diện chúng đã gone — không bao giờ dọn được nữa). Giờ:
+ *  - --apply FAIL-CLOSED: stat(UPLOADS_DIR) thiếu/không phải thư mục → THROW
+ *    TRƯỚC khi xoá row đầu tiên (compose đã thêm volume cho service migrate —
+ *    chạy đúng doc thì không bao giờ chạm nhánh này);
+ *  - ENOENT trên ứng viên = ANOMALY (missingFiles, exit 1) — KHÔNG silent
+ *    success (file ứng viên không có trên đĩa = volume có thể sai chỗ).
+ *
  * Review fix L3 (backfill precedent): DATABASE_URL phải có trong MÔI TRƯỜNG
  * THẬT (process.env) TRƯỚC khi db.client/dotenv nạp — dynamic import.
  *
@@ -28,10 +40,10 @@
  *   DATABASE_URL=… npx tsx scripts/cleanup-uploads.ts                     # dry-run (mặc định)
  *   DATABASE_URL=… npx tsx scripts/cleanup-uploads.ts --apply            # xoá thật
  *   DATABASE_URL=… npx tsx scripts/cleanup-uploads.ts --apply --grace-days 14
- *   (chạy qua image migrate của compose như các script offline khác — xem
- *    docs/deployment.md §2; UPLOADS_DIR phải trỏ đúng volume, mặc định data/uploads)
+ *   (qua compose service migrate — service đã mount volume uploads tại
+ *    /app/data/uploads như service app — xem docs/deployment.md §ảnh upload)
  */
-import { unlink } from "node:fs/promises";
+import { stat, unlink } from "node:fs/promises";
 import path from "node:path";
 
 export type CleanupUploadsReport = {
@@ -44,6 +56,12 @@ export type CleanupUploadsReport = {
   deletedFiles: number;
   /** Số file xoá THẤT BẠI (row vẫn đã xoá — chạy lại lần sau tự lành). */
   unlinkFailures: Array<{ storageKey: string; error: string }>;
+  /**
+   * b4-holistic round-4: ứng viên KHÔNG có trên đĩa (ENOENT) — row đã xoá
+   * (row-first) nhưng file không thu hồi được. ANOMALY (exit 1), KHÔNG silent
+   * success: file ứng viên vắng mặt trên đĩa = volume có thể mount sai chỗ.
+   */
+  missingFiles: string[];
 };
 
 /** Ngưỡng tuổi mặc định (ngày) trước khi upload chưa gắn được coi là mồ côi. */
@@ -82,8 +100,21 @@ export async function cleanupUploads(
     deletedRows: 0,
     deletedFiles: 0,
     unlinkFailures: [],
+    missingFiles: [],
   };
   if (!isApply || orphans.length === 0) return report;
+
+  // b4-holistic round-4 (LOW deploy-risk): --apply FAIL-CLOSED khi UPLOADS_DIR
+  // thiếu/không phải thư mục — TRƯỚC khi xoá row đầu tiên. Operator chạy qua
+  // image migrate mà quên mount volume uploads → mọi unlink ENOENT → trước
+  // fix: row bị xoá, ENOENT nuốt im lặng, file thật mồ côi VĨNH VIỄN (row nhận
+  // diện chúng đã gone). Dry-run KHÔNG check (chỉ đọc DB, không chạm file).
+  const dirStat = await stat(UPLOADS_DIR).catch(() => null);
+  if (dirStat === null || !dirStat.isDirectory()) {
+    throw new Error(
+      `UPLOADS_DIR "${UPLOADS_DIR}" không tồn tại hoặc không phải thư mục — từ chối --apply: không xoá row ownership khi không thể chạm file (mount volume uploads — docker compose -f docker-compose.prod.yml run --rm migrate đã mount uploads:/app/data/uploads — hoặc đặt UPLOADS_DIR đúng đích).`,
+    );
+  }
 
   for (const orphan of orphans) {
     // ROW FIRST (ngược với upload): xoá row trước — file mồ côi tốn đĩa là
@@ -95,8 +126,14 @@ export async function cleanupUploads(
       await unlink(path.join(UPLOADS_DIR, orphan.storageKey));
       report.deletedFiles += 1;
     } catch (e) {
-      // ENOENT (file đã mất) → không phải lỗi; lỗi khác (EACCES/ENOTDIR) → báo.
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") {
+        // b4-holistic round-4: ENOENT = ANOMALY (KHÔNG silent success) — ứng
+        // viên không có trên đĩa: volume có thể sai chỗ / file đã bị xoá tay.
+        // Row đã dọn (row-first); anomaly được báo + exit 1 bên dưới.
+        report.missingFiles.push(orphan.storageKey);
+      } else {
+        // lỗi khác (EACCES/ENOTDIR…) → unlinkFailures như trước.
         report.unlinkFailures.push({
           storageKey: orphan.storageKey,
           error: e instanceof Error ? e.message : String(e),
@@ -128,10 +165,14 @@ async function main(): Promise<void> {
   console.log(`── upload mồ côi (cũ hơn ${graceDays} ngày, chưa gắn vào tin nào): ${report.orphanCount}`);
   if (report.mode === "apply") {
     console.log(`── row đã xoá: ${report.deletedRows} · file đã xoá: ${report.deletedFiles}`);
+    // b4-holistic round-4: ENOENT = anomaly — exit 1 (KHÔNG silent success)
+    for (const miss of report.missingFiles) {
+      console.error(`⚠ file ứng viên KHÔNG có trên đĩa (row đã xoá): ${miss} — kiểm tra UPLOADS_DIR/volume uploads có đúng đích chưa`);
+    }
     for (const fail of report.unlinkFailures) {
       console.error(`✗ unlink thất bại ${fail.storageKey}: ${fail.error}`);
     }
-    if (report.unlinkFailures.length > 0) process.exitCode = 1;
+    if (report.unlinkFailures.length > 0 || report.missingFiles.length > 0) process.exitCode = 1;
   }
 }
 

@@ -61,6 +61,15 @@ services:
       # Compose nội suy từ .env — operator KHÔNG phải `set -a; source .env`.
       ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?đặt ADMIN_MFA_ENCRYPTION_KEY trong .env (openssl rand -base64 32)}
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
+    volumes:
+      # b4-holistic round-4 (LOW deploy-risk): volume uploads cho script dọn
+      # ảnh mồ côi (scripts/cleanup-uploads.ts --apply) — TRƯỚC fix doc chỉ
+      # mount scripts/+src/ → /app/data/uploads TRỐNG trong container → mọi
+      # unlink ENOENT bị nuốt → row ownership xoá xong, file THẬT trên volume
+      # app mồ côi vĩnh viễn. Script giờ fail-closed khi dir thiếu, nhưng
+      # service này phải mount ĐÚNG volume (compose tự resolve tên project-
+      # prefixed) để lệnh trong docs/deployment.md chạy được nguyên văn.
+      - uploads:/app/data/uploads
 
   app:
     build: .
