@@ -148,6 +148,15 @@ export const NON_FINANCE_TABLES = [
   "AdminMfa",
   "AdminRecoveryCode",
   "AuditEvent",
+  // Batch 3 trust & safety + Batch 4 upload ownership — không FK tới bảng finance
+  "AbuseReport",
+  "ModerationCase",
+  "ModerationEvidence",
+  "ModerationAction",
+  "UserBlock",
+  "UserSuspension",
+  "Appeal",
+  "ListingImageUpload",
 ] as const;
 
 /** Monitored set = finance-only ∪ cascade-affected (12 bảng — SQL + watermark). */

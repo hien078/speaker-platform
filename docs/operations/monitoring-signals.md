@@ -142,7 +142,7 @@ tiếp (listings.ts:294) + FK `onDelete: Cascade` từ Listing
 | `PriceHistory` | **createListingAction** listings.ts:118, **updateListingAction** reprice listings.ts:267, **mergeModelAction** catalog.ts:39 — luồng listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue (review fix 1); writer finance: orders.ts:272 recordSoldPrices (đã guard) |
 | `Cart` | **registerAction** auth.ts:122, **finishLogin** auth.ts:139 — luồng auth (mỗi user mới 1 Cart) |
 | `Review` | **submitReviewAction** reviews.ts:21 — KHÔNG finance guard (ghi Review cho đơn completed) — **finding cho security review Task 8** |
-| 19 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2), không phải ranh giới tài chính |
+| 27 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2); AbuseReport, ModerationCase, ModerationEvidence, ModerationAction, UserBlock, UserSuspension, Appeal (Batch 3 trust & safety), ListingImageUpload (Batch 4 upload ownership) — không FK tới bảng finance, không phải ranh giới tài chính |
 
 ### Cơ chế watermark
 
@@ -224,8 +224,8 @@ Batch 3–7 merge (Task 10 của Batch 8 re-verify):
   cân nhắc import thay duplicate.
 - **Bảng phân loại §2 phải được GREP LẠI sau mỗi batch thêm model mới** — drift
   test chặn model mới chưa phân loại, nhưng việc phân loại đúng (finance-only /
-  cascade / non-finance) là của batch thêm model. Batch 3 `ModerationCase`/
-  `ModerationEvidence`, Batch 6 `Deal`/`DealStatusHistory`, Batch 7
+  cascade / non-finance) là của batch thêm model. Batch 3 (7 bảng trust & safety)
+  và Batch 4 `ListingImageUpload` đã xếp non-finance khi merge; Batch 6 `Deal`/`DealStatusHistory`, Batch 7
   `FoundingSellerCandidate`/`BetaInviteToken` — đều sẽ rơi vào classification test
   khi merge → phân loại ở batch đó.
 - Batch 7 invite/console — không có tín hiệu nào đọc các bảng đó (ngoài phạm vi
