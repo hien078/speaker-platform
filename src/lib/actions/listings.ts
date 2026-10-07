@@ -25,7 +25,7 @@ import {
   assertCategoryPublicationAllowed,
   listingRegimeForCategorySlug,
 } from "@/src/lib/beta-categories";
-import { PROVINCE_CODES } from "@/src/lib/provinces";
+import { PROVINCE_CODES, isProvinceCode, resolveLegacyProvince } from "@/src/lib/provinces";
 import { CITIES } from "@/src/lib/constants";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { auditEvent, auditEventTx } from "@/src/lib/audit-event";
@@ -423,6 +423,11 @@ export async function createListingAction(
         repairHistory: input.repairHistory,
         fulfillmentMethods: fulfillmentJson(input),
         provinceLevelCode: input.provinceLevelCode,
+        // Batch 5 Task 2 (S4/B2): form beta mang mã tỉnh hợp lệ (deriveCity đã
+        // validate qua PROVINCE_CODES) → seller_declared; legacy regime (không
+        // trường province) → null (backfill offline lo phần legacy — KHÔNG suy
+        // mã từ city, KHÔNG thêm CITIES guard — B2).
+        locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
         communeLevelCode: null, // reserved — Batch 5 populate
         locationDisplayName: input.locationDisplayName,
       });
@@ -610,6 +615,9 @@ export async function saveListingDraftAction(
             repairHistory: input.repairHistory,
             fulfillmentMethods: fulfillmentJson(input),
             provinceLevelCode: input.provinceLevelCode,
+            // Batch 5 Task 2 (S4/B2): draft schema bắt buộc province (checkProvinceRequired)
+            // nên nhánh null là unreachable phòng thủ — form beta luôn mang mã.
+            locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
             locationDisplayName: input.locationDisplayName,
           });
         if (claimed.length === 0) throw new Error("LISTING_CONCURRENT_CHANGE");
@@ -643,6 +651,8 @@ export async function saveListingDraftAction(
           repairHistory: input.repairHistory,
           fulfillmentMethods: fulfillmentJson(input),
           provinceLevelCode: input.provinceLevelCode,
+          // Batch 5 Task 2 (S4/B2) — như create path của createListingAction.
+          locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
           communeLevelCode: null, // reserved — Batch 5 populate
           locationDisplayName: input.locationDisplayName,
         });
@@ -937,6 +947,30 @@ export async function updateListingAction(
   // đổi chữ THẬT vẫn khác (và vẫn vào review).
   const nl = (s: string | null | undefined): string | null =>
     s == null ? null : s.replace(/\r\n?/g, "\n").trim();
+  // ─── Batch 5 Task 2 (S4/B2 + corrections item 3): locationSource + carry-forward ───
+  // beta regime (form mang province — deriveCity đã validate mã ∈ PROVINCE_CODES)
+  //   → locationSource "seller_declared".
+  // legacy regime (KHÔNG trường province — legacy ListingForm):
+  //   city GIỮ NGUYÊN → carry forward mã + source đang lưu TRƯỚC khi tính
+  //     contentChanged (edit legacy KHÔNG xóa dữ liệu backfill, KHÔNG re-queue
+  //     oan vào pending — corrections item 3);
+  //   city ĐỔI → re-resolve text MỚI qua FD-1 rule (resolveLegacyProvince —
+  //     registry authoritative, KHÔNG đoán): mapped → mã mới + "legacy_mapped";
+  //     unresolved → null + null (backfill offline sẽ mark unresolved sau).
+  const cityUnchanged = nl(listing.city) === city;
+  let effectiveProvince: string | null;
+  let effectiveLocationSource: ListingRow["locationSource"];
+  if (input.provinceLevelCode != null) {
+    effectiveProvince = input.provinceLevelCode;
+    effectiveLocationSource = "seller_declared";
+  } else if (cityUnchanged) {
+    effectiveProvince = listing.provinceLevelCode;
+    effectiveLocationSource = listing.locationSource;
+  } else {
+    const resolved = resolveLegacyProvince(city);
+    effectiveProvince = resolved;
+    effectiveLocationSource = resolved == null ? null : "legacy_mapped";
+  }
   const contentChanged =
     nl(listing.title) !== input.title ||
     nl(listing.description) !== input.description ||
@@ -957,7 +991,10 @@ export async function updateListingAction(
     nl(listing.repairHistory) !== input.repairHistory ||
     JSON.stringify(listing.fulfillmentMethods ?? null) !==
       JSON.stringify(input.fulfillmentMethods ?? null) ||
-    (listing.provinceLevelCode ?? null) !== (input.provinceLevelCode ?? null) ||
+    // Batch 5 Task 2 (corrections item 3): so với effectiveProvince — carry
+    // forward giữ term này false cho edit legacy không đổi gì (không re-queue
+    // oan); city đổi + re-resolve khác mã cũ vẫn là content change (đúng).
+    (listing.provinceLevelCode ?? null) !== (effectiveProvince ?? null) ||
     nl(listing.locationDisplayName) !== input.locationDisplayName ||
     oldUrls.length !== input.imageUrls.length ||
     oldUrls.some((u, idx) => input.imageUrls[idx] !== u) ||
@@ -1021,7 +1058,9 @@ export async function updateListingAction(
           knownDefects: input.knownDefects,
           repairHistory: input.repairHistory,
           fulfillmentMethods: fulfillmentJson(input),
-          provinceLevelCode: input.provinceLevelCode,
+          provinceLevelCode: effectiveProvince,
+          // Batch 5 Task 2 (S4/B2 + corrections item 3) — block effective-location ở trên
+          locationSource: effectiveLocationSource,
           locationDisplayName: input.locationDisplayName,
         });
       if (claimed.length === 0) {
@@ -1190,9 +1229,18 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   let concurrent = false;
   try {
     await db.transaction(async (tx) => {
+      // Batch 5 Task 2 (S4): draft Batch-4-era (mã do form ghi lúc tạo draft,
+      // locationSource còn null) → đánh dấu seller-declared THEO CẤU TRÚC ngay
+      // lúc chuyển pending; source đã có → KHÔNG đè; mã null → để null (backfill
+      // offline lo). Cùng statement CAS với status/updatedAt — sống chết chung.
+      const declareSource =
+        listing.locationSource == null && isProvinceCode(listing.provinceLevelCode ?? "");
       const claimed = await tx.orm.public.Listing
         .where({ id: listing.id, status: "draft", updatedAt: listing.updatedAt })
-        .updateAll({ status: "pending" });
+        .updateAll({
+          status: "pending",
+          ...(declareSource ? { locationSource: "seller_declared" as const } : {}),
+        });
       if (claimed.length === 0) {
         throw new Error("LISTING_CONCURRENT_CHANGE");
       }
