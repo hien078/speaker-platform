@@ -1,6 +1,8 @@
 import "server-only";
 
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { db } from "@/src/prisma/db.client";
+import { hkdfKey } from "@/src/lib/hkdf";
 import {
   FOUNDING_SELLER_ASSISTANCE_AFTER_DAYS,
   type FoundingSellerCandidateStatus,
@@ -35,6 +37,90 @@ import {
  */
 
 export * from "@/src/lib/founding-seller-vocab";
+
+// ─── Invite token mechanics (Task 3 — corrections #12; spec §9 Batch 7) ────────
+
+/**
+ * Cookie mang invite token sau landing (S1 — Task 3): `/invite/[token]` GET
+ * set MỘT LẦN, mọi request sau chỉ mang cookie — token KHÔNG BAO GIỜ rides
+ * trong `next`/query/form. `path: "/invite"` (corrections #35) — action POST
+ * đến `/invite` nên path hẹp vẫn hoạt động và token không đi kèm request khác.
+ */
+export const BETA_INVITE_COOKIE = "sp_invite";
+/** TTL cookie mời (P5 — PROVISIONAL): 15 phút, đủ cho một phiên nhận lời mời. */
+export const BETA_INVITE_COOKIE_MAX_AGE_SEC = 15 * 60;
+/**
+ * Path cookie mời — route handler SET và acceptInviteAction DELETE phải dùng
+ * CÙNG giá trị này (corrections #35): `cookies().delete(name)` mặc định
+ * `Path=/` — theo RFC 6265 đó là MỘT cookie khác, không đụng được cookie
+ * `Path=/invite` (browser giữ nguyên → invitee còn cookie "đã consume").
+ */
+export const BETA_INVITE_COOKIE_PATH = "/invite";
+
+/**
+ * Token thô 256-bit (`randomBytes(32).toString("base64url")`) — đúng 43 ký tự
+ * base64url không padding. Reject TRƯỚC mọi db call (corrections #12): giá trị
+ * cookie/path không khớp shape là garbage — không tốn một query nào.
+ */
+export const BETA_INVITE_TOKEN_RE = /^[A-Za-z0-9_-]{43}$/;
+
+/**
+ * HMAC-SHA256(token, hkdfKey("beta-invite-hash")) hex — thứ DUY NHẤT được lưu
+ * trong db (BetaInviteToken.tokenHash — cùng pattern OtpCode.codeHash của
+ * Batch 2; corrections #12). Helper sống ở domain module NÀY (server-only —
+ * action file không được export hàm không async, corrections #12).
+ */
+export function betaInviteTokenHash(token: string): string {
+  return createHmac("sha256", hkdfKey("beta-invite-hash")).update(token).digest("hex");
+}
+
+/**
+ * So khớp hash TIMING-SAFE (corrections #12 — pattern `hashEquals` của
+ * src/lib/otp.ts:79-83; helper đó private nên copy tại đây). Guard độ dài
+ * trước — timingSafeEqual throw khi 2 buffer lệch độ dài.
+ */
+export function inviteHashEquals(a: string, b: string): boolean {
+  const bufA = Buffer.from(a, "utf8");
+  const bufB = Buffer.from(b, "utf8");
+  return bufA.length === bufB.length && timingSafeEqual(bufA, bufB);
+}
+
+/** Row BetaInviteToken scalars — structural (không kéo relation). */
+export type ActiveInviteToken = {
+  id: string;
+  candidateId: string;
+  channel: "email" | "phone";
+  target: string;
+  tokenHash: string;
+  issuedById: string | null;
+  expiresAt: string;
+  consumedAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+};
+
+/**
+ * Shape check → HMAC → lookup → timing-safe compare → validity (chưa consume,
+ * chưa revoke, chưa hết hạn). Trả về null khi token KHÔNG hợp lệ — mọi lý do
+ * fail đều như nhau ở phía caller (enumeration-safe — spec §10.1; map thành
+ * MỘT thông báo INVITE_INVALID, không phân biệt unknown/expired/revoked).
+ *
+ * KHÔNG có side effect nào (không consume/log/audit) — dùng được từ Route
+ * Handler landing (`app/invite/[token]/route.ts` — corrections #7: bots
+ * unfurl link sẽ GET; landing chỉ được set cookie) VÀ từ pre-read của
+ * acceptInviteAction (claim authoritative sống trong tx, không phải read này).
+ */
+export async function findActiveInviteToken(token: string): Promise<ActiveInviteToken | null> {
+  if (!BETA_INVITE_TOKEN_RE.test(token)) return null; // garbage — zero db call
+  const tokenHash = betaInviteTokenHash(token);
+  const row = await db.orm.public.BetaInviteToken.first({ tokenHash });
+  if (row === null) return null;
+  if (!inviteHashEquals(tokenHash, row.tokenHash)) return null; // belt-and-braces
+  if (row.consumedAt !== null) return null; // single-use — đã burn
+  if (row.revokedAt !== null) return null;
+  if (Date.parse(row.expiresAt) <= Date.now()) return null;
+  return row;
+}
 
 /** Patch funnel-sync ghi — status + milestone timestamps (chỉ set khi null). */
 type FoundingSellerCandidateFunnelPatch = {
