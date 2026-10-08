@@ -7,11 +7,11 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 import { db } from "@/src/prisma/db.client";
-import { requireCapability } from "@/src/lib/rbac";
+import { capabilitiesOf, requireCapability } from "@/src/lib/rbac";
 import { getCurrentUser } from "@/src/lib/auth";
 import { normalizeEmail, normalizePhone } from "@/src/lib/otp";
 import { isUserSuspended } from "@/src/lib/moderation";
-import { auditEventTx, redactDetail } from "@/src/lib/audit-event";
+import { auditEvent, auditEventTx, redactDetail } from "@/src/lib/audit-event";
 import { emitProductEvent } from "@/src/lib/product-events";
 import { notify } from "@/src/lib/notify";
 import { captureError } from "@/src/lib/observability";
@@ -25,23 +25,27 @@ import {
   FOUNDING_SELLER_INVITE_TTL_DAYS,
   FOUNDING_SELLER_NOTE_MAX_LENGTH,
   FOUNDING_SELLER_SOURCE_MAX_LENGTH,
+  FOUNDING_SELLER_TRANSITION_REASONS,
+  MANUALLY_SETTABLE_STATUSES,
   betaInviteTokenHash,
+  canTransitionCandidate,
   findActiveInviteToken,
   syncFoundingSellerFunnel,
 } from "@/src/lib/founding-sellers";
 
 /**
- * Founding seller invitation actions (Batch 7 Task 3 — spec §9 Batch 7
- * "invitation flow", §2.1, §4.5/§4.9, §4.6, §4.8, §7.1, §7.3, §7.6, §8.4,
- * §10.1; corrections 2026-10-08 items 9/10/12–15/20/22/25/26/34–36 + P1–P5).
+ * Founding seller invitation + lifecycle actions (Batch 7 Task 3 + Task 4 —
+ * spec §9 Batch 7 "invitation flow" + §5.10/§5.10.1 lifecycle, §2.1, §4.5/§4.9,
+ * §4.6, §4.8, §4.11, §5.4/§5.4.2, §7.1, §7.3, §7.6, §8.4, §10.1, §12.1;
+ * corrections 2026-10-08 items 9/10/12–15/20/21–23/25/26/29/34–36 + P1–P5).
  *
  * Audit action registry (Batch 7 — disjoint với mọi batch trước, spec §4.6;
  * corrections #29: src/lib/audit-event.ts KHÔNG đụng — registry ghi tại đây):
  *   founding_seller.candidate_created, founding_seller.invite_issued,
- *   founding_seller.invite_revoked, founding_seller.invite_accepted
- *   (+ Task 4: founding_seller.status_changed, founding_seller.funnel_synced,
- *    founding_seller.operator_assigned, founding_seller.contact_recorded,
- *    founding_seller.notes_updated, founding_seller.quality_count_set).
+ *   founding_seller.invite_revoked, founding_seller.invite_accepted,
+ *   founding_seller.status_changed, founding_seller.funnel_synced,
+ *   founding_seller.operator_assigned, founding_seller.contact_recorded,
+ *   founding_seller.notes_updated, founding_seller.quality_count_set.
  * resourceType theo quy ước model-name: "FoundingSellerCandidate" /
  * "BetaInviteToken" (cf. "BetaCohortMembership" — beta-cohort.ts).
  *
@@ -666,4 +670,256 @@ export async function acceptInviteAction(
   }
 
   redirect("/sell"); // throw NEXT_REDIRECT — NGOÀI mọi try/catch
+}
+
+// ─── 5. Funnel sync — hành động operator (Task 4 — S5, corrections #22) ───────
+
+/**
+ * Sync trạng thái funnel của MỘT ứng viên từ ground truth — ĐƯỜNG DUY NHẤT
+ * operator chạy sync (S5: console page KHÔNG sync trong render; đường còn
+ * lại là acceptInviteAction sau link — tự động, không audit).
+ *
+ * corrections #22: sync chạy với global db SAU (không có) tx — KHÔNG BAO GIỜ
+ * trong tx callback / page render. Sync unchanged (ground truth không cho
+ * tiến) → KHÔNG audit (no churn); unlinked (prospect chưa có tài khoản) →
+ * no-op. Audit founding_seller.funnel_synced chỉ khi có transition thật,
+ * detail from→to — codes only, KHÔNG PII (§4.8).
+ */
+export async function syncCandidateFunnelAction(formData: FormData): Promise<void> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) throw new Error("INVALID_CANDIDATE_ID");
+
+  const candidate = await db.orm.public.FoundingSellerCandidate.first({ id: candidateId });
+  if (candidate === null) throw new Error("NOT_FOUND");
+  if (candidate.userId === null) return; // prospect chưa link — sync không có gì để đọc
+
+  const sync = await syncFoundingSellerFunnel(candidate.userId);
+  if (sync !== null && sync.changed) {
+    await auditEvent({
+      actorId: ctx.user.id,
+      action: "founding_seller.funnel_synced",
+      resourceType: "FoundingSellerCandidate",
+      resourceId: candidate.id,
+      sessionId: ctx.session.id,
+      detail: redactDetail(`${sync.from}→${sync.to}`), // codes only — KHÔNG PII
+    });
+  }
+  revalidatePath("/admin/beta-cohort");
+}
+
+// ─── 6. Manual transitions (Task 4 — spec §5.10, PROVISIONAL FD-3) ───────────
+
+/**
+ * Chuyển trạng thái thủ công (concierge_onboarding / active_founding_seller /
+ * inactive / exited — MANUALLY_SETTABLE_STATUSES). Còn lại
+ * (prospect/invited/registered/verification_pending/verified/first_listing)
+ * thuộc invite flow (Task 3) + funnel sync — operator KHÔNG tự set (fail
+ * closed chống fake funnel; PROVISIONAL set — S9/Batch 8 register).
+ *
+ * KHÔNG step-up — beta_cohort.manage KHÔNG thuộc STEP_UP_CAPABILITIES và
+ * §5.4.2 không nêu cohort (Global Constraints — thêm step-up = phát minh).
+ *
+ * corrections #23: mọi write là conditional updateAll — CAS
+ * where({ id, status: <đọc> }) → 0 row = CANDIDATE_ALREADY_MOVED (concurrent
+ * operator — §10.1); KHÔNG set updatedAt bằng tay (temporal.updatedAtString()
+ * tự maintain); note chuyển trạng thái đi CHỌ vào AuditEvent.detail qua
+ * redactDetail — KHÔNG append vào candidate.notes (read-modify-write mất
+ * note concurrent; notes chỉ được viết bởi updateCandidateNotesAction).
+ * toStatus === active_founding_seller KHÔNG tự set qualityListingCount (A3 —
+ * count là ops input riêng sau §12.1 manual sampling).
+ */
+export async function updateCandidateStatusAction(formData: FormData): Promise<void> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) throw new Error("INVALID_CANDIDATE_ID");
+
+  // Validation TRƯỚC read (plan order) — typed codes, KHÔNG free text
+  const toStatusRaw = String(formData.get("toStatus") ?? "").trim();
+  const toStatus = MANUALLY_SETTABLE_STATUSES.find((s) => s === toStatusRaw);
+  if (toStatus === undefined) throw new Error("STATUS_NOT_MANUALLY_SETTABLE");
+  const reasonRaw = String(formData.get("reasonCode") ?? "").trim();
+  const reasonCode = FOUNDING_SELLER_TRANSITION_REASONS.find((r) => r === reasonRaw);
+  if (reasonCode === undefined) throw new Error("INVALID_REASON_CODE");
+  const noteRaw = String(formData.get("note") ?? "").trim();
+  const noteParsed = notesSchema.safeParse(noteRaw);
+  if (!noteParsed.success) throw new Error("NOTE_TOO_LONG");
+  const note = noteParsed.data === "" ? null : redactDetail(noteParsed.data);
+
+  const candidate = await db.orm.public.FoundingSellerCandidate.first({ id: candidateId });
+  if (candidate === null) throw new Error("NOT_FOUND");
+
+  // Bảng transition hợp pháp (PROVISIONAL FD-3) — chỉ chi phối MANUAL moves
+  // (funnel sync EXEMPT — xem src/lib/founding-sellers.ts).
+  if (!canTransitionCandidate(candidate.status, toStatus)) throw new Error("INVALID_TRANSITION");
+
+  // ATOMIC CLAIM — CAS theo status đã đọc; 0 row = operator khác đã move.
+  const moved = await db.orm.public.FoundingSellerCandidate.where({
+    id: candidate.id,
+    status: candidate.status,
+  }).updateAll({ status: toStatus });
+  if (moved.length === 0) throw new Error("CANDIDATE_ALREADY_MOVED");
+
+  const transition = redactDetail(`${candidate.status}→${toStatus}`);
+  await auditEvent({
+    actorId: ctx.user.id,
+    action: "founding_seller.status_changed",
+    resourceType: "FoundingSellerCandidate",
+    resourceId: candidate.id,
+    sessionId: ctx.session.id,
+    reason: reasonCode, // typed reason code — không prose tự chế
+    detail: note === null ? transition : `${transition} note:${note}`,
+  });
+  revalidatePath("/admin/beta-cohort");
+}
+
+// ─── 7. Operator assignment (Task 4 — corrections #23) ─────────────────────────
+
+/**
+ * Gán/gỡ operator phụ trách ứng viên. Eligibility: adminRole của operator
+ * PHẢI có beta_cohort.manage (capabilitiesOf — Batch 3 assign precedent:
+ * analyst làm operator → ASSIGNEE_NOT_ELIGIBLE). operatorId rỗng = unassign
+ * (null) — cũng được audit (corrections #23). Conditional updateAll
+ * where({ id }) → 0 row = NOT_FOUND.
+ */
+export async function assignCandidateOperatorAction(formData: FormData): Promise<void> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) throw new Error("INVALID_CANDIDATE_ID");
+  const operatorIdRaw = String(formData.get("operatorId") ?? "").trim();
+  const operatorId = operatorIdRaw === "" ? null : operatorIdRaw;
+
+  if (operatorId !== null) {
+    const operator = await db.orm.public.User.first({ id: operatorId });
+    if (
+      operator === null ||
+      !capabilitiesOf(operator.adminRole).includes("beta_cohort.manage")
+    ) {
+      throw new Error("ASSIGNEE_NOT_ELIGIBLE");
+    }
+  }
+
+  const moved = await db.orm.public.FoundingSellerCandidate.where({ id: candidateId }).updateAll({
+    assignedOperatorId: operatorId,
+  });
+  if (moved.length === 0) throw new Error("NOT_FOUND");
+
+  await auditEvent({
+    actorId: ctx.user.id,
+    action: "founding_seller.operator_assigned",
+    resourceType: "FoundingSellerCandidate",
+    resourceId: candidateId,
+    sessionId: ctx.session.id,
+    detail: redactDetail(`operator:${operatorId ?? "unassigned"}`), // ids only — KHÔNG PII
+  });
+  revalidatePath("/admin/beta-cohort");
+}
+
+// ─── 8. Contact tracking (Task 4 — §5.10 "last seller activity") ──────────────
+
+/**
+ * Ghi nhận đã liên hệ ứng viên (lastContactAt = now — input cho heuristic
+ * "seller needing assistance" D2). Note ops đi CHỌ vào AuditEvent.detail qua
+ * redactDetail (§4.8 — KHÔNG raw email/phone); KHÔNG đụng candidate.notes
+ * (corrections #23). Conditional updateAll where({ id }) → 0 row = NOT_FOUND.
+ */
+export async function recordCandidateContactAction(formData: FormData): Promise<void> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) throw new Error("INVALID_CANDIDATE_ID");
+  const noteRaw = String(formData.get("note") ?? "").trim();
+  const noteParsed = notesSchema.safeParse(noteRaw);
+  if (!noteParsed.success) throw new Error("NOTE_TOO_LONG");
+  const note = noteParsed.data === "" ? null : redactDetail(noteParsed.data);
+
+  const nowIso = new Date().toISOString();
+  const moved = await db.orm.public.FoundingSellerCandidate.where({ id: candidateId }).updateAll({
+    lastContactAt: nowIso,
+  });
+  if (moved.length === 0) throw new Error("NOT_FOUND");
+
+  const base = redactDetail(`candidate:${candidateId}`);
+  await auditEvent({
+    actorId: ctx.user.id,
+    action: "founding_seller.contact_recorded",
+    resourceType: "FoundingSellerCandidate",
+    resourceId: candidateId,
+    sessionId: ctx.session.id,
+    detail: note === null ? base : `${base} note:${note}`,
+  });
+  revalidatePath("/admin/beta-cohort");
+}
+
+// ─── 9. Notes (Task 4 — useActionState form của console Task 5) ──────────────
+
+/**
+ * Ghi đè ghi chú ops trên ứng viên — writer DUY NHẤT của candidate.notes
+ * (corrections #23). Free text untrusted: cap FOUNDING_SELLER_NOTE_MAX_LENGTH
+ * + redactDetail TRƯỚC khi lưu (§4.8 — belt-and-braces); console render React
+ * text only (KHÔNG dangerouslySetInnerHTML). Audit detail = ids only —
+ * KHÔNG note content. Conditional updateAll where({ id }) → 0 row = NOT_FOUND
+ * (form error — không throw: form useActionState render inline).
+ */
+export async function updateCandidateNotesAction(
+  _prev: FoundingSellerFormState,
+  formData: FormData,
+): Promise<FoundingSellerFormState> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) return { error: "INVALID_CANDIDATE_ID" };
+  const notesRaw = String(formData.get("notes") ?? "").trim();
+  const notesParsed = notesSchema.safeParse(notesRaw);
+  if (!notesParsed.success) return { error: "NOTE_TOO_LONG" };
+  const notes = notesParsed.data === "" ? null : redactDetail(notesParsed.data);
+
+  const moved = await db.orm.public.FoundingSellerCandidate.where({ id: candidateId }).updateAll({
+    notes,
+  });
+  if (moved.length === 0) return { error: "NOT_FOUND" };
+
+  await auditEvent({
+    actorId: ctx.user.id,
+    action: "founding_seller.notes_updated",
+    resourceType: "FoundingSellerCandidate",
+    resourceId: candidateId,
+    sessionId: ctx.session.id,
+    detail: redactDetail(`candidate:${candidateId}`), // ids only — KHÔNG note content
+  });
+  revalidatePath("/admin/beta-cohort");
+  return { success: "Đã lưu ghi chú." };
+}
+
+// ─── 10. Quality listing count (Task 4 — A3, §12.1 manual sampling) ───────────
+
+/**
+ * Set đếm listing "quality" của seller — GIÁ TRỊ OPS đặt thủ công sau §12.1
+ * manual sampling; hệ thống KHÔNG BAO GIỜ auto-compute (A3: không có định
+ * nghĩa "quality listing" — Batch 4 A1/A2 founder-gated, Batch 5 A5 đã ghi
+ * nhận; source-contract pin: writer duy nhất của trường này). count int ≥ 0
+ * (zod — pattern deals.ts); conditional updateAll where({ id }) → 0 row =
+ * NOT_FOUND. Audit detail ids + count — KHÔNG PII.
+ */
+export async function updateQualityListingCountAction(formData: FormData): Promise<void> {
+  const ctx = await requireCapability("beta_cohort.manage");
+  const candidateId = String(formData.get("candidateId") ?? "").trim();
+  if (!candidateId) throw new Error("INVALID_CANDIDATE_ID");
+  const countRaw = String(formData.get("count") ?? "").trim();
+  if (countRaw === "") throw new Error("INVALID_COUNT");
+  const countParsed = z.number().int().min(0).safeParse(Number(countRaw));
+  if (!countParsed.success) throw new Error("INVALID_COUNT");
+
+  const moved = await db.orm.public.FoundingSellerCandidate.where({ id: candidateId }).updateAll({
+    qualityListingCount: countParsed.data,
+  });
+  if (moved.length === 0) throw new Error("NOT_FOUND");
+
+  await auditEvent({
+    actorId: ctx.user.id,
+    action: "founding_seller.quality_count_set",
+    resourceType: "FoundingSellerCandidate",
+    resourceId: candidateId,
+    sessionId: ctx.session.id,
+    detail: redactDetail(`candidate:${candidateId} count:${countParsed.data}`),
+  });
+  revalidatePath("/admin/beta-cohort");
 }
