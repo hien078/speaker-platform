@@ -56,6 +56,22 @@ git pull --ff-only
 docker compose -f docker-compose.prod.yml up -d --build
 # migrate service tự chạy pending migrations (graph → ref 'production') trước app start
 
+# GHI CHÚ LOCK của migration Batch 5 (b5-review Task 1 L3 — beta size OK, bảng
+# LỚN cần cân nhắc): migration chạm bảng Listing ĐANG CÓ bằng 2 op chặn-write
+# (cả hai giữ lock SHARE trong lúc chạy — read vẫn chạy, write trên Listing bị
+# chặn): (a) ADD CHECK constraint CÓ VALIDATE `Listing_locationSource_check`
+# (quét toàn bộ row hiện có để kiểm tra — cột mới toàn NULL nên quét nhanh,
+# nhưng vẫn là full-scan dưới lock), và (b) CREATE INDEX KHÔNG-concurrent
+# `listing_search_text_search` (GIN trên to_tsvector('simple',
+# "searchTextNormalized") — build index chặn write suốt thời gian build).
+# CHECK `search_alias_target_ids` KHÔNG phải mối lo: nó nằm trong createTable
+# của bảng MỚI SearchAlias (rỗng — validate tức thời). Ở quy mô beta (Listing
+# vài nghìn dòng) lock tính bằng mili-giây — service migrate chạy trước app
+# start nên không request nào đợi. Khi Listing vượt ~100k dòng: cân nhắc tách
+# 2 op này ra migration tay (CREATE INDEX CONCURRENTLY + ADD CONSTRAINT ...
+# NOT VALID rồi VALIDATE CONSTRAINT) theo .cursor/skills/prisma-8/references/
+# migrations.md § Author a migration by hand, chạy ngoài giờ cao điểm.
+
 # LẦN ĐẦU sau Batch 4 (bắt buộc): seed beta catalog — category
 # portable_bluetooth_speaker + model chuẩn CHỈ tồn tại qua script này
 # (không có admin action tạo Category; thiếu → /sell/new không có danh mục,

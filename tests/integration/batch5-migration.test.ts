@@ -34,6 +34,12 @@
  *    SellerVerification, UserSuspension, ModerationCase, AbuseReport,
  *    ListingImageUpload) nhận create + delete round-trip (S-22 — migration
  *    Batch 5 không làm xáo trộn graph của batch trước).
+ *  - [b5-review Task 1 L1 — đóng trong Task 11] row Listing tạo ở head
+ *    PRE-Batch 5 sống sót qua migration Batch 5: database THỨ HAI trong cùng
+ *    container scratch → migrate về head cũ (dir round4) → seed raw SQL →
+ *    capture row_to_json → migrate --to production → row còn nguyên,
+ *    locationSource/searchTextNormalized NULL, mọi cột khác byte-identical
+ *    (approvedContentAt là backfill Batch 4 trên self-edge — có chủ đích).
  */
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -44,7 +50,10 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import { isUniqueConstraintViolation, SqlQueryError } from "@prisma/orm-family-sql/errors";
+import postgres from "@prisma/orm-postgres/runtime";
 
+import type { Contract } from "../../src/prisma/contract.d";
+import contractJson from "../../src/prisma/contract.json" with { type: "json" };
 import { db } from "../../src/prisma/db.client";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
@@ -750,4 +759,202 @@ d("preserves batch 2/3/4 tables", () => {
     await db.orm.public.ListingImageUpload.where({ id: up.id }).delete();
     expect(await db.orm.public.ListingImageUpload.first({ id: up.id })).toBeNull();
   });
+});
+
+// ─── 6. Row pre-Batch-5 sống sót qua migration Batch 5 (b5-review Task 1 L1) ───
+
+/**
+ * [b5-review Task 1 L1 — đóng trong Task 11] Migration Batch 5 là additive:
+ * một Listing row tạo ở head PRE-Batch 5 phải sống sót nguyên vẹn qua nó.
+ *
+ * Flow (database THỨ HAI `speaker_b5_l1` trong cùng container scratch — user
+ * `speaker` là superuser của container do test-integration.sh tạo, nên
+ * CREATE DATABASE được phép; suite chỉ chạy qua scripts/test-integration.sh):
+ *  1. CREATE DATABASE speaker_b5_l1 (qua raw lane của pool client chính);
+ *  2. `prisma db migrate --db <l1> --to <dir round4>` — head PRE-Batch-5
+ *     (dir-name target: requiredInvariants rỗng → self-edge backfill KHÔNG
+ *     chạy ở bước này — marker 66d2193a…, invariants []);
+ *  3. seed 2 Listing (approved + draft) bằng RAW SQL — contract của ORM là
+ *     hình batch-5 (có cột chưa tồn tại ở head cũ) nên ORM lane không dùng
+ *     được; raw SQL chỉ chạm cột tồn tại ở head cũ;
+ *  4. capture row_to_json (toàn bộ cột) — BEFORE;
+ *  5. `prisma db migrate --db <l1> --to production` — path walk từ marker
+ *     66d2193a… tới ref production BẮT BUỘC đi qua self-edge round4 (ref
+ *     khai báo invariant `backfill-listing-approved-content-at` mà marker
+ *     chưa có) → backfill approvedContentAt CHẠY + batch5 áp — đây cũng là
+ *     bằng chứng end-to-end cho L2 (path từ @empty tới production gồm
+ *     self-edge);
+ *  6. capture AFTER + marker → assert.
+ *
+ * Kỳ vọng: locationSource/searchTextNormalized NULL (cột mới, nullable —
+ * S3); MỌI cột khác byte-identical; NGOẠI LỆ DUY NHẤT approvedContentAt trên
+ * row approved = updatedAt của row (backfill Batch 4 — data op có chủ đích
+ * trên self-edge, KHÔNG phải hiệu ứng Batch 5; row draft không bị chạm vì
+ * backfill chỉ đếm status='approved').
+ */
+d("pre-Batch-5 row survives the batch 5 migration (b5-review T1 L1)", () => {
+  const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+  const PRE_B5_HEAD_DIR = "20261007T2007_batch4_round4_approved_content_backfill";
+  const BATCH5_DIR = "20261007T2208_batch5_search_telemetry";
+  const INVARIANT = "backfill-listing-approved-content-at";
+
+  type Row = Record<string, unknown>;
+
+  /** Client thứ hai (raw lane only) trỏ vào database L1 — cùng pattern db.client.ts. */
+  function mkL1Client(url: string) {
+    return postgres<Contract>({ contractJson, url });
+  }
+  type L1Client = ReturnType<typeof mkL1Client>;
+
+  /** Chạy `npx prisma …` từ repo root, trả envelope result của dòng result cuối. */
+  async function prismaCli(
+    args: string[],
+  ): Promise<{ migrationsApplied: number; markerHash: string; applied: Array<{ dirName: string }> }> {
+    const { stdout } = await execFileAsync("npx", ["prisma", ...args], {
+      cwd: ROOT,
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    const line = stdout
+      .split("\n")
+      .filter((l) => l.startsWith("{") && l.includes('"kind":"result"'))
+      .at(-1);
+    expect(line, "prisma CLI result line").toBeTruthy();
+    return JSON.parse(line!).envelope.result;
+  }
+
+  /** SELECT row_to_json(l) cho 1 Listing id — toàn bộ cột, so sánh byte. */
+  async function readListingRow(client: L1Client, id: string): Promise<Row> {
+    const rows = await client
+      .runtime()
+      .query(
+        client.raw.sql`SELECT row_to_json(l) AS row FROM "public"."Listing" l WHERE "id" = ${id}`
+          .returnsRow({ row: "pg/json@1" })
+          .build(),
+      )
+      .toArray();
+    expect(rows, `Listing ${id}`).toHaveLength(1);
+    return rows[0]!.row as Row;
+  }
+
+  it(
+    "row tạo ở head pre-Batch-5: locationSource/searchTextNormalized NULL, mọi cột khác nguyên vẹn",
+    { timeout: 180_000 },
+    async () => {
+      const mainUrl = process.env.DATABASE_URL!;
+      const l1Url = mainUrl.replace(/\/[^/]+$/, "/speaker_b5_l1");
+      // hash kỳ vọng đọc từ artefact (nguồn chân thực của graph — không hardcode)
+      const preB5To = (
+        JSON.parse(
+          readFileSync(join(ROOT, "migrations/app", PRE_B5_HEAD_DIR, "migration.json"), "utf8"),
+        ) as { to: string }
+      ).to;
+      const productionRef = JSON.parse(
+        readFileSync(join(ROOT, "migrations/app/refs/production.json"), "utf8"),
+      ) as { hash: string; invariants: string[] };
+
+      let l1: L1Client | null = null;
+      try {
+        // 1. database thứ hai trong cùng container scratch (tên là hằng số —
+        //    identifier SQL không parameterize được; DROP IF EXISTS chống đọng)
+        await db
+          .runtime()
+          .execute(db.raw.sql`DROP DATABASE IF EXISTS speaker_b5_l1 WITH (FORCE)`.affectedCount().build());
+        await db.runtime().execute(db.raw.sql`CREATE DATABASE speaker_b5_l1`.affectedCount().build());
+
+        // 2. migrate L1 về head PRE-Batch-5 (dir-name target: requiredInvariants
+        //    rỗng → self-edge backfill KHÔNG chạy ở bước này)
+        const pre = await prismaCli(["db", "migrate", "--db", l1Url, "--to", PRE_B5_HEAD_DIR]);
+        expect(pre.migrationsApplied).toBe(5); // baseline → b2 → b3 → b4 → holistic
+        expect(pre.markerHash).toBe(preB5To); // head cũ — CHƯA có batch5
+
+        // 3. seed raw SQL (ORM lane không dùng được: contract hiện tại là hình
+        //    batch-5 — cột chưa tồn tại ở head cũ; raw SQL chỉ chạm cột head cũ)
+        l1 = mkL1Client(l1Url);
+        const suffix = `${Date.now()}`;
+        const sellerId = `l1-seller-${suffix}`;
+        const catId = `l1-cat-${suffix}`;
+        const approvedId = `l1-listing-approved-${suffix}`;
+        const draftId = `l1-listing-draft-${suffix}`;
+        await l1.runtime().execute(
+          l1.raw.sql`INSERT INTO "public"."User" ("id","email","passwordHash","name","role","createdAt","updatedAt")
+            VALUES (${sellerId}, ${`l1-${suffix}@integration.test`}, ${"x"}, ${"L1 Seller"}, ${"seller"}, now(), now())`.affectedCount().build(),
+        );
+        await l1.runtime().execute(
+          l1.raw.sql`INSERT INTO "public"."Category" ("id","name","slug","createdAt")
+            VALUES (${catId}, ${`L1 Cat ${suffix}`}, ${`l1-cat-${suffix}`}, now())`.affectedCount().build(),
+        );
+        await l1.runtime().execute(
+          l1.raw.sql`INSERT INTO "public"."Listing"
+            ("id","sellerId","categoryId","title","slug","description","condition","price","status","city","viewCount","createdAt","updatedAt")
+            VALUES (${approvedId}, ${sellerId}, ${catId}, ${"Loa L1 approved"}, ${`loa-l1-approved-${suffix}`}, ${"mô tả L1"}, ${"good"}, ${1000000}, ${"approved"}, ${"Hà Nội"}, ${0}, now(), now())`.affectedCount().build(),
+        );
+        await l1.runtime().execute(
+          l1.raw.sql`INSERT INTO "public"."Listing"
+            ("id","sellerId","categoryId","title","slug","description","condition","price","status","city","viewCount","createdAt","updatedAt")
+            VALUES (${draftId}, ${sellerId}, ${catId}, ${"Loa L1 draft"}, ${`loa-l1-draft-${suffix}`}, ${"mô tả L1"}, ${"good"}, ${1000000}, ${"draft"}, ${"Hà Nội"}, ${0}, now(), now())`.affectedCount().build(),
+        );
+
+        // 4. BEFORE — toàn bộ cột ở head cũ
+        const approvedBefore = await readListingRow(l1, approvedId);
+        const draftBefore = await readListingRow(l1, draftId);
+        expect(approvedBefore.status).toBe("approved");
+        expect(approvedBefore.approvedContentAt).toBeNull(); // backfill chưa chạy
+        await l1.close();
+        l1 = null;
+
+        // 5. migrate tới production — path walk từ marker 66d2193a… tới ref
+        //    production BẮT BUỘC đi qua self-edge round4 (ref khai báo
+        //    invariant mà marker chưa có) → backfill CHẠY + batch5 áp
+        const post = await prismaCli(["db", "migrate", "--db", l1Url, "--to", "production"]);
+        expect(post.applied.map((m) => m.dirName)).toEqual([PRE_B5_HEAD_DIR, BATCH5_DIR]);
+        expect(post.markerHash).toBe(productionRef.hash);
+
+        // 6. AFTER + marker
+        l1 = mkL1Client(l1Url);
+        const approvedAfter = await readListingRow(l1, approvedId);
+        const draftAfter = await readListingRow(l1, draftId);
+        const markerRows = await l1
+          .runtime()
+          .query(
+            l1.raw.sql`SELECT "core_hash" AS hash, to_jsonb("invariants") AS invariants FROM "prisma_contract"."marker"`
+              .returnsRow({ hash: "pg/text@1", invariants: "pg/json@1" })
+              .build(),
+          )
+          .toArray();
+        expect(markerRows).toHaveLength(1);
+        expect(markerRows[0]!.hash).toBe(productionRef.hash);
+        expect(markerRows[0]!.invariants as string[]).toContain(INVARIANT); // marker ghi invariant → idempotent
+
+        // 7. assert — 2 cột mới NULL (S3), mọi cột khác byte-identical
+        for (const [before, after, label] of [
+          [approvedBefore, approvedAfter, "approved"],
+          [draftBefore, draftAfter, "draft"],
+        ] as const) {
+          expect(after.locationSource, `${label}.locationSource`).toBeNull();
+          expect(after.searchTextNormalized, `${label}.searchTextNormalized`).toBeNull();
+          // đúng 2 key mới xuất hiện — không cột nào khác bị thêm/bớt
+          expect(Object.keys(after).sort()).toEqual(
+            [...Object.keys(before), "locationSource", "searchTextNormalized"].sort(),
+          );
+          for (const [k, v] of Object.entries(before)) {
+            // approvedContentAt: duy nhất được phép đổi (backfill Batch 4 trên
+            // self-edge — có chủ đích, KHÔNG phải hiệu ứng Batch 5) — assert riêng bên dưới
+            if (k === "approvedContentAt") continue;
+            expect(after[k], `${label}.${k} unchanged`).toEqual(v);
+          }
+        }
+        // row approved: backfill Batch 4 đã chạy trên self-edge (L2 end-to-end)
+        expect(approvedAfter.approvedContentAt).toBe(approvedBefore.updatedAt);
+        // row draft: backfill KHÔNG chạm (WHERE status='approved') — toàn vẹn
+        expect(draftAfter.approvedContentAt).toBeNull();
+      } finally {
+        // dọn: đóng client L1 rồi drop database (DROP cần không còn connection)
+        await l1?.close();
+        await db
+          .runtime()
+          .execute(db.raw.sql`DROP DATABASE IF EXISTS speaker_b5_l1 WITH (FORCE)`.affectedCount().build())
+          .catch(() => undefined); // container scratch dọn ở trap EXIT — không che failure thật
+      }
+    },
+  );
 });
