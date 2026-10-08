@@ -14,7 +14,7 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
 import { isMalformedQuery } from "@/src/lib/search-normalize";
 import { resolveSearchQuery, type SearchResolution } from "@/src/lib/search-resolve";
 import { runSearchWithTelemetry } from "@/src/lib/search-telemetry";
-import { BETA_SPEAKER_CATEGORY_SLUG } from "@/src/lib/search-query";
+import { BETA_SPEAKER_CATEGORY_SLUG, sidebarSortSelectValue } from "@/src/lib/search-query";
 import { Search, SlidersHorizontal, Handshake, MapPin } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -232,10 +232,23 @@ export default async function ListingsPage({
 
             <div>
               <label className="label">Sắp xếp</label>
-              {/* 4 sort hiện có (plan); "relevance" là mặc định ranking khi có query
-                  (describeSearchQuery) — select không có option đó, fallback hiển thị
-                  "newest"; user submit thì sort gửi đi là một trong 4 giá trị này */}
-              <select name="sort" defaultValue={plan.sort === "relevance" ? "newest" : plan.sort} className="input text-sm">
+              {/* b5-review fix 1 (MEDIUM): option mặc định (value rỗng — "Phù hợp
+                  nhất") đứng ĐẦU; defaultValue = sidebarSortSelectValue(sp.sort) —
+                  CHỈ sort buyer CHỌN TƯỜNG MINH (4 giá trị UI) mới hiển thị cụ thể.
+                  Trước fix: không có option relevance/default + plan.sort
+                  "relevance" bị remap hiển thị "newest" → MỌI submit sidebar (refine
+                  sau header search HAY gõ thẳng query vào box) gửi sort=newest →
+                  ranking rơi về newest NGẦM sau lần refine đầu. Sau fix: submit
+                  sort='' → describeSearchQuery derive (hasQuery → "relevance",
+                  browsing → "newest") — relevance được GIỮ qua refine, và
+                  search_submitted ghi sort THẬT. Render pin:
+                  tests/unit/listings-page-sort.test.ts. */}
+              <select
+                name="sort"
+                defaultValue={sidebarSortSelectValue(sp.sort)}
+                className="input text-sm"
+              >
+                <option value="">Phù hợp nhất</option>
                 <option value="newest">Mới nhất</option>
                 <option value="price_asc">Giá tăng dần</option>
                 <option value="price_desc">Giá giảm dần</option>

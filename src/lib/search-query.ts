@@ -85,6 +85,34 @@ const CONDITION_VALUES = [
 /** Sort hợp lệ của search (ListingSort hôm nay + "relevance" — spec §5.7). */
 const SORT_VALUES = ["newest", "price_asc", "price_desc", "popular", "relevance"] as const;
 
+/**
+ * 4 sort giá trị UI mà select sidebar có thể mang TƯỜNG MINH — "relevance"
+ * KHÔNG thuộc tập này: vị trí relevance/default của select là VALUE RỖNG
+ * (b5-review fix 1), server derive qua describeSearchQuery.
+ */
+export const SIDEBAR_SORT_VALUES = ["newest", "price_asc", "price_desc", "popular"] as const;
+
+/**
+ * Giá trị hiển thị mặc định của select sort sidebar (b5-review fix 1 — MEDIUM):
+ * form CHỈ mang sort buyer CHỌN TƯỜNG MINH (một trong 4 giá trị UI); vắng /
+ * rỗng / "relevance" / giá trị lạ → "" (option "Phù hợp nhất" — vị trí mặc định)
+ * → submit sort='' → describeSearchQuery derive (hasQuery → "relevance",
+ * browsing → "newest").
+ *
+ * Trước fix: select KHÔNG có option relevance/default + defaultValue remap
+ * `plan.sort === "relevance" ? "newest" : plan.sort` → MỌI submit sidebar
+ * (refine sau header search HAY gõ thẳng query vào box keyword) gửi
+ * sort=newest → describeSearchQuery coi đó là sort tường minh → ranking
+ * textual-first bị drop NGẦM sau lần refine đầu (search_submitted cũng ghi
+ * sort "newest" — sai sort thật). Pin: tests/unit/listings-page-sort.test.ts
+ * (render) + round-trip ở tests/unit/search-query.test.ts.
+ */
+export function sidebarSortSelectValue(rawSort: string | undefined): string {
+  return rawSort !== undefined && (SIDEBAR_SORT_VALUES as readonly string[]).includes(rawSort)
+    ? rawSort
+    : "";
+}
+
 /** Params thô từ URL (searchParams page — giá trị string). */
 export type SearchQueryParams = {
   q?: string;

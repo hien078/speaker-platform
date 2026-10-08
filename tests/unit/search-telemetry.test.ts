@@ -568,6 +568,29 @@ describe("runSearchWithTelemetry — facets S-9 (slug chỉ emit khi khớp row 
     expect(metadata["priceMax"]).toBe(2000000);
     expect(metadata["sort"]).toBe("price_asc");
   });
+
+  it("sort RỖNG (sidebar submit option mặc định — b5-review fix 1) → metadata.sort 'relevance' (sort THẬT)", async () => {
+    // Select sort sidebar giờ submit sort='' khi buyer không chọn sort cụ thể
+    // (option "Phù hợp nhất" — tests/unit/listings-page-sort.test.ts). sort=''
+    // → describeSearchQuery derive hasQuery → "relevance" → search_submitted
+    // ghi sort THẬT (relevance), KHÔNG phải "newest" như cách cũ (select cũ
+    // luôn gửi sort=newest → analytics ranking bị lệch).
+    searchRun.resultCount = 1;
+    searchRun.listings = [{ id: "11111111-1111-4111-8111-111111111111" }];
+
+    await runSearchWithTelemetry({
+      user: ANON,
+      isPrefetch: false,
+      ip: "203.0.113.7",
+      resolution: EMPTY_RESOLUTION,
+      params: { q: "loa jbl charge 4", sort: "" },
+      loadedCategories: [],
+      loadedBrands: [],
+    });
+
+    const metadata = eventsOf("search_submitted")[0]!["metadata"] as Record<string, unknown>;
+    expect(metadata["sort"]).toBe("relevance");
+  });
 });
 
 // ─── Source contract — module posture ──────────────────────────────────────────

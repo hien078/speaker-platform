@@ -23,6 +23,10 @@
  *     chỉ "approved" là searchable (giá trị tương lai rò rỉ vào search → FAIL);
  *  7. S8: BETA_SPEAKER_CATEGORY_SLUG = "portable_bluetooth_speaker" import từ
  *     Batch 4 allowlist — KHÔNG còn fallback "loa-bluetooth".
+ *  8. b5-review fix 1 (MEDIUM): sidebarSortSelectValue — select sort sidebar
+ *     chỉ mang sort buyer CHỌN TƯỜNG MINH (4 giá trị UI); mặc định option rỗng
+ *     → submit sort='' → describeSearchQuery derive (hasQuery → "relevance",
+ *     browsing → "newest") — relevance KHÔNG bị drop ngầm sau refine (round-trip).
  *
  * Facets giữ "như hôm nay" (plan): condition validate theo enum contract,
  * min/max > 0, exchange="1", brand facet theo slug (trường plan thiếu — bổ sung
@@ -40,6 +44,7 @@ import {
   SEARCHABLE_LISTING_STATUSES,
   describeSearchQuery,
   isListingSearchable,
+  sidebarSortSelectValue,
 } from "@/src/lib/search-query";
 import type { SearchResolution } from "@/src/lib/search-resolve";
 
@@ -214,6 +219,49 @@ describe("describeSearchQuery — resolution ids + sort validation", () => {
     expect(describeSearchQuery({ sort: "price_desc" }, EMPTY).sort).toBe("price_desc");
     expect(describeSearchQuery({ sort: "popular" }, EMPTY).sort).toBe("popular");
     expect(describeSearchQuery({ sort: "newest" }, EMPTY).sort).toBe("newest");
+  });
+});
+
+// ─── 5b. Sidebar sort select — b5-review fix 1 (MEDIUM) ─────────────────────
+
+describe("sidebarSortSelectValue — select sort sidebar chỉ mang sort TƯỜNG MINH (b5-review fix 1)", () => {
+  it("4 sort cụ thể → giữ nguyên (buyer đã CHỌN — submit không mất lựa chọn)", () => {
+    expect(sidebarSortSelectValue("newest")).toBe("newest");
+    expect(sidebarSortSelectValue("price_asc")).toBe("price_asc");
+    expect(sidebarSortSelectValue("price_desc")).toBe("price_desc");
+    expect(sidebarSortSelectValue("popular")).toBe("popular");
+  });
+
+  it("vắng / rỗng / 'relevance' / giá trị lạ → '' (option mặc định — server derive)", () => {
+    expect(sidebarSortSelectValue(undefined)).toBe("");
+    expect(sidebarSortSelectValue("")).toBe("");
+    // "relevance" KHÔNG phải giá trị select tường minh — về option mặc định
+    expect(sidebarSortSelectValue("relevance")).toBe("");
+    expect(sidebarSortSelectValue("weird")).toBe("");
+  });
+
+  it("ROUND-TRIP: sidebar CÓ query, submit option mặc định (sort='') → plan.sort 'relevance' GIỮ", () => {
+    // Kịch bản finding: buyer search "jbl charge 4" từ header (relevance) →
+    // edit keyword / thêm filter trong sidebar → "Áp dụng". Select mặc định
+    // option rỗng → form gửi sort='' → describeSearchQuery derive hasQuery →
+    // relevance — ranking textual-first KHÔNG rơi về newest ngầm.
+    const plan = describeSearchQuery(
+      { q: "loa jbl charge 4", sort: sidebarSortSelectValue(undefined) },
+      EMPTY,
+    );
+    expect(plan.sort).toBe("relevance");
+    // gõ thẳng query vào box keyword khi đang BROWSING → submit sort='' → relevance
+    // (cách cũ: select hiển thị "newest" → submit sort=newest → drop ngầm)
+    expect(describeSearchQuery({ q: "jbl", sort: sidebarSortSelectValue(undefined) }, EMPTY).sort).toBe("relevance");
+  });
+
+  it("ROUND-TRIP: KHÔNG query (browsing) → submit option mặc định → plan.sort 'newest'", () => {
+    expect(describeSearchQuery({ sort: sidebarSortSelectValue(undefined) }, EMPTY).sort).toBe("newest");
+  });
+
+  it("ROUND-TRIP: buyer CHỌN sort cụ thể → submit giữ nguyên lựa chọn", () => {
+    expect(describeSearchQuery({ q: "loa", sort: sidebarSortSelectValue("newest") }, EMPTY).sort).toBe("newest");
+    expect(describeSearchQuery({ q: "loa", sort: sidebarSortSelectValue("price_asc") }, EMPTY).sort).toBe("price_asc");
   });
 });
 
