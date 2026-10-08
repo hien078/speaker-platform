@@ -81,6 +81,26 @@ async function mkUser(role: "buyer" | "seller"): Promise<string> {
   return u.id;
 }
 
+/**
+ * Seller đủ §7.8 (B1 fixture migration — Batch 6 Task 3, corrections #8):
+ * startConversationAction create branch giờ check seller-side eligibility
+ * (D2 — SellerVerification verified + BetaCohortMembership founding_seller
+ * active). Seed cho MỌI seller fixture; buyer không cần.
+ */
+async function seedSellerEligibility(sellerId: string): Promise<void> {
+  await db.orm.public.SellerVerification.create({
+    userId: sellerId,
+    status: "verified",
+    method: "operations_review",
+    policyVersion: "v1",
+  });
+  await db.orm.public.BetaCohortMembership.create({
+    userId: sellerId,
+    cohort: "founding_seller",
+    status: "active",
+  });
+}
+
 async function mkListing(sellerId: string): Promise<string> {
   const cat = await db.orm.public.Category.create({
     name: `Danh mục ${uid()}`,
@@ -157,7 +177,9 @@ async function messageCount(convoId: string): Promise<number> {
 }
 
 // dọn đúng dữ liệu test mình tạo (DB scratch — nhưng vẫn dọn sạch theo ref).
-// UserSuspension.user là Restrict → xóa suspension TRƯỚC user; còn lại cascade.
+// UserSuspension.user là Restrict → xóa suspension TRƯỚC user; SellerVerification
+// .user KHÔNG có onDelete (Restrict) → xóa TRƯỚC user (B1 migration — corrections
+// #8); còn lại cascade (membership/notification/session/upload theo user).
 const created = {
   users: [] as string[],
   categories: [] as string[],
@@ -178,6 +200,9 @@ afterEach(async () => {
   }
   for (const id of created.categories) {
     await db.orm.public.Category.where({ id }).delete();
+  }
+  for (const id of created.users) {
+    await db.orm.public.SellerVerification.where({ userId: id }).delete();
   }
   for (const id of created.users) {
     await db.orm.public.User.where({ id }).delete();
@@ -209,6 +234,7 @@ d("block enforcement trên DB thật", () => {
   it("block chặn hội thoại mới + tin nhắn CẢ HAI hướng; unblock mở lại; GET vẫn đọc lịch sử", async () => {
     const buyer = await mkUser("buyer");
     const seller = await mkUser("seller");
+    await seedSellerEligibility(seller); // B1 migration — create branch check §7.8 (D2)
     const listing = await mkListing(seller); // có sẵn hội thoại
     const listing2 = await mkListing(seller); // chưa có hội thoại — path "mới"
     const convo = await mkConversation(listing, buyer, seller);
@@ -290,6 +316,7 @@ d("block enforcement trên DB thật", () => {
   it("suspension chặn initiator/sender MỖI ACTION với session còn sống; counterpart bị đình chỉ vẫn nhận tin; lift mở lại", async () => {
     const buyer = await mkUser("buyer");
     const seller = await mkUser("seller");
+    await seedSellerEligibility(seller); // B1 migration — create branch check §7.8 (D2)
     const listing2 = await mkListing(seller);
     const listing3 = await mkListing(seller);
     const convo = await mkConversation(listing2, buyer, seller);
@@ -352,6 +379,7 @@ d("block enforcement trên DB thật", () => {
   it("block KHÔNG xóa/mutate Conversation/Message — rows deep-equal trước/sau block+unblock", async () => {
     const buyer = await mkUser("buyer");
     const seller = await mkUser("seller");
+    await seedSellerEligibility(seller); // B1 migration — create branch check §7.8 (D2)
     const listing = await mkListing(seller);
     const convo = await mkConversation(listing, buyer, seller);
     await mkMessage(convo, buyer, "tin của buyer");
