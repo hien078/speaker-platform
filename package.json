@@ -17,6 +17,7 @@
     "preflight": "bash scripts/preflight.sh",
     "smoke": "bash scripts/smoke.sh",
     "docker:smoke": "bash scripts/docker-smoke.sh",
+    "release:gate": "bash scripts/release-gate.sh",
     "postinstall": "prisma skills sync || exit 0",
     "contract:emit": "prisma contract emit"
   },
