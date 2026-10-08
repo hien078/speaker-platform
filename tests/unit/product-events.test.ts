@@ -562,6 +562,122 @@ describe("structural — taxonomy (spec §5.8 + D4)", () => {
   });
 });
 
+// ─── Batch 6 Task 4 — deal-event schemas mở rộng ADDITIVE (corrections #10) ──
+// Bốn schema deal chuyển từ z.strictObject({}) minimal sang key TYPED. Các
+// case structural ở trên (denylist :488, banned regex :546, taxonomy :507)
+// tự động phủ key mới — block này pin ĐÚNG key set + hành vi emit của từng
+// schema (KHÔNG schema hiện có bị yếu đi — chỉ thêm key).
+
+describe("deal-event schemas (Batch 6 Task 4 — corrections #10)", () => {
+  const DEAL_ID = "10b1c2d3-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+
+  const shapeOf = (name: ProductEventName): Record<string, unknown> =>
+    (EVENT_SCHEMAS[name] as unknown as { shape: Record<string, unknown> }).shape;
+
+  it("deal_created: key set đúng [dealId, fulfillmentMethod] — KHÔNG key giá/free-text", () => {
+    expect(Object.keys(shapeOf("deal_created")).sort()).toEqual(["dealId", "fulfillmentMethod"]);
+  });
+
+  it("deal_outcome_marked: key set đúng [dealId, outcome, role] (D3 + bên đánh dấu)", () => {
+    expect(Object.keys(shapeOf("deal_outcome_marked")).sort()).toEqual(["dealId", "outcome", "role"]);
+  });
+
+  it("successful_match / listing_marked_sold: key set đúng [dealId]", () => {
+    expect(Object.keys(shapeOf("successful_match")).sort()).toEqual(["dealId"]);
+    expect(Object.keys(shapeOf("listing_marked_sold")).sort()).toEqual(["dealId"]);
+  });
+
+  it("deal_created metadata hợp lệ → row ghi với metadata đã validate", async () => {
+    await emitProductEvent({
+      name: "deal_created",
+      actorId: "u-buyer",
+      sessionId: "sess-1",
+      conversationId: "convo-1",
+      listingId: "listing-1",
+      provinceCode: "ha-noi",
+      metadata: { dealId: DEAL_ID, fulfillmentMethod: "carrier" },
+    });
+    expect(dbState.events).toHaveLength(1);
+    expect(dbState.events[0]!["metadata"]).toEqual({ dealId: DEAL_ID, fulfillmentMethod: "carrier" });
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("deal_created fulfillmentMethod null HOẶC omitted → được chấp nhận (.nullish)", async () => {
+    await emitProductEvent({
+      name: "deal_created",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID, fulfillmentMethod: null },
+    });
+    expect(dbState.events).toHaveLength(1);
+
+    dbState.events.length = 0;
+    await emitProductEvent({
+      name: "deal_created",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID },
+    });
+    expect(dbState.events).toHaveLength(1);
+  });
+
+  it("deal_created dealId KHÔNG phải uuid → SCHEMA_REJECTED, KHÔNG row", async () => {
+    await emitProductEvent({
+      name: "deal_created",
+      actorId: "u-buyer",
+      metadata: { dealId: "deal-1", fulfillmentMethod: "carrier" },
+    });
+    expect(dbState.events).toHaveLength(0);
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      "telemetry",
+      "TELEMETRY_SCHEMA_REJECTED",
+      expect.objectContaining({ name: "deal_created" }),
+    );
+  });
+
+  it("deal_created key lạ (agreedPrice) → strict SCHEMA_REJECTED, KHÔNG row (§4.8 — giá KHÔNG vào event)", async () => {
+    await emitProductEvent({
+      name: "deal_created",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID, fulfillmentMethod: "carrier", agreedPrice: 500_000 },
+    });
+    expect(dbState.events).toHaveLength(0);
+    expect(captureErrorMock).toHaveBeenCalledWith(
+      "telemetry",
+      "TELEMETRY_SCHEMA_REJECTED",
+      expect.objectContaining({ name: "deal_created" }),
+    );
+  });
+
+  it("deal_outcome_marked payload hợp lệ → row ghi; outcome ngoài D3 / role lạ → KHÔNG row", async () => {
+    await emitProductEvent({
+      name: "deal_outcome_marked",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID, outcome: "no_deal", role: "buyer" },
+    });
+    expect(dbState.events).toHaveLength(1);
+    expect(dbState.events[0]!["metadata"]).toEqual({
+      dealId: DEAL_ID,
+      outcome: "no_deal",
+      role: "buyer",
+    });
+
+    dbState.events.length = 0;
+    captureErrorMock.mockClear();
+    await emitProductEvent({
+      name: "deal_outcome_marked",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID, outcome: "disputed", role: "buyer" },
+    });
+    expect(dbState.events).toHaveLength(0);
+
+    await emitProductEvent({
+      name: "deal_outcome_marked",
+      actorId: "u-buyer",
+      metadata: { dealId: DEAL_ID, outcome: "success", role: "admin" },
+    });
+    expect(dbState.events).toHaveLength(0);
+  });
+});
+
 // ─── Fail-open — telemetry KHÔNG phá product flow ────────────────────────────
 
 describe("emitProductEvent — fail-open (correction #9)", () => {
