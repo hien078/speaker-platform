@@ -31,6 +31,10 @@ const PAGE_SIZE = 50;
  * Prefix filter (?action=) — các nhóm action prefix của registry audit
  * (src/lib/audit-event.ts + moderation Tasks 5–7). Danh sách ĐÓNG: giá trị
  * query lạ → không filter (fail closed).
+ *
+ * Batch 7 Task 5 (corrections #29): thêm nhóm founding_seller (mười action
+ * cohort của Batch 7 — registry ghi tại src/lib/actions/founding-sellers.ts)
+ * + beta_cohort (Batch 2 membership_set) — additive, prefix cũ giữ nguyên.
  */
 const ACTION_PREFIXES = [
   { value: "moderation", label: "Kiểm duyệt" },
@@ -38,6 +42,8 @@ const ACTION_PREFIXES = [
   { value: "session", label: "Phiên" },
   { value: "admin", label: "Quản trị" },
   { value: "user", label: "Người dùng" },
+  { value: "founding_seller", label: "Founding seller" },
+  { value: "beta_cohort", label: "Beta cohort" },
 ] as const;
 
 /** Link phân trang/filter giữ nguyên các param đang chọn. */

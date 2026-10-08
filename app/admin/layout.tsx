@@ -8,6 +8,7 @@ import {
   Flag,
   AlertTriangle,
   Users,
+  UsersRound,
   Settings,
   AudioLines,
   Banknote,
@@ -46,6 +47,12 @@ const NAV: NavItem[] = [
   { href: "/admin/disputes", label: "Khiếu nại", icon: AlertTriangle, dormant: true },
   { href: "/admin/withdraws", label: "Rút tiền", icon: Banknote, dormant: true },
   { href: "/admin/users", label: "Người dùng", icon: Users, capability: "user.view_basic" },
+  // Batch 7 Task 5 (spec §5.10/§5.10.1) — founding seller console + concierge
+  // tracking. Gated beta_cohort.manage (super/ops — ma trận §5.4.1;
+  // moderator/support/analyst fail closed A2), lọc qua capabilitiesOf như mọi
+  // entry (CONVENIENCE ONLY — spec §4.5: trang tự requireCapability là ranh
+  // giới thật).
+  { href: "/admin/beta-cohort", label: "Beta cohort", icon: UsersRound, capability: "beta_cohort.manage" },
   // Task 10 — workflow SellerVerification (spec §5.3.2/§8.2) + audit view (§4.6).
   { href: "/admin/seller-verification", label: "Xác minh người bán", icon: BadgeCheck, capability: "seller.verify" },
   { href: "/admin/audit", label: "Nhật ký audit", icon: ScrollText, capability: "audit.read" },

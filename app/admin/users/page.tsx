@@ -7,7 +7,7 @@ import { setBetaMembershipAction } from "@/src/lib/actions/beta-cohort";
 import { revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
 import { suspendUserAction, liftSuspensionAction } from "@/src/lib/actions/moderation";
 import { SUSPENSION_REASON_CODES, SUSPENSION_NOTE_MAX_LENGTH, type SuspensionReasonCode } from "@/src/lib/moderation-vocab";
-import { Users, BadgeCheck, Search, History, Ban, ShieldCheck } from "lucide-react";
+import { Users, UsersRound, BadgeCheck, Search, History, Ban, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Người dùng" };
@@ -43,6 +43,14 @@ const SUSPENSION_REASON_LABELS: Record<SuspensionReasonCode, string> = {
  * action") / lift (reason typed, KHÔNG step-up — hướng khôi phục). Render chỉ
  * khi viewer có capability `user.suspend` (super/ops — ma trận §5.4.1) — UI
  * CONVENIENCE; suspendUserAction/liftSuspensionAction tự requireCapability.
+ *
+ * Batch 7 Task 5 (corrections #19/#27 + P2 — additive): cột
+ * "private_beta_buyer" + form grant/suspend REUSE setBetaMembershipAction của
+ * Batch 2 (audited beta_cohort.membership_set — KHÔNG phải surface mutation
+ * thứ hai; gate beta §2.1 đang BẬT nên không có UI này thì không buyer nào
+ * chat được); link "Beta cohort" per user → /admin/beta-cohort?userId=<id>
+ * (console Batch 7); ?u=<userId> filter EXACT theo id (link ngược từ console —
+ * q là ilike tên/email nên không tìm được theo id). KHÔNG email/phone trong URL.
  */
 export default async function AdminUsersPage({
   searchParams,
@@ -53,8 +61,11 @@ export default async function AdminUsersPage({
   const canRevokeSessions = capabilitiesOf(admin.user.adminRole).includes("session.revoke");
   const canManageCohort = capabilitiesOf(admin.user.adminRole).includes("beta_cohort.manage");
   const canSuspend = capabilitiesOf(admin.user.adminRole).includes("user.suspend");
-  const sp = (await searchParams) as { q?: string; role?: string };
+  const sp = (await searchParams) as { q?: string; role?: string; u?: string };
   const q = sp.q?.trim() ?? "";
+  // corrections #27: ?u=<userId> — tra cứu EXACT theo id (link từ console beta
+  // cohort); q giữ nguyên semantics (ilike tên/email). KHÔNG email/phone trong URL.
+  const uid = sp.u?.trim() ?? "";
   type UserRole = "buyer" | "seller" | "admin";
   const role = sp.role && ROLE_LABELS[sp.role] ? (sp.role as UserRole) : undefined;
 
@@ -63,16 +74,17 @@ export default async function AdminUsersPage({
     .orderBy((u) => u.createdAt.desc())
     .limit(100);
 
+  if (uid) query = query.where({ id: uid }); // exact id — corrections #27 (KHÔNG ilike)
   if (role) query = query.where({ role });
-  if (q) {
-    // tìm theo tên hoặc email
+  if (q && !uid) {
+    // tìm theo tên hoặc email (q — giữ nguyên Batch 2; ?u= là tra cứu exact)
     const like = `%${q}%`;
     query = query.where((u) => u.email.ilike(like));
     // tên riêng query thứ hai bên dưới
   }
 
   let users = await query.all();
-  if (q) {
+  if (q && !uid) {
     const like = `%${q}%`;
     const byName = await db.orm.public.User
       .where((u) => u.name.ilike(like))
@@ -88,7 +100,7 @@ export default async function AdminUsersPage({
   // hiển thị kèm "(+M nháp)" — cùng tín hiệu như /admin/seller-verification.
   const enriched = await Promise.all(
     users.map(async (u) => {
-      const [listings, drafts, orders, founding, suspension] = await Promise.all([
+      const [listings, drafts, orders, founding, buyer, suspension] = await Promise.all([
         db.orm.public.Listing.where({ sellerId: u.id }).where((l) => l.status.neq("draft")).aggregate((a) => ({ c: a.count() })),
         db.orm.public.Listing.where({ sellerId: u.id, status: "draft" }).aggregate((a) => ({ c: a.count() })),
         db.orm.public.Order
@@ -96,6 +108,9 @@ export default async function AdminUsersPage({
           .where({ status: "completed" })
           .aggregate((a) => ({ c: a.count() })),
         db.orm.public.BetaCohortMembership.first({ userId: u.id, cohort: "founding_seller" }),
+        // Batch 7 Task 5 (corrections #19/P2): membership private_beta_buyer —
+        // hiển thị READ-ONLY + form grant/suspend reuse setBetaMembershipAction.
+        db.orm.public.BetaCohortMembership.first({ userId: u.id, cohort: "private_beta_buyer" }),
         // Batch 3 Task 5 (spec §7.8): episode đình chỉ active — badge + form lift
         db.orm.public.UserSuspension.first({ userId: u.id, status: "active" }),
       ]);
@@ -105,6 +120,7 @@ export default async function AdminUsersPage({
         draftCount: drafts.c,
         completedSales: orders.c,
         foundingStatus: founding?.status ?? null,
+        buyerStatus: buyer?.status ?? null,
         activeSuspension: suspension === null ? null : {
           id: suspension.id,
           reasonCode: suspension.reasonCode,
@@ -147,6 +163,7 @@ export default async function AdminUsersPage({
               <th>Đã bán</th>
               <th>Xác minh (legacy)</th>
               <th>founding_seller</th>
+              <th>private_beta_buyer</th>
               <th>Đình chỉ</th>
               <th>Tham gia</th>
               <th></th>
@@ -155,7 +172,7 @@ export default async function AdminUsersPage({
           <tbody>
             {enriched.length === 0 ? (
               <tr>
-                <td colSpan={10} className="py-10 text-center text-[var(--muted)]">Không tìm thấy người dùng</td>
+                <td colSpan={11} className="py-10 text-center text-[var(--muted)]">Không tìm thấy người dùng</td>
               </tr>
             ) : (
               enriched.map((u) => (
@@ -205,6 +222,16 @@ export default async function AdminUsersPage({
                     </span>
                   </td>
                   <td>
+                    <span className={cn(
+                      "badge",
+                      u.buyerStatus === "active" ? "bg-[var(--green-soft)] text-[var(--green)]" :
+                      u.buyerStatus ? "bg-amber-500/15 text-amber-600" :
+                      "bg-[var(--paper-deep)] text-[var(--ink-2)]",
+                    )}>
+                      {u.buyerStatus ?? "—"}
+                    </span>
+                  </td>
+                  <td>
                     {u.activeSuspension ? (
                       <span
                         className="badge bg-[var(--red-soft)] text-[var(--red)]"
@@ -228,6 +255,19 @@ export default async function AdminUsersPage({
                         <History className="size-3.5" />
                         Hồ sơ xác minh
                       </Link>
+                      {canManageCohort && (
+                        // Batch 7 Task 5 — link sang console founding seller,
+                        // lọc ứng viên đã link user này (page tự guard
+                        // beta_cohort.manage — link chỉ là convenience §4.5).
+                        <Link
+                          href={`/admin/beta-cohort?userId=${u.id}`}
+                          className="btn-secondary flex h-8 items-center gap-1 px-3 text-xs"
+                          title="Xem ứng viên founding seller đã liên kết với người dùng này (console Batch 7)"
+                        >
+                          <UsersRound className="size-3.5" />
+                          Beta cohort
+                        </Link>
+                      )}
                       {canManageCohort && (
                         <>
                           {u.foundingStatus !== "active" ? (
@@ -254,6 +294,38 @@ export default async function AdminUsersPage({
                                 title="Tạm dừng founding_seller — chặn publication NGAY (gate đọc FRESH)"
                               >
                                 Tạm dừng
+                              </button>
+                            </form>
+                          )}
+                          {/* Batch 7 Task 5 (corrections #19/P2): gate beta §2.1 đang
+                              BẬT — buyer cần private_beta_buyer active để bắt đầu
+                              hội thoại/Deal mới. REUSE setBetaMembershipAction của
+                              Batch 2 (audited beta_cohort.membership_set, tự guard +
+                              chặn self-grant) — KHÔNG phải surface mutation thứ hai. */}
+                          {u.buyerStatus !== "active" ? (
+                            <form action={setBetaMembershipAction}>
+                              <input type="hidden" name="userId" value={u.id} />
+                              <input type="hidden" name="cohort" value="private_beta_buyer" />
+                              <input type="hidden" name="status" value="active" />
+                              <button
+                                type="submit"
+                                className="btn h-8 bg-[var(--green)] px-3 text-xs text-white hover:opacity-90"
+                                title="Cấp private_beta_buyer active — cho phép bắt đầu hội thoại/Deal mới khi gate beta bật (spec §2.1)"
+                              >
+                                Cấp private_beta_buyer
+                              </button>
+                            </form>
+                          ) : (
+                            <form action={setBetaMembershipAction}>
+                              <input type="hidden" name="userId" value={u.id} />
+                              <input type="hidden" name="cohort" value="private_beta_buyer" />
+                              <input type="hidden" name="status" value="suspended" />
+                              <button
+                                type="submit"
+                                className="btn h-8 bg-[var(--paper-deep)] px-3 text-xs text-[var(--ink-2)] hover:bg-zinc-600"
+                                title="Tạm dừng private_beta_buyer — chặn hội thoại/Deal mới NGAY (gate đọc FRESH)"
+                              >
+                                Tạm dừng buyer
                               </button>
                             </form>
                           )}
