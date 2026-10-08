@@ -38,7 +38,7 @@
  * Content-Security-Policy là release-checklist row của OPERATOR (sau
  * docker:smoke + manual page-load), không phải commit của batch này.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import nextConfig from "../../next.config";
 
 type HeaderEntry = { source: string; headers: Array<{ key: string; value: string }> };
@@ -171,20 +171,22 @@ describe("§7.4 CSP Report-Only value (guide 'Without Nonces' đã cài)", () =>
   });
 
   it("script-src THÊM 'unsafe-eval' CHỈ ở development (NODE_ENV đọc lúc gọi headers())", async () => {
-    const prev = process.env.NODE_ENV;
-    process.env.NODE_ENV = "development";
+    // vi.stubEnv (không gán process.env.NODE_ENV trực tiếp — read-only theo @types/node)
+    vi.stubEnv("NODE_ENV", "development");
     try {
       const dev = await effectiveHeaders("/listings/foo");
-      expect(dev["Content-Security-Policy-Report-Only"]).toContain("script-src 'self' 'unsafe-inline' 'unsafe-eval'");
+      expect(dev["Content-Security-Policy-Report-Only"]).toContain(
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      );
     } finally {
-      process.env.NODE_ENV = prev;
+      vi.unstubAllEnvs();
     }
-    process.env.NODE_ENV = "production";
+    vi.stubEnv("NODE_ENV", "production");
     try {
       const prod = await effectiveHeaders("/listings/foo");
       expect(prod["Content-Security-Policy-Report-Only"]).not.toContain("'unsafe-eval'");
     } finally {
-      process.env.NODE_ENV = prev;
+      vi.unstubAllEnvs();
     }
   });
 
