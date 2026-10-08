@@ -222,6 +222,24 @@ enum search_alias_target {
   model = "model"
 }
 
+// ─── Enums (Batch 6 — Deal, spec §5.2) ───
+
+enum deal_status {
+  @@type("pg/text@1")
+  open      = "open"       // thỏa thuận đã tạo, chưa có kết quả song phương
+  completed = "completed"  // CẢ HAI bên xác nhận thành công (bilateral — §5.2)
+  cancelled = "cancelled"  // thỏa thuận bị hủy sau khi đã thống nhất
+  no_deal   = "no_deal"    // không đạt thỏa thuận
+}
+
+enum deal_fulfillment_method {
+  @@type("pg/text@1")
+  meetup          = "meetup"           // gặp trực tiếp
+  seller_delivery = "seller_delivery"   // người bán giao đến
+  carrier         = "carrier"           // chuyển phát
+  other           = "other"             // khác
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -284,6 +302,10 @@ model User {
   appealsFiled         Appeal[]             @relation("appeal_appellant")
   // ─── Batch 4 — upload ownership relation (additive — spec §5.6.4) ───
   imageUploads         ListingImageUpload[] @relation("listing_image_upload_owner")
+  // ─── Batch 6 — Deal relations (additive — KHÔNG cột mới trên User, spec §5.2) ───
+  dealsAsBuyer        Deal[]              @relation("deal_buyer")
+  dealsAsSeller       Deal[]              @relation("deal_seller")
+  dealHistoryActions  DealStatusHistory[] @relation("deal_history_actor")
 
   @@index([role])
 }
@@ -352,6 +374,8 @@ model Listing {
   priceOffers    Offer[] @relation("offer_listing")
   productModelId String?
   productModel   ProductModel? @relation(fields: [productModelId], references: [id])
+  // ─── Batch 6 — Deal back-relation (additive — KHÔNG cột mới trên Listing, spec §5.2) ───
+  deals Deal[] @relation("deal_listing")
 
   // ─── Batch 4 — structured portable-speaker listing (spec §5.6) ───
   inventoryContext     inventory_context? // NULL = legacy "not captured" (spec §8.3)
@@ -1179,4 +1203,63 @@ model SearchAlias {
   // seed-beta-catalog rollback xóa brand/model không bị Restrict chặn, alias trỏ
   // id đã chết là rác — cascade dọn theo.
   @@check(expression: "((target = 'brand' AND \"brandId\" IS NOT NULL AND \"productModelId\" IS NULL) OR (target = 'model' AND \"productModelId\" IS NOT NULL AND \"brandId\" IS NULL))", name: "search_alias_target_ids")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 6 — Chat Hardening and Deal Outcome (spec §5.2/§9 Batch 6)
+// Additive-only: không drop/rename/repurpose model/cột/enum value nào đang có.
+// KHÔNG thêm giá trị listing_status nào — Batch 6 chỉ CLAIM giá trị `sold`
+// đã có qua update seller-chosen trong markDealOutcomeAction (D6).
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Lightweight Deal (Batch 6, spec §5.2 — KHÔNG phải Order V2, KHÔNG đụng finance) ───
+// agreedPrice là bản ghi người dùng tự nhập — LoaViet KHÔNG bao giờ thu tiền này trong P0.
+// KHÔNG có trường tiền nào khác (không commission/escrow/payout/ledger — §9 Batch 6 Gate).
+
+model Deal {
+  id                 String                    @id @default(uuid())
+  listingId          String?                   // nullable + SetNull theo precedent Conversation — deal sống qua listing deletion (D9)
+  listing            Listing?                  @relation("deal_listing", fields: [listingId], references: [id], onDelete: SetNull)
+  conversationId     String?                   // KHÔNG FK (ProductEvent.conversationId precedent) — deal reachable sau listing deletion (D9/S11)
+  buyerId            String
+  buyer              User                      @relation("deal_buyer", fields: [buyerId], references: [id], onDelete: Restrict) // không có account deletion trong P0 — batch sau quay lại qua retention (A7)
+  sellerId           String
+  seller             User                      @relation("deal_seller", fields: [sellerId], references: [id], onDelete: Restrict)
+  status             deal_status               @default(open)
+  agreedPrice        Int?                      // VND — bản ghi tự nhập, bound 100_000..2_000_000_000 (listing-schema PRICE_MIN/MAX — D5)
+  fulfillmentMethod  deal_fulfillment_method?
+  buyerOutcomeAt     TimestamptzString?        // buyer đã đánh dấu kết quả (giá trị sống trong DealStatusHistory.note)
+  sellerOutcomeAt    TimestamptzString?
+  completedAt        TimestamptzString?        // đặt khi claim open→completed thành công (bilateral)
+  cancellationReason String?                   // ≤500 ký tự — untrusted input, render React text; KHÔNG vào telemetry
+  createdAt           TimestamptzString         @default(now())
+  updatedAt           temporal.updatedAtString()
+
+  statusHistory DealStatusHistory[]
+
+  @@index([listingId])
+  @@index([conversationId])                     // panel lookup theo hội thoại — sống qua listing deletion (S11)
+  @@index([buyerId, createdAt])
+  @@index([sellerId, createdAt])
+  @@index([status, updatedAt])
+  // MỘT deal OPEN duy nhất per (listing, buyer) — đóng race double-create (Task 4);
+  // deal completed/cancelled/no_deal cùng cặp được phép tồn tại → buyer tạo deal MỚI sau khi deal cũ kết thúc (D4)
+  @@index([listingId, buyerId], where: "(status = 'open')", unique: true, name: "deal_one_open_per_listing_buyer")
+}
+
+// Lịch sử trạng thái Deal (spec §5.2 DealStatusHistory) — APPEND-ONLY:
+// không product flow nào update/delete; actor nullable + SetNull sống qua account deletion tương lai
+// (Batch 3 ModerationAction precedent). note mang typed marker "buyer:success" / "seller:no_deal" + reason.
+model DealStatusHistory {
+  id        String            @id @default(uuid())
+  dealId    String
+  deal      Deal              @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  status    deal_status       // trạng thái deal SAU marking này
+  actorId   String?
+  actor     User?             @relation("deal_history_actor", fields: [actorId], references: [id], onDelete: SetNull)
+  note      String?           // typed marker per party + cancellationReason — KHÔNG PII
+  createdAt TimestamptzString @default(now())
+
+  @@index([dealId, createdAt])
+  @@index([actorId, createdAt])
 }

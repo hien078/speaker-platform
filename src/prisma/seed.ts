@@ -189,6 +189,10 @@ async function main() {
   await db.orm.public.OrderStatusHistory.where({}).deleteAll();
   await db.orm.public.Dispute.where({}).deleteAll();
   await db.orm.public.Review.where({}).deleteAll();
+  // Deal (Batch 6) — DealStatusHistory Cascade theo dealId (KHÔNG xóa history
+  // riêng — append-only scan của Batch 6 quét src/); buyer/seller Restrict ⇒
+  // PHẢI đứng trước Conversation/Listing/User.
+  await db.orm.public.Deal.where({}).deleteAll();
   await db.orm.public.Message.where({}).deleteAll();
   await db.orm.public.Conversation.where({}).deleteAll();
   await db.orm.public.Payment.where({}).deleteAll();

@@ -52,6 +52,14 @@
       "model": "Conversation",
       "namespace": "public"
     },
+    "Deal": {
+      "model": "Deal",
+      "namespace": "public"
+    },
+    "DealStatusHistory": {
+      "model": "DealStatusHistory",
+      "namespace": "public"
+    },
     "Dispute": {
       "model": "Dispute",
       "namespace": "public"
@@ -258,6 +266,48 @@
               {
                 "name": "exited",
                 "value": "exited"
+              }
+            ]
+          },
+          "deal_fulfillment_method": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "meetup",
+                "value": "meetup"
+              },
+              {
+                "name": "seller_delivery",
+                "value": "seller_delivery"
+              },
+              {
+                "name": "carrier",
+                "value": "carrier"
+              },
+              {
+                "name": "other",
+                "value": "other"
+              }
+            ]
+          },
+          "deal_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "open",
+                "value": "open"
+              },
+              {
+                "name": "completed",
+                "value": "completed"
+              },
+              {
+                "name": "cancelled",
+                "value": "cancelled"
+              },
+              {
+                "name": "no_deal",
+                "value": "no_deal"
               }
             ]
           },
@@ -2206,6 +2256,343 @@
               "table": "Conversation"
             }
           },
+          "Deal": {
+            "fields": {
+              "agreedPrice": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "buyerId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "buyerOutcomeAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "cancellationReason": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "completedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "conversationId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "fulfillmentMethod": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "deal_fulfillment_method",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "listingId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sellerId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sellerOutcomeAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "deal_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "buyer": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "buyerId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "listing": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "listingId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Listing",
+                  "namespace": "public"
+                }
+              },
+              "seller": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "sellerId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "statusHistory": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "dealId"
+                  ]
+                },
+                "to": {
+                  "model": "DealStatusHistory",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "agreedPrice": {
+                  "column": "agreedPrice"
+                },
+                "buyerId": {
+                  "column": "buyerId"
+                },
+                "buyerOutcomeAt": {
+                  "column": "buyerOutcomeAt"
+                },
+                "cancellationReason": {
+                  "column": "cancellationReason"
+                },
+                "completedAt": {
+                  "column": "completedAt"
+                },
+                "conversationId": {
+                  "column": "conversationId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "fulfillmentMethod": {
+                  "column": "fulfillmentMethod"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "listingId": {
+                  "column": "listingId"
+                },
+                "sellerId": {
+                  "column": "sellerId"
+                },
+                "sellerOutcomeAt": {
+                  "column": "sellerOutcomeAt"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "Deal"
+            }
+          },
+          "DealStatusHistory": {
+            "fields": {
+              "actorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "dealId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "deal_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              }
+            },
+            "relations": {
+              "actor": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "actorId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "deal": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "dealId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "Deal",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "actorId": {
+                  "column": "actorId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "dealId": {
+                  "column": "dealId"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "status": {
+                  "column": "status"
+                }
+              },
+              "namespaceId": "public",
+              "table": "DealStatusHistory"
+            }
+          },
           "Dispute": {
             "fields": {
               "createdAt": {
@@ -2909,6 +3296,21 @@
                 },
                 "to": {
                   "model": "Conversation",
+                  "namespace": "public"
+                }
+              },
+              "deals": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "listingId"
+                  ]
+                },
+                "to": {
+                  "model": "Deal",
                   "namespace": "public"
                 }
               },
@@ -6422,6 +6824,51 @@
                   "namespace": "public"
                 }
               },
+              "dealHistoryActions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "actorId"
+                  ]
+                },
+                "to": {
+                  "model": "DealStatusHistory",
+                  "namespace": "public"
+                }
+              },
+              "dealsAsBuyer": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "buyerId"
+                  ]
+                },
+                "to": {
+                  "model": "Deal",
+                  "namespace": "public"
+                }
+              },
+              "dealsAsSeller": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "sellerId"
+                  ]
+                },
+                "to": {
+                  "model": "Deal",
+                  "namespace": "public"
+                }
+              },
               "disputesOpened": {
                 "cardinality": "1:N",
                 "on": {
@@ -8754,6 +9201,371 @@
                   ]
                 }
               ]
+            },
+            "Deal": {
+              "checks": [
+                {
+                  "expression": "\"fulfillmentMethod\" IN ('meetup', 'seller_delivery', 'carrier', 'other')",
+                  "name": "Deal_fulfillmentMethod_check_247caea4",
+                  "prefix": "Deal_fulfillmentMethod_check"
+                },
+                {
+                  "expression": "\"status\" IN ('open', 'completed', 'cancelled', 'no_deal')",
+                  "name": "Deal_status_check_871208bd",
+                  "prefix": "Deal_status_check"
+                }
+              ],
+              "columns": {
+                "agreedPrice": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": true
+                },
+                "buyerId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "buyerOutcomeAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "cancellationReason": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "completedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "conversationId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "fulfillmentMethod": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "deal_fulfillment_method",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "listingId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sellerId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "sellerOutcomeAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "open"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "deal_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "listingId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Deal"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Listing"
+                  }
+                },
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "buyerId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Deal"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "sellerId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Deal"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "buyerId",
+                    "createdAt"
+                  ],
+                  "name": "Deal_buyerId_createdAt_idx_7547b79f",
+                  "prefix": "Deal_buyerId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "buyerId"
+                  ],
+                  "name": "Deal_buyerId_idx_80be0de9",
+                  "prefix": "Deal_buyerId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "conversationId"
+                  ],
+                  "name": "Deal_conversationId_idx_669215a6",
+                  "prefix": "Deal_conversationId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "listingId"
+                  ],
+                  "name": "Deal_listingId_idx_953decda",
+                  "prefix": "Deal_listingId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "sellerId",
+                    "createdAt"
+                  ],
+                  "name": "Deal_sellerId_createdAt_idx_a21eaac1",
+                  "prefix": "Deal_sellerId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "sellerId"
+                  ],
+                  "name": "Deal_sellerId_idx_d71255f2",
+                  "prefix": "Deal_sellerId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status",
+                    "updatedAt"
+                  ],
+                  "name": "Deal_status_updatedAt_idx_29f913bb",
+                  "prefix": "Deal_status_updatedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "listingId",
+                    "buyerId"
+                  ],
+                  "name": "deal_one_open_per_listing_buyer_77dfd57d",
+                  "prefix": "deal_one_open_per_listing_buyer",
+                  "unique": true,
+                  "where": "(status = 'open')"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "DealStatusHistory": {
+              "checks": [
+                {
+                  "expression": "\"status\" IN ('open', 'completed', 'cancelled', 'no_deal')",
+                  "name": "DealStatusHistory_status_check_871208bd",
+                  "prefix": "DealStatusHistory_status_check"
+                }
+              ],
+              "columns": {
+                "actorId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "dealId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "deal_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "dealId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "DealStatusHistory"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Deal"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "actorId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "DealStatusHistory"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "actorId",
+                    "createdAt"
+                  ],
+                  "name": "DealStatusHistory_actorId_createdAt_idx_0e9f1adf",
+                  "prefix": "DealStatusHistory_actorId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "actorId"
+                  ],
+                  "name": "DealStatusHistory_actorId_idx_a58f6b4b",
+                  "prefix": "DealStatusHistory_actorId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "dealId",
+                    "createdAt"
+                  ],
+                  "name": "DealStatusHistory_dealId_createdAt_idx_33a673d8",
+                  "prefix": "DealStatusHistory_dealId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "dealId"
+                  ],
+                  "name": "DealStatusHistory_dealId_idx_3e3b3068",
+                  "prefix": "DealStatusHistory_dealId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
             },
             "Dispute": {
               "checks": [
@@ -13089,6 +13901,24 @@
                 "exited"
               ]
             },
+            "deal_fulfillment_method": {
+              "kind": "valueSet",
+              "values": [
+                "meetup",
+                "seller_delivery",
+                "carrier",
+                "other"
+              ]
+            },
+            "deal_status": {
+              "kind": "valueSet",
+              "values": [
+                "open",
+                "completed",
+                "cancelled",
+                "no_deal"
+              ]
+            },
             "dispute_status": {
               "kind": "valueSet",
               "values": [
@@ -13327,10 +14157,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "1350a596e5d91729f817bb862f0dc4089c7fbb2676d3fc96fe8889a8fce8760e"
+    "storageHash": "292dd3fbd5f0e8543fea2e3e04297f170f53408ac8b348c7c7f3cd4868741277"
   },
   "execution": {
-    "executionHash": "7bb84274aed07e15ea090dc797ec4f1b4219725ac02193989c75e98c03faa0c6",
+    "executionHash": "ef5e50baf1ef9159b6f7919341ce6853b9a93a93dee6c396caea7edd4136b686",
     "mutations": {
       "defaults": [
         {
@@ -13506,6 +14336,43 @@
           },
           "ref": {
             "entry": "Conversation",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "Deal",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "Deal",
+            "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "DealStatusHistory",
             "field": "id",
             "namespace": "public"
           }

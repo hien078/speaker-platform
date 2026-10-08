@@ -1,0 +1,758 @@
+[
+  {
+    "id": "table.Deal",
+    "label": "Create table \"Deal\"",
+    "summary": "Creates table \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"Deal\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"Deal\"",
+        "sql": "CREATE TABLE \"public\".\"Deal\" (\n  \"agreedPrice\" int4,\n  \"buyerId\" text NOT NULL,\n  \"buyerOutcomeAt\" timestamptz,\n  \"cancellationReason\" text,\n  \"completedAt\" timestamptz,\n  \"conversationId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"fulfillmentMethod\" text,\n  \"id\" text NOT NULL,\n  \"listingId\" text,\n  \"sellerId\" text NOT NULL,\n  \"sellerOutcomeAt\" timestamptz,\n  \"status\" text DEFAULT 'open' NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"Deal_fulfillmentMethod_check_247caea4\" CHECK (\"fulfillmentMethod\" IN ('meetup', 'seller_delivery', 'carrier', 'other')),\n  CONSTRAINT \"Deal_status_check_871208bd\" CHECK (\"status\" IN ('open', 'completed', 'cancelled', 'no_deal'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"Deal\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.DealStatusHistory",
+    "label": "Create table \"DealStatusHistory\"",
+    "summary": "Creates table \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"DealStatusHistory\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"DealStatusHistory\"",
+        "sql": "CREATE TABLE \"public\".\"DealStatusHistory\" (\n  \"actorId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"dealId\" text NOT NULL,\n  \"id\" text NOT NULL,\n  \"note\" text,\n  \"status\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"DealStatusHistory_status_check_871208bd\" CHECK (\"status\" IN ('open', 'completed', 'cancelled', 'no_deal'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"DealStatusHistory\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_buyerId_createdAt_idx_7547b79f",
+    "label": "Create index \"Deal_buyerId_createdAt_idx_7547b79f\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_buyerId_createdAt_idx_7547b79f",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_buyerId_createdAt_idx_7547b79f\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_buyerId_createdAt_idx_7547b79f\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_buyerId_createdAt_idx_7547b79f\"",
+        "sql": "CREATE INDEX \"Deal_buyerId_createdAt_idx_7547b79f\" ON \"public\".\"Deal\" (\"buyerId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_buyerId_createdAt_idx_7547b79f\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_buyerId_createdAt_idx_7547b79f\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_buyerId_idx_80be0de9",
+    "label": "Create index \"Deal_buyerId_idx_80be0de9\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_buyerId_idx_80be0de9",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_buyerId_idx_80be0de9\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_buyerId_idx_80be0de9\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_buyerId_idx_80be0de9\"",
+        "sql": "CREATE INDEX \"Deal_buyerId_idx_80be0de9\" ON \"public\".\"Deal\" (\"buyerId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_buyerId_idx_80be0de9\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_buyerId_idx_80be0de9\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_conversationId_idx_669215a6",
+    "label": "Create index \"Deal_conversationId_idx_669215a6\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_conversationId_idx_669215a6",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_conversationId_idx_669215a6\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_conversationId_idx_669215a6\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_conversationId_idx_669215a6\"",
+        "sql": "CREATE INDEX \"Deal_conversationId_idx_669215a6\" ON \"public\".\"Deal\" (\"conversationId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_conversationId_idx_669215a6\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_conversationId_idx_669215a6\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_listingId_idx_953decda",
+    "label": "Create index \"Deal_listingId_idx_953decda\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_listingId_idx_953decda",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_listingId_idx_953decda\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_listingId_idx_953decda\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_listingId_idx_953decda\"",
+        "sql": "CREATE INDEX \"Deal_listingId_idx_953decda\" ON \"public\".\"Deal\" (\"listingId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_listingId_idx_953decda\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_listingId_idx_953decda\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_sellerId_createdAt_idx_a21eaac1",
+    "label": "Create index \"Deal_sellerId_createdAt_idx_a21eaac1\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_sellerId_createdAt_idx_a21eaac1",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_sellerId_createdAt_idx_a21eaac1\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_sellerId_createdAt_idx_a21eaac1\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_sellerId_createdAt_idx_a21eaac1\"",
+        "sql": "CREATE INDEX \"Deal_sellerId_createdAt_idx_a21eaac1\" ON \"public\".\"Deal\" (\"sellerId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_sellerId_createdAt_idx_a21eaac1\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_sellerId_createdAt_idx_a21eaac1\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_sellerId_idx_d71255f2",
+    "label": "Create index \"Deal_sellerId_idx_d71255f2\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_sellerId_idx_d71255f2",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_sellerId_idx_d71255f2\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_sellerId_idx_d71255f2\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_sellerId_idx_d71255f2\"",
+        "sql": "CREATE INDEX \"Deal_sellerId_idx_d71255f2\" ON \"public\".\"Deal\" (\"sellerId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_sellerId_idx_d71255f2\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_sellerId_idx_d71255f2\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.Deal_status_updatedAt_idx_29f913bb",
+    "label": "Create index \"Deal_status_updatedAt_idx_29f913bb\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "Deal_status_updatedAt_idx_29f913bb",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"Deal_status_updatedAt_idx_29f913bb\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"Deal_status_updatedAt_idx_29f913bb\"",
+        "sql": "CREATE INDEX \"Deal_status_updatedAt_idx_29f913bb\" ON \"public\".\"Deal\" (\"status\", \"updatedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"Deal_status_updatedAt_idx_29f913bb\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"Deal_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Deal.deal_one_open_per_listing_buyer_77dfd57d",
+    "label": "Create index \"deal_one_open_per_listing_buyer_77dfd57d\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "deal_one_open_per_listing_buyer_77dfd57d",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"deal_one_open_per_listing_buyer_77dfd57d\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"deal_one_open_per_listing_buyer_77dfd57d\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"deal_one_open_per_listing_buyer_77dfd57d\"",
+        "sql": "CREATE UNIQUE INDEX \"deal_one_open_per_listing_buyer_77dfd57d\" ON \"public\".\"Deal\" (\"listingId\", \"buyerId\") WHERE ((status = 'open'))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"deal_one_open_per_listing_buyer_77dfd57d\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"deal_one_open_per_listing_buyer_77dfd57d\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.DealStatusHistory.DealStatusHistory_actorId_createdAt_idx_0e9f1adf",
+    "label": "Create index \"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "DealStatusHistory_actorId_createdAt_idx_0e9f1adf",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\"",
+        "sql": "CREATE INDEX \"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\" ON \"public\".\"DealStatusHistory\" (\"actorId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.DealStatusHistory.DealStatusHistory_actorId_idx_a58f6b4b",
+    "label": "Create index \"DealStatusHistory_actorId_idx_a58f6b4b\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "DealStatusHistory_actorId_idx_a58f6b4b",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"DealStatusHistory_actorId_idx_a58f6b4b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"DealStatusHistory_actorId_idx_a58f6b4b\"",
+        "sql": "CREATE INDEX \"DealStatusHistory_actorId_idx_a58f6b4b\" ON \"public\".\"DealStatusHistory\" (\"actorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"DealStatusHistory_actorId_idx_a58f6b4b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.DealStatusHistory.DealStatusHistory_dealId_createdAt_idx_33a673d8",
+    "label": "Create index \"DealStatusHistory_dealId_createdAt_idx_33a673d8\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "DealStatusHistory_dealId_createdAt_idx_33a673d8",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"DealStatusHistory_dealId_createdAt_idx_33a673d8\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_dealId_createdAt_idx_33a673d8\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"DealStatusHistory_dealId_createdAt_idx_33a673d8\"",
+        "sql": "CREATE INDEX \"DealStatusHistory_dealId_createdAt_idx_33a673d8\" ON \"public\".\"DealStatusHistory\" (\"dealId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"DealStatusHistory_dealId_createdAt_idx_33a673d8\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_dealId_createdAt_idx_33a673d8\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.DealStatusHistory.DealStatusHistory_dealId_idx_3e3b3068",
+    "label": "Create index \"DealStatusHistory_dealId_idx_3e3b3068\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "DealStatusHistory_dealId_idx_3e3b3068",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"DealStatusHistory_dealId_idx_3e3b3068\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_dealId_idx_3e3b3068\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"DealStatusHistory_dealId_idx_3e3b3068\"",
+        "sql": "CREATE INDEX \"DealStatusHistory_dealId_idx_3e3b3068\" ON \"public\".\"DealStatusHistory\" (\"dealId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"DealStatusHistory_dealId_idx_3e3b3068\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"DealStatusHistory_dealId_idx_3e3b3068\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.Deal.Deal_listingId_fkey",
+    "label": "Add foreign key \"Deal_listingId_fkey\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "Deal_listingId_fkey",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"Deal_listingId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_listingId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"Deal_listingId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"Deal\"\nADD CONSTRAINT \"Deal_listingId_fkey\"\nFOREIGN KEY (\"listingId\")\nREFERENCES \"public\".\"Listing\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"Deal_listingId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_listingId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.Deal.Deal_buyerId_fkey",
+    "label": "Add foreign key \"Deal_buyerId_fkey\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "Deal_buyerId_fkey",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"Deal_buyerId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_buyerId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"Deal_buyerId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"Deal\"\nADD CONSTRAINT \"Deal_buyerId_fkey\"\nFOREIGN KEY (\"buyerId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"Deal_buyerId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_buyerId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.Deal.Deal_sellerId_fkey",
+    "label": "Add foreign key \"Deal_sellerId_fkey\" on \"Deal\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "Deal_sellerId_fkey",
+        "table": "Deal"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"Deal_sellerId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_sellerId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"Deal_sellerId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"Deal\"\nADD CONSTRAINT \"Deal_sellerId_fkey\"\nFOREIGN KEY (\"sellerId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"Deal_sellerId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Deal_sellerId_fkey",
+          "public",
+          "\"public\".\"Deal\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.DealStatusHistory.DealStatusHistory_dealId_fkey",
+    "label": "Add foreign key \"DealStatusHistory_dealId_fkey\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "DealStatusHistory_dealId_fkey",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"DealStatusHistory_dealId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "DealStatusHistory_dealId_fkey",
+          "public",
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"DealStatusHistory_dealId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"DealStatusHistory\"\nADD CONSTRAINT \"DealStatusHistory_dealId_fkey\"\nFOREIGN KEY (\"dealId\")\nREFERENCES \"public\".\"Deal\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"DealStatusHistory_dealId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "DealStatusHistory_dealId_fkey",
+          "public",
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.DealStatusHistory.DealStatusHistory_actorId_fkey",
+    "label": "Add foreign key \"DealStatusHistory_actorId_fkey\" on \"DealStatusHistory\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "DealStatusHistory_actorId_fkey",
+        "table": "DealStatusHistory"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"DealStatusHistory_actorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "DealStatusHistory_actorId_fkey",
+          "public",
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"DealStatusHistory_actorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"DealStatusHistory\"\nADD CONSTRAINT \"DealStatusHistory_actorId_fkey\"\nFOREIGN KEY (\"actorId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"DealStatusHistory_actorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "DealStatusHistory_actorId_fkey",
+          "public",
+          "\"public\".\"DealStatusHistory\""
+        ]
+      }
+    ]
+  }
+]

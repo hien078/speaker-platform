@@ -796,6 +796,10 @@ d("pre-Batch-5 row survives the batch 5 migration (b5-review T1 L1)", () => {
   const ROOT = fileURLToPath(new URL("../..", import.meta.url));
   const PRE_B5_HEAD_DIR = "20261007T2007_batch4_round4_approved_content_backfill";
   const BATCH5_DIR = "20261007T2208_batch5_search_telemetry";
+  // Batch 6 Task 1 — corrections item 3: ref production đã advance qua batch6,
+  // path walk từ marker 66d2193a… giờ đi thêm batch6 sau batch5 (append —
+  // không assertion nào bị yếu đi; :910 end == production hash giữ nguyên).
+  const BATCH6_DIR = "20261008T0237_batch6_chat_deal";
   const INVARIANT = "backfill-listing-approved-content-at";
 
   type Row = Record<string, unknown>;
@@ -906,7 +910,7 @@ d("pre-Batch-5 row survives the batch 5 migration (b5-review T1 L1)", () => {
         //    production BẮT BUỘC đi qua self-edge round4 (ref khai báo
         //    invariant mà marker chưa có) → backfill CHẠY + batch5 áp
         const post = await prismaCli(["db", "migrate", "--db", l1Url, "--to", "production"]);
-        expect(post.applied.map((m) => m.dirName)).toEqual([PRE_B5_HEAD_DIR, BATCH5_DIR]);
+        expect(post.applied.map((m) => m.dirName)).toEqual([PRE_B5_HEAD_DIR, BATCH5_DIR, BATCH6_DIR]);
         expect(post.markerHash).toBe(productionRef.hash);
 
         // 6. AFTER + marker

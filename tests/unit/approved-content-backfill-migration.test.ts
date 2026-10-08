@@ -145,7 +145,9 @@ describe("migration backfill approvedContentAt — artefact contract (b4-holisti
       }
     ).envelope.result.migrations;
 
-    // path tuyến tính: baseline → b2 → b3 → b4 → holistic → round4 self-edge → batch5
+    // path tuyến tính: baseline → b2 → b3 → b4 → holistic → round4 self-edge → batch5 → batch6
+    // (Batch 6 Task 1 — corrections item 3: pin update khi ref production advance;
+    //  không assertion nào bị yếu đi — chỉ append dir mới của graph)
     expect(migrations.map((m) => m.dirName)).toEqual([
       "20261003T0448_baseline",
       "20261006T0209_batch2_identity_security",
@@ -154,6 +156,7 @@ describe("migration backfill approvedContentAt — artefact contract (b4-holisti
       "20261007T1708_batch4_holistic_review_fixes",
       "20261007T2007_batch4_round4_approved_content_backfill",
       "20261007T2208_batch5_search_telemetry",
+      "20261008T0237_batch6_chat_deal",
     ]);
     // self-edge: from == to (data-only, không đổi schema)
     const selfEdge = migrations.find((m) => m.dirName === "20261007T2007_batch4_round4_approved_content_backfill");
