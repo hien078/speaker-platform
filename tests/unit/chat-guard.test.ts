@@ -13,10 +13,14 @@
  *     TRƯỚC existing-conversation lookup).
  *  2. startConversationAction + initiator BỊ ĐÌNH CHỈ → ACCOUNT_SUSPENDED,
  *     không Conversation (spec §7.8 actor-side).
- *  3. startConversationAction + counterpart (seller) bị đình chỉ → VẪN tạo
- *     Conversation (A2 — counterpart-side KHÔNG nằm trong §7.8 minimal set,
- *     pinned là intentionally absent).
- *  4. Happy path vẫn tạo Conversation (guard không over-block).
+ *  3. [SUPERSEDED B1/D2 — Batch 6 Task 3] startConversationAction +
+ *     counterpart (seller) bị đình chỉ → SELLER_SUSPENDED, KHÔNG tạo
+ *     Conversation — pin Batch 3 A2 ("counterpart suspended → vẫn tạo",
+ *     intentionally absent) bị spec §9 Batch 6 "suspended/revoked seller
+ *     checks" SUPERSEDE cho NEW chat only; message trong hội thoại CŨ vẫn
+ *     không check counterpart (A2 perimeter giữ nguyên ở POST).
+ *  4. Happy path vẫn tạo Conversation (guard không over-block) — seller ĐỦ
+ *     §7.8 (verified + founding_seller active — fixture Batch 4 shape).
  *  5. POST + block hai hướng → 403 CHAT_BLOCKED, không Message.
  *  6. POST + sender bị đình chỉ → 403 ACCOUNT_SUSPENDED, không Message;
  *     POST + recipient bị đình chỉ → VẪN gửi (A2).
@@ -28,7 +32,9 @@
  * Cơ chế mock (Global Constraints stubbing recipe): server-only + next/cache +
  * next/navigation (redirect throw) + next/headers + `@/src/lib/auth` fixture +
  * db.client in-memory (User/Listing/Conversation/Message(include sender)/
- * UserBlock/UserSuspension/Notification). `@/src/lib/moderation` (guards) và
+ * UserBlock/UserSuspension/SellerVerification/BetaCohortMembership/
+ * Notification — hai model cuối là fixture migration B1 của Batch 6 Task 3:
+ * guard §7.8 seller-side đọc chúng FRESH mỗi call). `@/src/lib/moderation` và
  * `@/src/lib/rate-limit` GIỮ BẢN THẬT — guard chạy đúng code production đọc
  * store mock; resetRateLimits() mỗi test.
  */
@@ -93,6 +99,12 @@ const dbState = vi.hoisted(() => ({
   blocks: [] as Row[],
   suspensions: [] as Row[],
   notifications: [] as Row[],
+  // B1 fixture migration (Batch 6 Task 3): guard §7.8 seller-side (D2) của
+  // startConversationAction đọc SellerVerification + BetaCohortMembership —
+  // seed verified + active founding_seller cho SELLER mỗi test (Batch 4
+  // verified-seller fixture shape, corrections #8).
+  verifications: [] as Row[],
+  memberships: [] as Row[],
   /**
    * Khi ≠ null: MỌI read trên UserBlock/UserSuspension (model của moderation
    * guard) ném Error(message) — mô phỏng lỗi DB/infra nổ ra TRONG guard, dùng
@@ -229,6 +241,9 @@ vi.mock("@/src/prisma/db.client", () => {
           // Model của moderation guard — fail() móc lỗi DB/infra mô phỏng
           UserBlock: makeModel(dbState.blocks, undefined, () => dbState.guardDbError),
           UserSuspension: makeModel(dbState.suspensions, undefined, () => dbState.guardDbError),
+          // B1 fixture migration (Batch 6 Task 3 — D2 §7.8 seller-side)
+          SellerVerification: makeModel(dbState.verifications),
+          BetaCohortMembership: makeModel(dbState.memberships),
           Notification: makeModel(dbState.notifications),
         },
       },
@@ -295,6 +310,36 @@ const CONVO: Fixture = {
   lastMessageAt: null,
 };
 
+/** Seller ĐỦ §7.8 (B1 fixture migration — Batch 4 verified-seller shape). */
+const SELLER_VERIFICATION: Fixture = {
+  id: "sv-1",
+  userId: SELLER.id,
+  status: "verified",
+  method: "operations_review",
+  submittedAt: "2026-10-01T00:00:00.000Z",
+  reviewedAt: "2026-10-01T00:00:00.000Z",
+  reviewerId: null,
+  reasonCode: "requirements_met",
+  note: null,
+  policyVersion: "v1",
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
+const SELLER_MEMBERSHIP: Fixture = {
+  id: "bcm-1",
+  userId: SELLER.id,
+  cohort: "founding_seller",
+  status: "active",
+  invitedBy: null,
+  invitedAt: null,
+  acceptedAt: null,
+  expiresAt: null,
+  notes: null,
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
 const block = (blockerId: string, blockedId: string): Row => ({
   id: `blk-${blockerId}-${blockedId}`,
   blockerId,
@@ -350,10 +395,16 @@ const seedBase = (): void => {
   dbState.blocks.length = 0;
   dbState.suspensions.length = 0;
   dbState.notifications.length = 0;
+  dbState.verifications.length = 0;
+  dbState.memberships.length = 0;
   dbState.guardDbError = null;
   dbState.users.push({ ...BUYER }, { ...SELLER });
   dbState.listings.push({ ...LISTING }, { ...LISTING2 });
   dbState.conversations.push({ ...CONVO });
+  // B1 fixture migration (Batch 6 Task 3): seller ĐỦ §7.8 mặc định — happy
+  // path/create branch của startConversationAction đi qua guard D2.
+  dbState.verifications.push({ ...SELLER_VERIFICATION });
+  dbState.memberships.push({ ...SELLER_MEMBERSHIP });
 };
 
 beforeEach(() => {
@@ -398,18 +449,20 @@ describe("startConversationAction — block hai hướng + đình chỉ actor-si
     expect(dbState.conversations.length).toBe(1);
   });
 
-  it("counterpart (seller) bị đình chỉ → VẪN tạo Conversation (A2 — counterpart-side không thuộc §7.8 minimal set)", async () => {
+  // SUPERSEDED PIN (B1/D2 — Batch 6 Task 3): pin Batch 3 A2 "counterpart
+  // (seller) bị đình chỉ → VẪN tạo Conversation" (counterpart-side không
+  // thuộc §7.8 minimal set, pinned intentionally absent) bị SUPERSEDE bởi
+  // spec §9 Batch 6 "suspended/revoked seller checks" — CHỈ cho NEW chat:
+  // seller-of-the-listing bị đình chỉ giờ bị chặn ở create branch qua
+  // assertListingSellerInteractable (D2). Message trong hội thoại CŨ vẫn
+  // KHÔNG check counterpart (case "recipient bị đình chỉ" dưới — A2
+  // perimeter giữ nguyên ở POST). Supersession được ghi trong verification doc.
+  it("counterpart (seller) bị đình chỉ → SELLER_SUSPENDED, KHÔNG tạo Conversation (SUPERSEDE Batch 3 A2 — spec §9 Batch 6, NEW chat only)", async () => {
     dbState.suspensions.push(suspension(SELLER.id));
-    // redirect() throw NEXT_REDIRECT — hội thoại ĐÃ tạo trước đó
     await expect(startConversationAction(fd({ listingId: LISTING2.id }))).rejects.toThrow(
-      "NEXT_REDIRECT",
+      "SELLER_SUSPENDED",
     );
-    expect(dbState.conversations.length).toBe(2);
-    expect(dbState.conversations[1]).toMatchObject({
-      listingId: LISTING2.id,
-      buyerId: BUYER.id,
-      sellerId: SELLER.id,
-    });
+    expect(dbState.conversations.length).toBe(1); // chỉ convo seed — KHÔNG row mới
   });
 
   it("happy path vẫn tạo Conversation (guard không over-block)", async () => {
