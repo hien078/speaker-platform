@@ -133,6 +133,14 @@ export function formatDurationMs(ms: number): string {
 }
 
 /** Render metric duration (median) — kèm sample size (n). */
+/** Note thẻ "Tin đăng của seller" — null (chưa seller nào có tin approved) →
+ *  "chưa có dữ liệu", KHÔNG bịa median 0 (cùng quy tắc renderMetricValue/renderDurationValue). */
+export function sellerListingNote(medianPerSeller: number | null): string {
+  return medianPerSeller === null
+    ? "median: chưa có dữ liệu (n=0 seller)"
+    : `median ${String(medianPerSeller)} tin/seller (approved)`;
+}
+
 export function renderDurationValue(medianMs: number | null, sample: number): string {
   if (medianMs === null) return `chưa có dữ liệu (n=${sample})`;
   return `${formatDurationMs(medianMs)} (n=${sample})`;
@@ -478,7 +486,7 @@ export default async function AnalyticsDashboardPage() {
     {
       label: "Tin đăng của seller",
       value: listingCount.total.toLocaleString("vi-VN"),
-      note: `median ${String(listingCount.medianPerSeller ?? 0)} tin/seller (approved)`,
+      note: sellerListingNote(listingCount.medianPerSeller),
     },
     {
       label: "Seller đang hoạt động",

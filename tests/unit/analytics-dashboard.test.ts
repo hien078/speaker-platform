@@ -395,6 +395,12 @@ describe("aggregates không cần contract (spec §5.8.2)", () => {
     expect(analyticsPage.sellerListingCount([])).toEqual({ total: 0, medianPerSeller: null });
   });
 
+  it("seller listing note: rỗng → chưa có dữ liệu (KHÔNG median 0); có dữ liệu → median thật", () => {
+    expect(analyticsPage.sellerListingNote(null)).toBe("median: chưa có dữ liệu (n=0 seller)");
+    expect(analyticsPage.sellerListingNote(null)).not.toContain("median 0");
+    expect(analyticsPage.sellerListingNote(2)).toBe("median 2 tin/seller (approved)");
+  });
+
   it("active seller count = sellers với ≥ 1 tin approved (§12.2 — raw aggregate)", () => {
     const listings = [
       listing({ id: "L1", sellerId: "s1" }),
