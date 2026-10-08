@@ -32,6 +32,10 @@
       "model": "BetaCohortMembership",
       "namespace": "public"
     },
+    "BetaInviteToken": {
+      "model": "BetaInviteToken",
+      "namespace": "public"
+    },
     "Brand": {
       "model": "Brand",
       "namespace": "public"
@@ -66,6 +70,10 @@
     },
     "ExchangeOffer": {
       "model": "ExchangeOffer",
+      "namespace": "public"
+    },
+    "FoundingSellerCandidate": {
+      "model": "FoundingSellerCandidate",
       "namespace": "public"
     },
     "LedgerEntry": {
@@ -248,6 +256,19 @@
               }
             ]
           },
+          "beta_invite_channel": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "email",
+                "value": "email"
+              },
+              {
+                "name": "phone",
+                "value": "phone"
+              }
+            ]
+          },
           "beta_membership_status": {
             "codecId": "pg/text@1",
             "members": [
@@ -358,6 +379,51 @@
               {
                 "name": "cancelled",
                 "value": "cancelled"
+              }
+            ]
+          },
+          "founding_seller_candidate_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "prospect",
+                "value": "prospect"
+              },
+              {
+                "name": "invited",
+                "value": "invited"
+              },
+              {
+                "name": "registered",
+                "value": "registered"
+              },
+              {
+                "name": "verification_pending",
+                "value": "verification_pending"
+              },
+              {
+                "name": "verified",
+                "value": "verified"
+              },
+              {
+                "name": "concierge_onboarding",
+                "value": "concierge_onboarding"
+              },
+              {
+                "name": "first_listing",
+                "value": "first_listing"
+              },
+              {
+                "name": "active_founding_seller",
+                "value": "active_founding_seller"
+              },
+              {
+                "name": "inactive",
+                "value": "inactive"
+              },
+              {
+                "name": "exited",
+                "value": "exited"
               }
             ]
           },
@@ -1725,6 +1791,156 @@
               "table": "BetaCohortMembership"
             }
           },
+          "BetaInviteToken": {
+            "fields": {
+              "candidateId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "channel": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "beta_invite_channel",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "consumedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "issuedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "target": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "tokenHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "candidate": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "candidateId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "FoundingSellerCandidate",
+                  "namespace": "public"
+                }
+              },
+              "issuedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "issuedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "candidateId": {
+                  "column": "candidateId"
+                },
+                "channel": {
+                  "column": "channel"
+                },
+                "consumedAt": {
+                  "column": "consumedAt"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "issuedById": {
+                  "column": "issuedById"
+                },
+                "revokedAt": {
+                  "column": "revokedAt"
+                },
+                "target": {
+                  "column": "target"
+                },
+                "tokenHash": {
+                  "column": "tokenHash"
+                }
+              },
+              "namespaceId": "public",
+              "table": "BetaInviteToken"
+            }
+          },
           "Brand": {
             "fields": {
               "createdAt": {
@@ -2913,6 +3129,247 @@
               },
               "namespaceId": "public",
               "table": "ExchangeOffer"
+            }
+          },
+          "FoundingSellerCandidate": {
+            "fields": {
+              "assignedOperatorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "contactChannel": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "beta_invite_channel",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "contactReference": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "firstListingAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "invitedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "lastContactAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "notes": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "qualityListingCount": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "registeredAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "source": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "founding_seller_candidate_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "targetCommunity": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "verifiedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "assignedOperator": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "assignedOperatorId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "inviteTokens": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "candidateId"
+                  ]
+                },
+                "to": {
+                  "model": "BetaInviteToken",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "assignedOperatorId": {
+                  "column": "assignedOperatorId"
+                },
+                "contactChannel": {
+                  "column": "contactChannel"
+                },
+                "contactReference": {
+                  "column": "contactReference"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "firstListingAt": {
+                  "column": "firstListingAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "invitedAt": {
+                  "column": "invitedAt"
+                },
+                "lastContactAt": {
+                  "column": "lastContactAt"
+                },
+                "notes": {
+                  "column": "notes"
+                },
+                "qualityListingCount": {
+                  "column": "qualityListingCount"
+                },
+                "registeredAt": {
+                  "column": "registeredAt"
+                },
+                "source": {
+                  "column": "source"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "targetCommunity": {
+                  "column": "targetCommunity"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                },
+                "verifiedAt": {
+                  "column": "verifiedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "FoundingSellerCandidate"
             }
           },
           "LedgerEntry": {
@@ -6734,6 +7191,21 @@
                   "namespace": "public"
                 }
               },
+              "betaInvitesIssuedBy": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "issuedById"
+                  ]
+                },
+                "to": {
+                  "model": "BetaInviteToken",
+                  "namespace": "public"
+                }
+              },
               "betaMemberships": {
                 "cardinality": "1:N",
                 "on": {
@@ -6926,6 +7398,37 @@
                 },
                 "to": {
                   "model": "ExchangeOffer",
+                  "namespace": "public"
+                }
+              },
+              "foundingCandidatesAssigned": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "assignedOperatorId"
+                  ]
+                },
+                "to": {
+                  "model": "FoundingSellerCandidate",
+                  "namespace": "public"
+                }
+              },
+              "foundingSellerCandidate": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "FoundingSellerCandidate",
                   "namespace": "public"
                 }
               },
@@ -8787,6 +9290,161 @@
                 }
               ]
             },
+            "BetaInviteToken": {
+              "checks": [
+                {
+                  "expression": "\"channel\" IN ('email', 'phone')",
+                  "name": "BetaInviteToken_channel_check_d360ded9",
+                  "prefix": "BetaInviteToken_channel_check"
+                }
+              ],
+              "columns": {
+                "candidateId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "channel": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "beta_invite_channel",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "consumedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "issuedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "revokedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "target": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "tokenHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "candidateId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "BetaInviteToken"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "FoundingSellerCandidate"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "issuedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "BetaInviteToken"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "candidateId",
+                    "createdAt"
+                  ],
+                  "name": "BetaInviteToken_candidateId_createdAt_idx_d01e196a",
+                  "prefix": "BetaInviteToken_candidateId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "expiresAt"
+                  ],
+                  "name": "BetaInviteToken_expiresAt_idx_6b6b8c10",
+                  "prefix": "BetaInviteToken_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "issuedById"
+                  ],
+                  "name": "BetaInviteToken_issuedById_idx_c14f1329",
+                  "prefix": "BetaInviteToken_issuedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "candidateId"
+                  ],
+                  "name": "beta_invite_one_active_00182012",
+                  "prefix": "beta_invite_one_active",
+                  "unique": true,
+                  "where": "(\"consumedAt\" IS NULL AND \"revokedAt\" IS NULL)"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "tokenHash"
+                  ]
+                }
+              ]
+            },
             "Brand": {
               "columns": {
                 "createdAt": {
@@ -9878,6 +10536,206 @@
                 ]
               },
               "uniques": []
+            },
+            "FoundingSellerCandidate": {
+              "checks": [
+                {
+                  "expression": "\"contactChannel\" IN ('email', 'phone')",
+                  "name": "FoundingSellerCandidate_contactChannel_check_e3b33eb5",
+                  "prefix": "FoundingSellerCandidate_contactChannel_check"
+                },
+                {
+                  "expression": "\"status\" IN ('prospect', 'invited', 'registered', 'verification_pending', 'verified', 'concierge_onboarding', 'first_listing', 'active_founding_seller', 'inactive', 'exited')",
+                  "name": "FoundingSellerCandidate_status_check_fe58999c",
+                  "prefix": "FoundingSellerCandidate_status_check"
+                }
+              ],
+              "columns": {
+                "assignedOperatorId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "contactChannel": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "beta_invite_channel",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "contactReference": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "firstListingAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "invitedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "lastContactAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "notes": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "qualityListingCount": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": 0
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "registeredAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "source": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "prospect"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "founding_seller_candidate_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "targetCommunity": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "verifiedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "FoundingSellerCandidate"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "assignedOperatorId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "FoundingSellerCandidate"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "assignedOperatorId"
+                  ],
+                  "name": "FoundingSellerCandidate_assignedOperatorId_idx_83d93e35",
+                  "prefix": "FoundingSellerCandidate_assignedOperatorId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status",
+                    "updatedAt"
+                  ],
+                  "name": "FoundingSellerCandidate_status_updatedAt_idx_29f913bb",
+                  "prefix": "FoundingSellerCandidate_status_updatedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "targetCommunity"
+                  ],
+                  "name": "FoundingSellerCandidate_targetCommunity_idx_dd20c9d8",
+                  "prefix": "FoundingSellerCandidate_targetCommunity_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId"
+                  ]
+                }
+              ]
             },
             "LedgerEntry": {
               "columns": {
@@ -13892,6 +14750,13 @@
                 "private_beta_buyer"
               ]
             },
+            "beta_invite_channel": {
+              "kind": "valueSet",
+              "values": [
+                "email",
+                "phone"
+              ]
+            },
             "beta_membership_status": {
               "kind": "valueSet",
               "values": [
@@ -13937,6 +14802,21 @@
                 "completed",
                 "rejected",
                 "cancelled"
+              ]
+            },
+            "founding_seller_candidate_status": {
+              "kind": "valueSet",
+              "values": [
+                "prospect",
+                "invited",
+                "registered",
+                "verification_pending",
+                "verified",
+                "concierge_onboarding",
+                "first_listing",
+                "active_founding_seller",
+                "inactive",
+                "exited"
               ]
             },
             "inventory_context": {
@@ -14157,10 +15037,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "292dd3fbd5f0e8543fea2e3e04297f170f53408ac8b348c7c7f3cd4868741277"
+    "storageHash": "656449ac938c323b314580d07a280025d021e4694f6158f1b086ec2edf7b0fec"
   },
   "execution": {
-    "executionHash": "ef5e50baf1ef9159b6f7919341ce6853b9a93a93dee6c396caea7edd4136b686",
+    "executionHash": "6394ae163dbf462f17f2ea45663f5703b3736277f32c3c00bf767fc00357e3fd",
     "mutations": {
       "defaults": [
         {
@@ -14291,6 +15171,17 @@
             "kind": "generator"
           },
           "ref": {
+            "entry": "BetaInviteToken",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
             "entry": "Brand",
             "field": "id",
             "namespace": "public"
@@ -14410,6 +15301,32 @@
           },
           "ref": {
             "entry": "ExchangeOffer",
+            "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "FoundingSellerCandidate",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "FoundingSellerCandidate",
             "field": "updatedAt",
             "namespace": "public"
           }

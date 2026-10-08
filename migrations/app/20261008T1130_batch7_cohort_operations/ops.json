@@ -1,0 +1,605 @@
+[
+  {
+    "id": "table.BetaInviteToken",
+    "label": "Create table \"BetaInviteToken\"",
+    "summary": "Creates table \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"BetaInviteToken\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"BetaInviteToken\"",
+        "sql": "CREATE TABLE \"public\".\"BetaInviteToken\" (\n  \"candidateId\" text NOT NULL,\n  \"channel\" text NOT NULL,\n  \"consumedAt\" timestamptz,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"expiresAt\" timestamptz NOT NULL,\n  \"id\" text NOT NULL,\n  \"issuedById\" text,\n  \"revokedAt\" timestamptz,\n  \"target\" text NOT NULL,\n  \"tokenHash\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"BetaInviteToken_channel_check_d360ded9\" CHECK (\"channel\" IN ('email', 'phone'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"BetaInviteToken\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.FoundingSellerCandidate",
+    "label": "Create table \"FoundingSellerCandidate\"",
+    "summary": "Creates table \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"FoundingSellerCandidate\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"FoundingSellerCandidate\"",
+        "sql": "CREATE TABLE \"public\".\"FoundingSellerCandidate\" (\n  \"assignedOperatorId\" text,\n  \"contactChannel\" text,\n  \"contactReference\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"firstListingAt\" timestamptz,\n  \"id\" text NOT NULL,\n  \"invitedAt\" timestamptz,\n  \"lastContactAt\" timestamptz,\n  \"notes\" text,\n  \"qualityListingCount\" int4 DEFAULT 0 NOT NULL,\n  \"registeredAt\" timestamptz,\n  \"source\" text NOT NULL,\n  \"status\" text DEFAULT 'prospect' NOT NULL,\n  \"targetCommunity\" text NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text,\n  \"verifiedAt\" timestamptz,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"FoundingSellerCandidate_contactChannel_check_e3b33eb5\" CHECK (\"contactChannel\" IN ('email', 'phone')),\n  CONSTRAINT \"FoundingSellerCandidate_status_check_fe58999c\" CHECK (\"status\" IN ('prospect', 'invited', 'registered', 'verification_pending', 'verified', 'concierge_onboarding', 'first_listing', 'active_founding_seller', 'inactive', 'exited'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"FoundingSellerCandidate\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.BetaInviteToken.BetaInviteToken_tokenHash_key",
+    "label": "Add unique constraint on \"BetaInviteToken\" (tokenHash)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "BetaInviteToken_tokenHash_key",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"BetaInviteToken_tokenHash_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_tokenHash_key",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"BetaInviteToken_tokenHash_key\"",
+        "sql": "ALTER TABLE \"public\".\"BetaInviteToken\" ADD CONSTRAINT \"BetaInviteToken_tokenHash_key\" UNIQUE (\"tokenHash\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"BetaInviteToken_tokenHash_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_tokenHash_key",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.FoundingSellerCandidate.FoundingSellerCandidate_userId_key",
+    "label": "Add unique constraint on \"FoundingSellerCandidate\" (userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "FoundingSellerCandidate_userId_key",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"FoundingSellerCandidate_userId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_userId_key",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"FoundingSellerCandidate_userId_key\"",
+        "sql": "ALTER TABLE \"public\".\"FoundingSellerCandidate\" ADD CONSTRAINT \"FoundingSellerCandidate_userId_key\" UNIQUE (\"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"FoundingSellerCandidate_userId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_userId_key",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaInviteToken.BetaInviteToken_candidateId_createdAt_idx_d01e196a",
+    "label": "Create index \"BetaInviteToken_candidateId_createdAt_idx_d01e196a\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "BetaInviteToken_candidateId_createdAt_idx_d01e196a",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"BetaInviteToken_candidateId_createdAt_idx_d01e196a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_candidateId_createdAt_idx_d01e196a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"BetaInviteToken_candidateId_createdAt_idx_d01e196a\"",
+        "sql": "CREATE INDEX \"BetaInviteToken_candidateId_createdAt_idx_d01e196a\" ON \"public\".\"BetaInviteToken\" (\"candidateId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"BetaInviteToken_candidateId_createdAt_idx_d01e196a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_candidateId_createdAt_idx_d01e196a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaInviteToken.BetaInviteToken_expiresAt_idx_6b6b8c10",
+    "label": "Create index \"BetaInviteToken_expiresAt_idx_6b6b8c10\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "BetaInviteToken_expiresAt_idx_6b6b8c10",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"BetaInviteToken_expiresAt_idx_6b6b8c10\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"BetaInviteToken_expiresAt_idx_6b6b8c10\"",
+        "sql": "CREATE INDEX \"BetaInviteToken_expiresAt_idx_6b6b8c10\" ON \"public\".\"BetaInviteToken\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"BetaInviteToken_expiresAt_idx_6b6b8c10\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaInviteToken.BetaInviteToken_issuedById_idx_c14f1329",
+    "label": "Create index \"BetaInviteToken_issuedById_idx_c14f1329\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "BetaInviteToken_issuedById_idx_c14f1329",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"BetaInviteToken_issuedById_idx_c14f1329\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_issuedById_idx_c14f1329\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"BetaInviteToken_issuedById_idx_c14f1329\"",
+        "sql": "CREATE INDEX \"BetaInviteToken_issuedById_idx_c14f1329\" ON \"public\".\"BetaInviteToken\" (\"issuedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"BetaInviteToken_issuedById_idx_c14f1329\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaInviteToken_issuedById_idx_c14f1329\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaInviteToken.beta_invite_one_active_00182012",
+    "label": "Create index \"beta_invite_one_active_00182012\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "beta_invite_one_active_00182012",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"beta_invite_one_active_00182012\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"beta_invite_one_active_00182012\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"beta_invite_one_active_00182012\"",
+        "sql": "CREATE UNIQUE INDEX \"beta_invite_one_active_00182012\" ON \"public\".\"BetaInviteToken\" (\"candidateId\") WHERE ((\"consumedAt\" IS NULL AND \"revokedAt\" IS NULL))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"beta_invite_one_active_00182012\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"beta_invite_one_active_00182012\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.FoundingSellerCandidate.FoundingSellerCandidate_assignedOperatorId_idx_83d93e35",
+    "label": "Create index \"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\" on \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "FoundingSellerCandidate_assignedOperatorId_idx_83d93e35",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\"",
+        "sql": "CREATE INDEX \"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\" ON \"public\".\"FoundingSellerCandidate\" (\"assignedOperatorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_assignedOperatorId_idx_83d93e35\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.FoundingSellerCandidate.FoundingSellerCandidate_status_updatedAt_idx_29f913bb",
+    "label": "Create index \"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\" on \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "FoundingSellerCandidate_status_updatedAt_idx_29f913bb",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\"",
+        "sql": "CREATE INDEX \"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\" ON \"public\".\"FoundingSellerCandidate\" (\"status\", \"updatedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.FoundingSellerCandidate.FoundingSellerCandidate_targetCommunity_idx_dd20c9d8",
+    "label": "Create index \"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\" on \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "FoundingSellerCandidate_targetCommunity_idx_dd20c9d8",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\"",
+        "sql": "CREATE INDEX \"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\" ON \"public\".\"FoundingSellerCandidate\" (\"targetCommunity\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"FoundingSellerCandidate_targetCommunity_idx_dd20c9d8\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.BetaInviteToken.BetaInviteToken_candidateId_fkey",
+    "label": "Add foreign key \"BetaInviteToken_candidateId_fkey\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "BetaInviteToken_candidateId_fkey",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"BetaInviteToken_candidateId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_candidateId_fkey",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"BetaInviteToken_candidateId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"BetaInviteToken\"\nADD CONSTRAINT \"BetaInviteToken_candidateId_fkey\"\nFOREIGN KEY (\"candidateId\")\nREFERENCES \"public\".\"FoundingSellerCandidate\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"BetaInviteToken_candidateId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_candidateId_fkey",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.BetaInviteToken.BetaInviteToken_issuedById_fkey",
+    "label": "Add foreign key \"BetaInviteToken_issuedById_fkey\" on \"BetaInviteToken\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "BetaInviteToken_issuedById_fkey",
+        "table": "BetaInviteToken"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"BetaInviteToken_issuedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_issuedById_fkey",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"BetaInviteToken_issuedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"BetaInviteToken\"\nADD CONSTRAINT \"BetaInviteToken_issuedById_fkey\"\nFOREIGN KEY (\"issuedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"BetaInviteToken_issuedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaInviteToken_issuedById_fkey",
+          "public",
+          "\"public\".\"BetaInviteToken\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.FoundingSellerCandidate.FoundingSellerCandidate_userId_fkey",
+    "label": "Add foreign key \"FoundingSellerCandidate_userId_fkey\" on \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "FoundingSellerCandidate_userId_fkey",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"FoundingSellerCandidate_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_userId_fkey",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"FoundingSellerCandidate_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"FoundingSellerCandidate\"\nADD CONSTRAINT \"FoundingSellerCandidate_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"FoundingSellerCandidate_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_userId_fkey",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.FoundingSellerCandidate.FoundingSellerCandidate_assignedOperatorId_fkey",
+    "label": "Add foreign key \"FoundingSellerCandidate_assignedOperatorId_fkey\" on \"FoundingSellerCandidate\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "FoundingSellerCandidate_assignedOperatorId_fkey",
+        "table": "FoundingSellerCandidate"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"FoundingSellerCandidate_assignedOperatorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_assignedOperatorId_fkey",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"FoundingSellerCandidate_assignedOperatorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"FoundingSellerCandidate\"\nADD CONSTRAINT \"FoundingSellerCandidate_assignedOperatorId_fkey\"\nFOREIGN KEY (\"assignedOperatorId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"FoundingSellerCandidate_assignedOperatorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "FoundingSellerCandidate_assignedOperatorId_fkey",
+          "public",
+          "\"public\".\"FoundingSellerCandidate\""
+        ]
+      }
+    ]
+  }
+]

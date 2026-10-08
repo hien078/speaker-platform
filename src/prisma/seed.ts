@@ -207,6 +207,12 @@ async function main() {
   await db.orm.public.Listing.where({}).deleteAll();
   await db.orm.public.Category.where({}).deleteAll();
   await db.orm.public.Brand.where({}).deleteAll();
+  // Batch 7 (cohort operations) — BetaInviteToken TRƯỚC FoundingSellerCandidate
+  // (candidate onDelete Restrict — corrections item 32: token row không bao giờ
+  // bị product flow xóa, seed tự dọn fixture của mình); candidate trước User
+  // để re-seed không đọng prospect mồ côi (userId SetNull chỉ null-hóa, không xóa).
+  await db.orm.public.BetaInviteToken.where({}).deleteAll();
+  await db.orm.public.FoundingSellerCandidate.where({}).deleteAll();
   await db.orm.public.User.where({}).deleteAll();
   await db.orm.public.PlatformSetting.where({}).deleteAll();
 
