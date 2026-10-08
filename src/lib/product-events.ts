@@ -13,6 +13,7 @@ import {
   productEventPseudonymKeyVersion,
 } from "@/src/lib/product-event-key";
 import { REPORT_REASON_CODES, REPORT_TARGET_TYPES } from "@/src/lib/moderation-vocab";
+import { DEAL_FULFILLMENT_METHODS, DEAL_OUTCOMES } from "@/src/lib/deal-vocab";
 
 /**
  * Product telemetry — taxonomy + emit core (Batch 5 Task 6 — spec §5.8/§4.8).
@@ -176,11 +177,29 @@ export const EVENT_SCHEMAS: Record<ProductEventName, z.ZodType> = {
   message_first_response: z.strictObject({
     responseMs: z.number().int().min(0),
   }),
-  // Forward seams Batch 6 (Deal) — schema trước, emission thuộc batch đó (S7).
-  deal_created: z.strictObject({}),
-  deal_outcome_marked: z.strictObject({}),
-  successful_match: z.strictObject({}),
-  listing_marked_sold: z.strictObject({}),
+  // Forward seams Batch 6 (Deal) — emission thuộc Task 4/5 (S7). Batch 6
+  // Task 4 (corrections #10) mở rộng ADDITIVE từ z.strictObject({}) minimal
+  // sang key TYPED — KHÔNG schema hiện có bị yếu đi, KHÔNG field free-text,
+  // KHÔNG giá tiền trong metadata (§4.8 — agreedPrice KHÔNG BAO GIỜ vào
+  // event). Key không khớp denylist (METADATA_KEY_DENYLIST) hay banned regex
+  // /query|text|body|message|note|email|phone|address|name/i — pin bằng
+  // tests/unit/product-events.test.ts. Vocabulary import từ deal-vocab.ts
+  // client-safe (§5.2 verbatim + D3 — KHÔNG phát minh giá trị).
+  deal_created: z.strictObject({
+    dealId: z.uuid(),
+    fulfillmentMethod: z.enum(DEAL_FULFILLMENT_METHODS).nullish(), // bỏ trống → null
+  }),
+  deal_outcome_marked: z.strictObject({
+    dealId: z.uuid(),
+    outcome: z.enum(DEAL_OUTCOMES), // D3 — giá trị marking per party
+    role: z.enum(["buyer", "seller"]), // bên ĐÁNH DẤU (KHÔ phải deal status)
+  }),
+  successful_match: z.strictObject({
+    dealId: z.uuid(),
+  }),
+  listing_marked_sold: z.strictObject({
+    dealId: z.uuid(),
+  }),
   // Corrections #6: concrete schema khớp Task 8 — targetType/reasonCode là
   // typed codes (moderation-vocab, spec §5.5 verbatim), KHÔNG note text.
   // PII rule: KHÔNG bao giờ targetId trong metadata (raw user id khi
