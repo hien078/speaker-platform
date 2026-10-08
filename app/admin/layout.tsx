@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   BadgeCheck,
   ScrollText,
+  ChartColumn,
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -48,6 +49,11 @@ const NAV: NavItem[] = [
   // Task 10 — workflow SellerVerification (spec §5.3.2/§8.2) + audit view (§4.6).
   { href: "/admin/seller-verification", label: "Xác minh người bán", icon: BadgeCheck, capability: "seller.verify" },
   { href: "/admin/audit", label: "Nhật ký audit", icon: ScrollText, capability: "audit.read" },
+  // Batch 5 Task 10 (spec §5.8.2) — private-beta analytics dashboard. Gated
+  // analytics.read (super/ops/analyst — moderator/support fail closed A2),
+  // lọc qua capabilitiesOf như mọi entry (CONVENIENCE ONLY — spec §4.5: trang
+  // tự requireCapability là ranh giới thật).
+  { href: "/admin/analytics", label: "Phân tích beta", icon: ChartColumn, capability: "analytics.read" },
   { href: "/admin/settings", label: "Hoa hồng & cấu hình", icon: Settings, dormant: true },
   // Task 9 — mọi admin (tự phục vụ MFA/phiên của chính mình, spec §5.4.2).
   { href: "/admin/security", label: "Bảo mật & phiên", icon: ShieldCheck },
