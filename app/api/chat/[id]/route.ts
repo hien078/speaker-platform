@@ -114,24 +114,35 @@ export async function POST(
     .update({ lastMessageAt: new Date().toISOString() });
 
   // ─── Telemetry (Batch 5 Task 8 — spec §5.8/D4) ─────────────────────────────
-  // MỘT query thêm mỗi tin (beta scale — chấp nhận, plan Task 8 ghi chú): đếm
-  // tin buyer/seller TRƯỚC đó của convo để quyết ĐÚNG MỘT event:
-  //  - buyer gửi + 0 tin buyer trước đó → conversation_buyer_first_message
+  // MỘT query thêm mỗi tin (beta scale — chấp nhận, plan Task 8 ghi chú): đọc
+  // TOÀN BỘ tin của convo theo THỨ TỰ TOÀN PHẦN (createdAt asc, id asc
+  // tie-break) và quyết "first" theo VỊ TRÍ — b5-review fix 3 (LOW, race):
+  //  - buyer: tin mình là tin buyer ĐẦU (vị trí đầu) → conversation_buyer_first_message
   //    (tín hiệu eligibility D4 — seller_response_rate_v1);
-  //  - seller gửi + ≥1 tin buyer trước đó + 0 tin seller trước đó →
-  //    message_first_response (responseMs từ tin buyer ĐẦU — D4 anchor).
-  // Tin thứ hai của mỗi bên → KHÔNG event. Fail-open: lỗi telemetry KHÔNG phá
-  // gửi tin (recorder tự catch; query này được bọc thêm — route vẫn trả 200).
+  //  - seller: ≥1 tin buyer VÀ tin mình là tin seller ĐẦU → message_first_response
+  //    (responseMs từ tin buyer ĐẦU — D4 anchor).
+  // KHÔNG đếm "tin prior TRỪ tin mình" (cách cũ): hai tab gửi đồng thời (per-tab
+  // `sending` flag không serialize qua tab) cùng chèn tin rồi cùng đọc — MỖI
+  // request thấy tin của request kia là "prior" → CẢ HAI skip → event bị DROP
+  // hoàn toàn (conversation rơi khỏi denominator D4). Quyết theo vị trí trong
+  // thứ tự toàn phần: request của tin ĐẦU luôn thấy chính mình là đầu (insert
+  // autocommit đơn câu, query chạy sau insert của chính mình); request kia thấy
+  // tin đầu trong snapshot → skip → ĐÚNG MỘT request emit dưới MỌI interleaving.
+  // Metric contracts (D4) đã dedup theo conversationId giữ occurredAt sớm nhất
+  // — duplicate residual (không thể sinh từ path này) cũng không skew metric
+  // (defense in depth — lựa chọn recorded theo hợp đồng metric). Fail-open:
+  // lỗi telemetry KHÔNG phá gửi tin (recorder tự catch; query này được bọc
+  // thêm — route vẫn trả 200).
   try {
     const convoMessages = await db.orm.public.Message
       .where({ conversationId: id })
-      .orderBy((m) => m.createdAt.asc())
+      .orderBy([(m) => m.createdAt.asc(), (m) => m.id.asc()])
       .all();
+    const buyerMessages = convoMessages.filter((m) => m.senderId === convo.buyerId);
+    const sellerMessages = convoMessages.filter((m) => m.senderId === convo.sellerId);
     if (user.id === convo.buyerId) {
-      const priorBuyer = convoMessages.filter(
-        (m) => m.senderId === convo.buyerId && m.id !== message.id,
-      );
-      if (priorBuyer.length === 0) {
+      const firstBuyer = buyerMessages[0];
+      if (firstBuyer !== undefined && firstBuyer.id === message.id) {
         await recordBuyerFirstMessage({
           convo: { id: convo.id, listingId: convo.listingId },
           buyerId: convo.buyerId,
@@ -139,15 +150,17 @@ export async function POST(
         });
       }
     } else {
-      const priorBuyer = convoMessages.filter((m) => m.senderId === convo.buyerId);
-      const priorSeller = convoMessages.filter(
-        (m) => m.senderId === convo.sellerId && m.id !== message.id,
-      );
-      if (priorBuyer.length > 0 && priorSeller.length === 0) {
+      const firstBuyer = buyerMessages[0];
+      const firstSeller = sellerMessages[0];
+      if (
+        firstBuyer !== undefined &&
+        firstSeller !== undefined &&
+        firstSeller.id === message.id
+      ) {
         await recordFirstResponse({
           convo: { id: convo.id, listingId: convo.listingId },
           sellerId: convo.sellerId,
-          firstBuyerMessageAt: priorBuyer[0]!.createdAt,
+          firstBuyerMessageAt: firstBuyer.createdAt,
           sellerRepliedAt: message.createdAt,
         });
       }

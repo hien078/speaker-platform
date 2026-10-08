@@ -3,7 +3,7 @@ import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 import { db } from "@/src/prisma/db.client";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { captureError } from "@/src/lib/observability";
-import { actorPseudonymFor, emitProductEvent } from "@/src/lib/product-events";
+import { actorPseudonymFor, emitProductEvent, productEventKeyAvailable } from "@/src/lib/product-events";
 import type { ReportReasonCode, ReportTargetType } from "@/src/lib/moderation-vocab";
 
 /**
@@ -295,6 +295,13 @@ export async function recordSellerFirstListingPublished(input: {
   listingId: string;
 }): Promise<void> {
   try {
+    // Key gate TRƯỚC khi tính pseudonym (b5-review fix 2 — correction #9):
+    // S-19 existence filter cần actorPseudonymFor(sellerId) — THÔNG QN key;
+    // thiếu/sai key NGOÀI production phải là no-op SILENT (KHÔNG captureError
+    // mỗi lần duyệt thành công ở dev/CI/integration), Ở production log
+    // TELEMETRY_KEY_UNAVAILABLE đúng như emit core — MỘT nguồn semantics
+    // (productEventKeyAvailable — emit core bước 4 cũng chạy qua đây).
+    if (!productEventKeyAvailable("seller_first_listing_published")) return;
     const existing = await db.orm.public.ProductEvent.first({
       name: "seller_first_listing_published",
       actorPseudonym: actorPseudonymFor(input.sellerId),

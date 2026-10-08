@@ -216,6 +216,15 @@ vi.mock("@/src/prisma/db.client", async () => {
     return (Array.isArray(spec) ? spec : [spec]) as SortSpec;
   };
 
+  // orderBy nhận MỘT lambda HOẶC array-of-lambdas (queries-postgres.md L153 —
+  // search-query.ts dùng array form; mock phải mirror đủ cả hai).
+  const orderByArg = (
+    cb: ((ops: unknown) => unknown) | Array<(ops: unknown) => unknown>,
+  ): SortSpec =>
+    Array.isArray(cb)
+      ? (cb.map((fn) => fn(fieldOps({} as Row))) as SortSpec)
+      : orderBySpec(cb);
+
   const sortRows = (rows: Row[], spec: SortSpec): Row[] =>
     [...rows].sort((a, b) => {
       for (const s of spec) {
@@ -240,7 +249,8 @@ vi.mock("@/src/prisma/db.client", async () => {
     ) => ({
       where: (pred: Pred) => query([...preds, pred], sortSpec, limitN, includeRel),
       include: (rel: string, _cb?: unknown) => query(preds, sortSpec, limitN, rel),
-      orderBy: (cb: (ops: unknown) => unknown) => query(preds, orderBySpec(cb), limitN, includeRel),
+      orderBy: (cb: ((ops: unknown) => unknown) | Array<(ops: unknown) => unknown>) =>
+        query(preds, orderByArg(cb), limitN, includeRel),
       limit: (n: number) => query(preds, sortSpec, n, includeRel),
       select: (..._fields: unknown[]) => query(preds, sortSpec, limitN, includeRel),
       first: async (filter?: Pred) => {
@@ -1099,6 +1109,57 @@ describe("chat POST — conversation_buyer_first_message + message_first_respons
     expect(eventsNamed("message_first_response")).toHaveLength(0);
     expect(eventsNamed("conversation_buyer_first_message")).toHaveLength(0);
   });
+
+  // ─── b5-review fix 3 (LOW — race): hai tab gửi ĐỒNG THỜI ──────────────────
+  // Per-tab `sending` flag (chat-window.tsx) KHÔNG serialize qua tab — hai
+  // POST cùng chèn Message.create (autocommit) rồi cùng chạy query follow-up:
+  // cách cũ (đếm "tin prior TRỪ tin mình") → MỖI request thấy tin của request
+  // kia là "prior" → CẢ HAI skip → event bị DROP HOÀN TOÀN (conversation rơi
+  // khỏi denominator D4 của seller_response_rate_v1). Sau fix: quyết "first"
+  // theo VỊ TRÍ trong danh sách đã sắp (createdAt asc, id asc tie-break) →
+  // request của tin ĐẦU thấy chính mình là đầu → emit; request kia thấy tin
+  // đầu trong snapshot → skip → ĐÚNG MỘT event dưới mọi interleaving.
+  it("HAI tab buyer gửi ĐỒNG THỜI → ĐÚNG MỘT conversation_buyer_first_message (race-safe)", async () => {
+    seedConvo();
+    const [resA, resB] = await Promise.all([
+      postMessage(String(convo["id"]), "tin từ tab A"),
+      postMessage(String(convo["id"]), "tin từ tab B"),
+    ]);
+    expect(resA.ok).toBe(true);
+    expect(resB.ok).toBe(true);
+    expect(dbState.messages).toHaveLength(2);
+
+    // Cách cũ: cả hai request cùng thấy tin của nhau là "prior buyer" → 0
+    // event (drop). Sau fix: đúng MỘT — request của tin buyer ĐẦU emit.
+    const events = eventsNamed("conversation_buyer_first_message");
+    expect(events).toHaveLength(1);
+    expect(events[0]!["conversationId"]).toBe(convo["id"]);
+    expect(events[0]!["actorPseudonym"]).toBe(actorPseudonymFor(BUYER.id));
+  });
+
+  it("HAI tab seller trả lời ĐỒNG THỜI sau ≥1 tin buyer → ĐÚNG MỘT message_first_response, anchor = tin buyer ĐẦU (D4)", async () => {
+    seedConvo();
+    seedMessage(BUYER.id, 5_000); // tin buyer đầu — 5s trước (anchor D4)
+    authState.user = { ...SELLER };
+
+    const [resA, resB] = await Promise.all([
+      postMessage(String(convo["id"]), "reply từ tab A"),
+      postMessage(String(convo["id"]), "reply từ tab B"),
+    ]);
+    expect(resA.ok).toBe(true);
+    expect(resB.ok).toBe(true);
+    expect(dbState.messages).toHaveLength(3); // 1 buyer + 2 seller
+
+    // Cách cũ: mỗi reply thấy reply của tab kia là "prior seller" → 0 event.
+    // Sau fix: đúng MỘT — reply ĐẦU (vị trí) emit, responseMs neo tin buyer ĐẦU.
+    const events = eventsNamed("message_first_response");
+    expect(events).toHaveLength(1);
+    expect(events[0]!["conversationId"]).toBe(convo["id"]);
+    expect(events[0]!["actorPseudonym"]).toBe(actorPseudonymFor(SELLER.id));
+    const responseMs = (events[0]!["metadata"] as { responseMs: number }).responseMs;
+    expect(responseMs).toBeGreaterThanOrEqual(5_000);
+    expect(responseMs).toBeLessThan(60_000);
+  });
 });
 
 // ─── rejectListingAction + approveListingAction (S5/S-19) ─────────────────────
@@ -1175,6 +1236,58 @@ describe("rejectListingAction / approveListingAction — listing_rejected + sell
     expect(eventsNamed("seller_first_listing_published")).toHaveLength(0);
     // audit block vẫn ghi (Batch 2/4 behavior giữ nguyên)
     expect(dbState.audits.some((a) => a["action"] === "listing.approve_blocked")).toBe(true);
+  });
+
+  // ─── b5-review fix 2 (LOW — correction #9): recorder S-19 check cần key ────
+  // actorPseudonymFor (S-19 existence filter) chạy TRƯỚC emit core → thiếu key
+  // từng log TELEMETRY_RECORDER_FAILED level ERROR cho MỌI lần duyệt thành công
+  // ở dev/CI/integration (test-integration.sh chỉ set DATABASE_URL). Phải là
+  // silent no-op NGOÀI production (correction #9 — cùng semantics emit core),
+  // TELEMETRY_KEY_UNAVAILABLE (không phải RECORDER_FAILED) ở production.
+  it("key chưa cấu hình NGOÀI production → approve VẪN thành công, silent no-op KHÔNG captureError (correction #9)", async () => {
+    vi.stubEnv("PRODUCT_EVENT_PSEUDONYM_KEY", "");
+    const seller = VERIFIED_SELLER;
+    seedPolicyRows(String(seller["id"]));
+    seedUpload(String(seller["id"]), "00000000-0000-4000-8000-0000000000dd.webp");
+    const listing = seedListing(String(seller["id"]), "pending");
+    seedImage(String(listing["id"]), "/uploads/00000000-0000-4000-8000-0000000000dd.webp", "front");
+
+    await approveListingAction(
+      fd({ listingId: String(listing["id"]), version: String(listing["updatedAt"]) }),
+    );
+
+    // approve THÀNH CÔNG — telemetry không phải ranh giới sản phẩm
+    expect(listing["status"]).toBe("approved");
+    expect(eventsNamed("seller_first_listing_published")).toHaveLength(0);
+    // KHÔNG captureError — dev/test không set key là BÌNH THƯỜNG (correction #9)
+    expect(captureErrorMock).not.toHaveBeenCalled();
+  });
+
+  it("key chưa cấu hình Ở production → approve thành công, KHÔNG event, ĐÚNG MỘT log TELEMETRY_KEY_UNAVAILABLE (không RECORDER_FAILED)", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("PRODUCT_EVENT_PSEUDONYM_KEY", "");
+    const seller = VERIFIED_SELLER;
+    seedPolicyRows(String(seller["id"]));
+    seedUpload(String(seller["id"]), "00000000-0000-4000-8000-0000000000dd.webp");
+    const listing = seedListing(String(seller["id"]), "pending");
+    seedImage(String(listing["id"]), "/uploads/00000000-0000-4000-8000-0000000000dd.webp", "front");
+
+    await approveListingAction(
+      fd({ listingId: String(listing["id"]), version: String(listing["updatedAt"]) }),
+    );
+
+    expect(listing["status"]).toBe("approved");
+    expect(eventsNamed("seller_first_listing_published")).toHaveLength(0);
+    // MỘT log typed (gate recorder — emit core KHÔNG tới vì gate return trước),
+    // KHÔNG phải TELEMETRY_RECORDER_FAILED của catch-all recorder
+    expect(captureErrorMock).toHaveBeenCalledTimes(1);
+    const [scope, code, meta] = captureErrorMock.mock.calls[0]!;
+    expect(scope).toBe("telemetry");
+    expect(String(code)).toContain("TELEMETRY_KEY_UNAVAILABLE");
+    expect(meta).toMatchObject({
+      name: "seller_first_listing_published",
+      code: "PRODUCT_EVENT_KEY_UNCONFIGURED",
+    });
   });
 });
 

@@ -355,6 +355,40 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 
 // ─── Emit core ────────────────────────────────────────────────────────────────
 
+/**
+ * Key gate DÙNG CHUNG (b5-review fix 2 — correction #9 một nguồn): trả true khi
+ * key pseudonym khả dụng. Thiếu/sai key → false — NGOÀI production: false
+ * SILENT (dev/test không set key là bình thường — KHÔNG captureError);
+ * production: false + TELEMETRY_KEY_UNAVAILABLE (env validation đã exit sớm
+ * khi start — nhánh này belt-and-suspenders).
+ *
+ * Emit core gọi ở bước 4; caller NGOÀI core cần pseudonym TRƯỚC emit (vd S-19
+ * existence check của recordSellerFirstListingPublished — filter theo
+ * actorPseudonym) PHẢI gate qua đây trước khi đụng actorPseudonymFor —
+ * actorPseudonymFor throw khi thiếu key, và catch-all recorder sẽ log
+ * TELEMETRY_RECORDER_FAILED level ERROR cho MỌI lần duyệt thành công ở
+ * dev/CI/integration (test-integration.sh chỉ set DATABASE_URL) — phá
+ * correction #9 (silent no-op).
+ */
+export function productEventKeyAvailable(eventName: ProductEventName): boolean {
+  try {
+    getProductEventPseudonymKey(); // validate + warm cache per process
+    return true;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "";
+    const code = message.startsWith(PRODUCT_EVENT_KEY_UNCONFIGURED)
+      ? PRODUCT_EVENT_KEY_UNCONFIGURED
+      : PRODUCT_EVENT_KEY_INVALID;
+    if (process.env.NODE_ENV === "production") {
+      captureError("telemetry", "TELEMETRY_KEY_UNAVAILABLE", {
+        name: eventName,
+        code,
+      });
+    }
+    return false;
+  }
+}
+
 export type ProductEventInput = {
   name: ProductEventName;
   /** Raw user id — emit core tự pseudonymize, KHÔNG lưu id thô (S-10). */
@@ -443,23 +477,9 @@ export async function emitProductEvent(input: ProductEventInput): Promise<void> 
 
   // 4. Key dedicated — fail-open cho flow, fail-closed cho row (KHÔNG thể
   //    pseudonymize mà không có key → KHÔNG BAO GIỜ ghi id thô thay thế).
-  try {
-    getProductEventPseudonymKey(); // validate + warm cache per process
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "";
-    const code = message.startsWith(PRODUCT_EVENT_KEY_UNCONFIGURED)
-      ? PRODUCT_EVENT_KEY_UNCONFIGURED
-      : PRODUCT_EVENT_KEY_INVALID;
-    if (process.env.NODE_ENV === "production") {
-      // production: env validation đã exit sớm khi start — nhánh này là
-      // belt-and-suspenders; ngoài production: silent no-op (correction #9).
-      captureError("telemetry", "TELEMETRY_KEY_UNAVAILABLE", {
-        name: input.name,
-        code,
-      });
-    }
-    return;
-  }
+  //    Gate sống trong productEventKeyAvailable (b5-review fix 2 — cùng một
+  //    semantics cho recorder cần pseudonym trước emit; correction #9).
+  if (!productEventKeyAvailable(input.name)) return;
 
   // 5. Pseudonym + internal flag (S-10/S-12).
   const actorId = nonEmpty(input.actorId);
