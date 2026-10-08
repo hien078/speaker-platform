@@ -23,6 +23,7 @@ import {
   type DealOutcome,
 } from "@/src/lib/deal";
 import { emitProductEvent } from "@/src/lib/product-events";
+import { assertBuyerBetaChatAccess } from "@/src/lib/beta-access";
 import { notify } from "@/src/lib/notify";
 import { captureError } from "@/src/lib/observability";
 
@@ -80,6 +81,7 @@ const DEAL_CREATE_GUARD_ERROR_CODES = [
   "SELLER_SUSPENDED", // assertListingSellerInteractable — D2
   "SELLER_NOT_VERIFIED", // assertListingSellerInteractable — D2
   "SELLER_MEMBERSHIP_INACTIVE", // assertListingSellerInteractable — D2
+  "BETA_MEMBERSHIP_REQUIRED", // assertBuyerBetaChatAccess — B7 Task 6 (§2.1/§7.8)
   "DEAL_CONVERSATION_REQUIRED", // requireDealConversation — §5.2
 ] as const;
 
@@ -144,6 +146,14 @@ export async function createDealAction(
   try {
     await assertCanStartConversation(user.id, listing.sellerId);
     await assertListingSellerInteractable(listing.sellerId);
+    // B7 Task 6 (C2 — §7.8 "Deal mutation" beta-membership status; actor LÀ
+    // buyer per D11): guard buyer-side chạy SAU D2 seller-side, TRƯỚC
+    // requireDealConversation. Typed error → form state qua allowlist trên.
+    // markDealOutcomeAction KHÔNG đụng — Batch 6 D10/D2 đã định nghĩa guard
+    // của marking (actor suspension + block cho success); ongoing deal
+    // participation KHÔNG bị gate trên membership (blocking a member's
+    // confirmation would strand the bilateral record).
+    await assertBuyerBetaChatAccess(user.id);
     convo = await requireDealConversation(listing.id, user.id);
   } catch (e) {
     if (

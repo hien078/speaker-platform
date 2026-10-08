@@ -1081,6 +1081,24 @@ describe("app/listings/[slug] — D12 CTA gating (Batch 6 Task 6b)", () => {
   beforeEach(() => {
     dbState.listings.push(d12Listing());
     seedEligibleSeller(D12_SELLER);
+    // B7 Task 6 fixture migration (corrections #18): detail page giờ đọc
+    // isActiveBetaParticipant cho buyer đã đăng nhập chưa có hội thoại —
+    // seed membership private_beta_buyer active cho D12_BUYER (viewer của mọi
+    // case đăng nhập trong describe này) để CTA vẫn render như trước.
+    // Case non-member (copy trung tính) sống ở chính page + chat-beta-gate.
+    dbState.memberships.push({
+      id: "bm-buyer-d12",
+      userId: D12_BUYER,
+      cohort: "private_beta_buyer",
+      status: "active",
+      expiresAt: null,
+      acceptedAt: null,
+      invitedAt: null,
+      invitedBy: null,
+      notes: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+      updatedAt: "2026-10-01T00:00:00.000Z",
+    });
   });
 
   it("seller đủ điều kiện + anonymous → 'Nhắn người bán' (KHÔNG && user — corrections #16)", async () => {

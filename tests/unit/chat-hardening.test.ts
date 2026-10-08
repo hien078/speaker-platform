@@ -383,6 +383,28 @@ const SELLER_MEMBERSHIP: Fixture = {
   updatedAt: "2026-10-01T00:00:00.000Z",
 };
 
+/**
+ * Membership private_beta_buyer active của BUYER — B7 Task 6 fixture migration
+ * (corrections #17, Batch 6 B1 pattern): create branch của
+ * startConversationAction giờ thêm guard buyer-side (assertBuyerBetaChatAccess
+ * — §2.1) SAU guard D2; mọi fixture tạo hội thoại qua action cần buyer là
+ * active beta participant. setMembership ở trên tìm theo userId === SELLER.id
+ * nên row buyer không nhiễu case seller. KHÔNG assertion nào đổi.
+ */
+const BUYER_MEMBERSHIP: Fixture = {
+  id: "bcm-buyer",
+  userId: BUYER.id,
+  cohort: "private_beta_buyer",
+  status: "active",
+  invitedBy: null,
+  invitedAt: null,
+  acceptedAt: null,
+  expiresAt: null,
+  notes: null,
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
 const block = (blockerId: string, blockedId: string): Row => ({
   id: `blk-${blockerId}-${blockedId}`,
   blockerId,
@@ -491,6 +513,9 @@ const seedBase = (): void => {
   dbState.conversations.push({ ...CONVO });
   dbState.verifications.push({ ...SELLER_VERIFICATION });
   dbState.memberships.push({ ...SELLER_MEMBERSHIP });
+  // B7 Task 6 fixture migration (corrections #17): buyer ĐỦ §2.1 mặc định —
+  // create branch đi qua guard buyer-side (sau SELLER_MEMBERSHIP).
+  dbState.memberships.push({ ...BUYER_MEMBERSHIP });
 };
 
 const TEST_KEY = Buffer.alloc(32, 7).toString("base64");

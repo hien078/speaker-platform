@@ -490,6 +490,23 @@ function seedSellerEligibility(sellerId: string): void {
   });
 }
 
+/**
+ * Membership private_beta_buyer active của BUYER — B7 Task 6 fixture migration
+ * (corrections #17, Batch 6 B1 pattern): createDealAction giờ thêm guard
+ * buyer-side (assertBuyerBetaChatAccess — C2/§7.8) SAU guard D2; mọi fixture
+ * tạo Deal qua action cần buyer là active beta participant. Case âm của gate
+ * sống ở deal-beta-gate.test.ts. KHÔNG assertion nào đổi.
+ */
+function seedBuyerMembership(): void {
+  dbState.memberships.push({
+    id: `mem-${BUYER.id}`,
+    userId: BUYER.id,
+    cohort: "private_beta_buyer",
+    status: "active",
+    expiresAt: null,
+  });
+}
+
 function dealForm(over: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("listingId", "listing-1");
@@ -532,6 +549,7 @@ beforeEach(() => {
   seedListing();
   seedConversation("listing-1", BUYER.id);
   seedSellerEligibility(SELLER.id);
+  seedBuyerMembership(); // B7 Task 6 fixture migration (corrections #17)
 });
 
 afterEach(() => {
@@ -706,7 +724,10 @@ describe("createDealAction — §5.2 creation requirements", () => {
   it.each(["suspended", "exited", "invited"] as const)(
     "membership founding_seller %s → SELLER_MEMBERSHIP_INACTIVE (D2)",
     async (status) => {
-      dbState.memberships[0]!.status = status;
+      // B7 fixture migration (corrections #17): memberships giờ có THÊM row
+      // buyer — mutate row CỦA SELLER theo userId (không còn giả [0] là seller).
+      const sellerMembership = dbState.memberships.find((m) => m.userId === SELLER.id);
+      sellerMembership!.status = status;
 
       const state = await createDealAction({}, dealForm());
 
@@ -716,7 +737,9 @@ describe("createDealAction — §5.2 creation requirements", () => {
   );
 
   it("membership hết hạn → SELLER_MEMBERSHIP_INACTIVE (corrections #6)", async () => {
-    dbState.memberships[0]!.expiresAt = "2026-01-01T00:00:00.000Z";
+    // B7 fixture migration (corrections #17): mutate row CỦA SELLER theo userId.
+    const sellerMembership = dbState.memberships.find((m) => m.userId === SELLER.id);
+    sellerMembership!.expiresAt = "2026-01-01T00:00:00.000Z";
 
     const state = await createDealAction({}, dealForm());
 

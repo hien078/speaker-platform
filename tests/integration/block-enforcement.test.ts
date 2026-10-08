@@ -101,6 +101,21 @@ async function seedSellerEligibility(sellerId: string): Promise<void> {
   });
 }
 
+/**
+ * Buyer là active beta participant (B7 Task 6 fixture migration — corrections
+ * #17, Batch 6 B1 pattern): create branch của startConversationAction giờ
+ * thêm guard buyer-side (assertBuyerBetaChatAccess — §2.1). Seed cho MỌI buyer
+ * fixture gọi action. Membership cascade theo user (contract.prisma onDelete:
+ * Cascade) nên cleanup afterEach (delete user) dọn cả row này.
+ */
+async function seedBuyerMembership(buyerId: string): Promise<void> {
+  await db.orm.public.BetaCohortMembership.create({
+    userId: buyerId,
+    cohort: "private_beta_buyer",
+    status: "active",
+  });
+}
+
 async function mkListing(sellerId: string): Promise<string> {
   const cat = await db.orm.public.Category.create({
     name: `Danh mục ${uid()}`,
@@ -235,6 +250,7 @@ d("block enforcement trên DB thật", () => {
     const buyer = await mkUser("buyer");
     const seller = await mkUser("seller");
     await seedSellerEligibility(seller); // B1 migration — create branch check §7.8 (D2)
+    await seedBuyerMembership(buyer); // B7 Task 6 migration — create branch check §2.1 (buyer-side)
     const listing = await mkListing(seller); // có sẵn hội thoại
     const listing2 = await mkListing(seller); // chưa có hội thoại — path "mới"
     const convo = await mkConversation(listing, buyer, seller);
@@ -317,6 +333,7 @@ d("block enforcement trên DB thật", () => {
     const buyer = await mkUser("buyer");
     const seller = await mkUser("seller");
     await seedSellerEligibility(seller); // B1 migration — create branch check §7.8 (D2)
+    await seedBuyerMembership(buyer); // B7 Task 6 migration — create branch check §2.1 (buyer-side)
     const listing2 = await mkListing(seller);
     const listing3 = await mkListing(seller);
     const convo = await mkConversation(listing2, buyer, seller);

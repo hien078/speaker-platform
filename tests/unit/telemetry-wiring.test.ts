@@ -942,6 +942,24 @@ describe("startConversationAction — conversation_started chỉ trên path tạ
     // BetaCohortMembership — seed đủ policy rows cho SELLER (verified +
     // founding_seller active) để happy path vẫn đến được Conversation.create.
     seedPolicyRows(SELLER.id);
+    // B7 Task 6 fixture migration (corrections #17): guard §2.1 buyer-side
+    // (assertBuyerBetaChatAccess) của create branch đọc BetaCohortMembership
+    // FRESH — seed tiếp membership private_beta_buyer active cho BUYER (actor
+    // của mọi startConversationAction case trong describe này). KHÔNG
+    // assertion nào đổi.
+    dbState.memberships.push({
+      id: `bcm-${dbState.memberships.length + 1}`,
+      userId: BUYER.id,
+      cohort: "private_beta_buyer",
+      status: "active",
+      invitedBy: null,
+      invitedAt: null,
+      acceptedAt: null,
+      expiresAt: null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
   });
 
   it("tạo conversation MỚI → emit conversation_started (conversationId + listingId + buyer pseudonym)", async () => {

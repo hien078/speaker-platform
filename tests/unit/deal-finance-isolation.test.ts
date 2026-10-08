@@ -408,6 +408,21 @@ describe("(Task 7) Conversation.create — đúng HAI site, cả hai giữ guard
     expect(d2SellerSide).toBeLessThan(createIdx);
   });
 
+  // B7 Task 6 (corrections #31 — additive): buyer-side guard §2.1 ngồi GIỮA
+  // D2 seller-side và Conversation.create (T4/C1 order), KHÔNG đụng emission
+  // (recordConversationStarted SAU create) hay redirect branch.
+  it("chat.ts — B7 buyer-side guard (assertBuyerBetaChatAccess) SAU D2, TRƯỚC Conversation.create + emission", () => {
+    const fn = functionSlice(read("src/lib/actions/chat.ts"), "startConversationAction");
+    const createIdx = fn.indexOf("Conversation.create");
+    const d2SellerSide = fn.indexOf("assertListingSellerInteractable(");
+    const b7BuyerSide = fn.indexOf("assertBuyerBetaChatAccess(");
+    const emitIdx = fn.indexOf("recordConversationStarted(");
+    expect(b7BuyerSide, "B7 buyer-side guard (§2.1) phải có").toBeGreaterThanOrEqual(0);
+    expect(d2SellerSide).toBeLessThan(b7BuyerSide); // Batch 6 D2 TRƯỚC Batch 7
+    expect(b7BuyerSide).toBeLessThan(createIdx); // TRƯỚC create — KHÔNG tạo row
+    expect(createIdx).toBeLessThan(emitIdx); // emission SAU create thành công
+  });
+
   it("exchange.ts — createExchangeOfferAction vẫn finance-guarded TRƯỚC Conversation.create (dormant, Batch 1 boundary)", () => {
     const fn = functionSlice(read("src/lib/actions/exchange.ts"), "createExchangeOfferAction");
     const createIdx = fn.indexOf("Conversation.create");

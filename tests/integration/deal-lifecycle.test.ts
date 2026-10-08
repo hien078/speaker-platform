@@ -157,6 +157,22 @@ async function mkEligibleSeller(): Promise<string> {
   return sellerId;
 }
 
+/**
+ * Buyer là active beta participant (B7 Task 6 fixture migration — corrections
+ * #17): createDealAction giờ thêm guard buyer-side (assertBuyerBetaChatAccess
+ * — C2/§7.8) SAU guard D2. Seed cho MỌI buyer fixture tạo Deal qua action
+ * (seedOpenDeal). Row được track trong created.betaMemberships — cleanup
+ * afterEach xóa như :255 (KHÔNG chỉ trông cascade).
+ */
+async function seedBuyerMembership(buyerId: string): Promise<void> {
+  const mem = await db.orm.public.BetaCohortMembership.create({
+    userId: buyerId,
+    cohort: "private_beta_buyer",
+    status: "active",
+  });
+  created.betaMemberships.push(mem.id);
+}
+
 async function mkListing(sellerId: string): Promise<string> {
   const cat = await db.orm.public.Category.create({
     name: `Danh mục ${uid()}`,
@@ -305,6 +321,7 @@ type SeededPair = {
 async function seedOpenDeal(): Promise<SeededPair> {
   const seller = await mkEligibleSeller();
   const buyer = await mkUser("buyer");
+  await seedBuyerMembership(buyer); // B7 Task 6 migration — guard §2.1 buyer-side (C2)
   const listing = await mkListing(seller);
   const listingRow = await db.orm.public.Listing.first({ id: listing });
   const convo = await mkConversation(listing, buyer, seller);

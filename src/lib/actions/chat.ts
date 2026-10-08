@@ -6,6 +6,7 @@ import { requireUser } from "@/src/lib/auth";
 import { assertCanStartConversation } from "@/src/lib/moderation";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { assertListingSellerInteractable, CONVERSATION_START_RATE } from "@/src/lib/deal";
+import { assertBuyerBetaChatAccess } from "@/src/lib/beta-access";
 import { recordConversationStarted } from "@/src/lib/telemetry-recorders";
 
 /** Bắt đầu (hoặc mở lại) hội thoại với seller về một tin đăng */
@@ -67,6 +68,16 @@ export async function startConversationAction(formData: FormData): Promise<void>
   // FRESH từ DB mỗi call — fail closed. KHÔNG checkSellerPublicationRequirements
   // (đó là cổng publication, không phải chat requirements — xem deal.ts).
   await assertListingSellerInteractable(listing.sellerId);
+
+  // B7 Task 6 (spec §2.1 buyer beta access policy + §7.8 beta-membership
+  // status — D4 initiator-only): NGƯỜI BẮT ĐẦU hội thoại phải là active beta
+  // participant (cohort ∈ BETA_CHAT_ALLOWED_COHORTS). Guard chạy SAU mọi guard
+  // Batch 3/6 (block/suspension/seller-side D2 — ordering pin chat-beta-gate)
+  // + SAU existing-conversation lookup (§2.1 chỉ chặn CREATION — pair đã có
+  // hội thoại thì redirect như cũ ở branch trên), TRƯỚC khi tạo row hội thoại.
+  // throw BETA_MEMBERSHIP_REQUIRED → server action error (fail closed — KHÔNG
+  // redirect vào hội thoại chết, KHÔNG tạo row). Policy tắt → no-op (D3).
+  await assertBuyerBetaChatAccess(user.id);
 
   const convo = await db.orm.public.Conversation.create({
     listingId,
