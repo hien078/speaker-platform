@@ -44,8 +44,10 @@
 #                                                            # các check (row counts,
 #                                                            # read-back equal, prisma db
 #                                                            # verify) qua docker exec +
-#                                                            # node container trên network
-#                                                            # db — KHÔNG host pg tools.
+#                                                            # image migrate (compose) —
+#                                                            # KHÔNG host pg tools,
+#                                                            # KHÔNG đòi hỏi node_modules
+#                                                            # trên host (docker-only).
 #                                                            # Check KHÔNG chạy được →
 #                                                            # "restore smoke only — NOT
 #                                                            # gate evidence" + exit ≠ 0.
@@ -69,7 +71,7 @@ usage() { sed -n '2,62p' "$0" | sed 's/^# \{0,1\}//'; exit 1; }
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 PG_IMAGE="${PG_IMAGE:-postgres:16-alpine}"
-NODE_IMAGE="${NODE_IMAGE:-node:22-alpine}" # container prisma CLI cho --file mode
+NODE_IMAGE="${NODE_IMAGE:-node:22-alpine}" # fallback dev/scratch: container prisma CLI cho --file mode (đường chính là image migrate)
 
 # ─── Mode dispatch ───────────────────────────────────────────────────────────
 
@@ -159,8 +161,12 @@ WORK_DIR="$(mktemp -d)" # file tạm cho log/diff — xoá ở trap
 # đếm bảng + so dòng User). SAU ĐÓ drill tự chạy ĐẦY ĐỦ check của plan NGUYÊN
 # văn (row counts User/Listing/Order/OrderItem/Payment/Category, read-back
 # equal, prisma db verify marker+schema) — qua docker exec <db-container> psql
-# (local socket, không host pg tools) và node container trên network db cho
-# prisma CLI (host có thể docker-only, db không publish port). Mismatch → FAIL.
+# (local socket, không host pg tools) và image `migrate` của repo (docker compose
+# run — pattern scripts/admin-access-review-prod.sh) cho prisma CLI: host
+# production docker-only KHÔNG có node/node_modules trên host
+# (scripts/ops-alerts-cron.sh:5-8), image migrate có sẵn node_modules + prisma
+# CLI + graph migrations, container chạy cùng network compose với db (db không
+# publish port). Mismatch → FAIL.
 # Check không chạy được → "restore smoke only — NOT gate evidence" + exit ≠ 0
 # (lần chạy đó KHÔNG dùng làm gate evidence). DB verify dọn đúng tên đã sinh.
 
@@ -256,50 +262,68 @@ if [ "$MODE" = "file" ]; then
     fi
   done
 
-  # prisma db verify (marker + schema) trên DB verify — prisma CLI chạy trong NODE
-  # container trên network db (db không publish port; host có thể docker-only không
-  # có node). Cần node_modules/prisma trong repo + DB_PASSWORD (env hoặc .env —
-  # cùng nguồn db-ops.sh). Env truyền theo TÊN (-e DATABASE_URL) — giá trị không
-  # hiện trong ps args.
-  echo "── verify (file) 4/4: prisma db verify (marker + schema khớp contract) trên $VERIFY_DB — node container"
-  if [ ! -x node_modules/.bin/prisma ]; then
-    cannot_run "prisma db verify: repo thiếu node_modules/prisma (host docker-only?) — chạy từ repo có deps"
+  # prisma db verify (marker + schema) trên DB verify — prisma CLI chạy trong
+  # image `migrate` CỦA REPO (docker compose service migrate — node_modules +
+  # prisma CLI + graph migrations có sẵn trong image; pattern
+  # scripts/admin-access-review-prod.sh): host production docker-only KHÔNG có
+  # node/node_modules trên host (scripts/ops-alerts-cron.sh:5-8) nên check
+  # KHÔNG đòi hỏi node_modules repo. DATABASE_URL trỏ DB verify (đè DATABASE_URL
+  # mặc định của service migrate), truyền THEO TÊN (-e DATABASE_URL) — giá trị
+  # không hiện trong ps args. Container migrate chạy trên network compose của
+  # stack → $OPS_DB_CONTAINER (db KHÔNG publish port) resolve được + DB verify
+  # reachable. Fallback (dev/scratch rig KHÔNG có compose/image migrate):
+  # node_modules repo + bare node image trên network db (docker run).
+  echo "── verify (file) 4/4: prisma db verify (marker + schema khớp contract) trên $VERIFY_DB — image migrate (compose)"
+  DB_PASSWORD_RESOLVED="${DB_PASSWORD:-}"
+  if [ -z "$DB_PASSWORD_RESOLVED" ] && [ -f .env ]; then
+    DB_PASSWORD_RESOLVED="$(sed -n 's/^DB_PASSWORD=//p' .env | tail -1 | tr -d '\r')"
+    case "$DB_PASSWORD_RESOLVED" in
+      \"*\") DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED#\"}"; DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED%\"}" ;;
+      \'*\') DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED#\'}"; DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED%\'}" ;;
+    esac
+  fi
+  if [ -z "$DB_PASSWORD_RESOLVED" ]; then
+    cannot_run "prisma db verify: thiếu DB_PASSWORD (không có env, không có ./.env)"
   else
-    DB_PASSWORD_RESOLVED="${DB_PASSWORD:-}"
-    if [ -z "$DB_PASSWORD_RESOLVED" ]; then
-      if [ -f .env ]; then
-        DB_PASSWORD_RESOLVED="$(sed -n 's/^DB_PASSWORD=//p' .env | tail -1 | tr -d '\r')"
-        case "$DB_PASSWORD_RESOLVED" in
-          \"*\") DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED#\"}"; DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED%\"}" ;;
-          \'*\') DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED#\'}"; DB_PASSWORD_RESOLVED="${DB_PASSWORD_RESOLVED%\'}" ;;
-        esac
-      fi
-    fi
-    if [ -z "$DB_PASSWORD_RESOLVED" ]; then
-      cannot_run "prisma db verify: thiếu DB_PASSWORD (không có env, không có ./.env)"
+    # URL có mật khẩu — KHÔNG in; export theo tên cho compose run -e DATABASE_URL.
+    export DATABASE_URL="postgresql://$OPS_DB_USER:$DB_PASSWORD_RESOLVED@$OPS_DB_CONTAINER:5432/$VERIFY_DB"
+    set +e
+    docker compose -f docker-compose.prod.yml run --rm --no-deps -T \
+      -e DATABASE_URL migrate npx prisma db verify >"$WORK_DIR/file-db-verify.log" 2>&1
+    DBV_RC=$?
+    set -e
+    unset DATABASE_URL
+    if [ "$DBV_RC" -eq 0 ]; then
+      check PASS "prisma db verify (image migrate): marker + schema khớp contract (exit 0)"
+    elif [ "$DBV_RC" -eq 4 ]; then
+      check FAIL "prisma db verify: drift/marker mismatch (exit 4):"
+      sed -n '1,10p' "$WORK_DIR/file-db-verify.log" || true
+    elif [ ! -x node_modules/.bin/prisma ]; then
+      cannot_run "prisma db verify: image migrate không chạy được (exit $DBV_RC — xem $WORK_DIR/file-db-verify.log) và repo thiếu node_modules/prisma cho fallback (host docker-only?)"
     else
+      # Fallback dev/scratch: node_modules repo + bare node image trên network db
+      # (docker run) — cho rig không có compose/image migrate.
       OPS_NET="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}} {{end}}' "$OPS_DB_CONTAINER" | awk '{print $1}')"
       if [ -z "$OPS_NET" ]; then
-        cannot_run "prisma db verify: không xác định được network của $OPS_DB_CONTAINER"
+        cannot_run "prisma db verify: không xác định được network của $OPS_DB_CONTAINER (image migrate exit $DBV_RC)"
       else
-        # URL có mật khẩu — KHÔNG in; export theo tên cho docker run -e DATABASE_URL.
         export DATABASE_URL="postgresql://$OPS_DB_USER:$DB_PASSWORD_RESOLVED@$OPS_DB_CONTAINER:5432/$VERIFY_DB"
         set +e
         docker run --rm --network "$OPS_NET" \
           -v "$(pwd):/work" -w /work \
           -e DATABASE_URL -e HOME=/tmp \
-          "$NODE_IMAGE" npx prisma db verify >"$WORK_DIR/file-db-verify.log" 2>&1
+          "$NODE_IMAGE" npx prisma db verify >"$WORK_DIR/file-db-verify-node.log" 2>&1
         DBV_RC=$?
         set -e
+        unset DATABASE_URL
         if [ "$DBV_RC" -eq 0 ]; then
-          check PASS "prisma db verify (node container): marker + schema khớp contract (exit 0)"
+          check PASS "prisma db verify (node container — fallback): marker + schema khớp contract (exit 0)"
         elif [ "$DBV_RC" -eq 4 ]; then
           check FAIL "prisma db verify: drift/marker mismatch (exit 4):"
-          sed -n '1,10p' "$WORK_DIR/file-db-verify.log" || true
+          sed -n '1,10p' "$WORK_DIR/file-db-verify-node.log" || true
         else
-          cannot_run "prisma db verify (exit $DBV_RC — image/network/node_modules? xem $WORK_DIR/file-db-verify.log)"
+          cannot_run "prisma db verify (image migrate exit ≠ 0, node container exit $DBV_RC — image/network/node_modules? xem $WORK_DIR/file-db-verify*.log)"
         fi
-        unset DATABASE_URL
       fi
     fi
   fi

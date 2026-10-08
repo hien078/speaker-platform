@@ -40,7 +40,7 @@
 | Chế độ | Lệnh | Ý nghĩa |
 |---|---|---|
 | **scratch** (mặc định) | `bash scripts/restore-drill.sh` | Chứng minh script end-to-end trên stack throwaway — chạy được ở mọi máy có docker + node (dev/CI). **Thời gian scratch là thời gian trên fixture nhỏ — KHÔNG phải RPO/RTO production.** |
-| **--file** (backup thật) | `bash scripts/restore-drill.sh --file backups/db-loaviet-<ts>.dump` | Drill với backup production: `./scripts/db-ops.sh verify <file>` restore vào DB mới `<tên>_restore_verify_<ts>`, **SAU ĐÓ drill tự chạy ĐẦY ĐỦ các check** (row counts, read-back equal, `prisma db verify`) qua `docker exec <db-container> psql` (local socket — không host pg tools) và node container trên network db cho prisma CLI (host có thể docker-only). **Mismatch → FAIL.** Check không chạy được → in `restore smoke only — NOT gate evidence` + exit ≠ 0 (lần chạy đó KHÔNG dùng làm gate evidence). DB verify được dọn **đúng tên đã sinh** (parse + validate từ output lần chạy đó). File phải nằm TRONG repo (db-ops.sh mount repo tại /work). |
+| **--file** (backup thật) | `bash scripts/restore-drill.sh --file backups/db-loaviet-<ts>.dump` | Drill với backup production: `./scripts/db-ops.sh verify <file>` restore vào DB mới `<tên>_restore_verify_<ts>`, **SAU ĐÓ drill tự chạy ĐẦY ĐỦ các check** (row counts, read-back equal, `prisma db verify`) qua `docker exec <db-container> psql` (local socket — không host pg tools) và **image `migrate` của repo** cho prisma CLI: `docker compose -f docker-compose.prod.yml run --rm --no-deps -T -e DATABASE_URL migrate npx prisma db verify` (pattern `scripts/admin-access-review-prod.sh`) — host production docker-only KHÔNG có node/node_modules (`scripts/ops-alerts-cron.sh:5-8`), image migrate có sẵn node_modules + prisma CLI + graph migrations, container chạy cùng network compose với db (db không publish port) → DB verify reachable; `DATABASE_URL` trỏ DB verify, truyền theo tên (giá trị không hiện trong ps args). Fallback dev/scratch (rig không có compose/image migrate): node_modules repo + bare node image trên network db. **Mismatch → FAIL.** Check không chạy được → in `restore smoke only — NOT gate evidence` + exit ≠ 0 (lần chạy đó KHÔNG dùng làm gate evidence). DB verify được dọn **đúng tên đã sinh** (parse + validate từ output lần chạy đó). File phải nằm TRONG repo (db-ops.sh mount repo tại /work). |
 
 **--file so source (live) vs DB verify** → chạy drill **ngay sau khi lấy backup mới**
 (`./scripts/db-ops.sh backup`) để không drift; source đổi sau thời điểm backup →
@@ -212,9 +212,8 @@ Ghi chú lần chạy này:
 
 **Bối cảnh (merge fix Wave 0, corrections item 9):** lần drill đầu
 (2026-10-06) được ghi trên cây chỉ có Batch 0–2 — graph `baseline → batch2`,
-34 bảng. Lần này re-run **cùng script, không đổi gì**, trên cây merge Batch 5–7
-(HEAD sau commit `fix(ops): reconcile early batch 8 work with batches 5-7`):
-graph đủ **9 migration** (head
+34 bảng. Lần này re-run **cùng script** (chế độ scratch không đổi) trên cây
+merge Batch 5–7: graph đủ **9 migration** (head
 `20261008T1130_batch7_cohort_operations`, marker
 `656449ac…` khớp `migrations/app/refs/db.json` + `refs/production.json`,
 invariant `backfill-listing-approved-content-at` thỏa) — **48 bảng** trong
@@ -222,22 +221,33 @@ schema public (khớp 48 model contract). **Kết quả: 14 PASS / 0 FAIL —
 DRILL PASS (exit 0).** Scratch stack + dump dọn ở trap EXIT (verify sau chạy:
 không còn container/network/dump/file seed).
 
+**Re-record (fix review Wave 0, LOW):** block cũ của mục này là output
+**hand-edit** — header EVIDENCE rút gọn (khác `scripts/restore-drill.sh:571`),
+dòng Migrate thay bằng tóm tắt (khác `:575`), dòng Backup thiếu đường dẫn
+đầy đủ + thiếu dòng "(không truyền --keep …)" của `scripts/backup-db.sh`.
+Block dưới đây là output **verbatim** của lần chạy mới (redact host/IP, uuid
+cắt ngắn `…` — như mục 2026-10-06), trên HEAD sau commit
+`fix(ops): run restore drill prisma verify in the migrate image` (fix `--file`
+— chế độ scratch không đụng). Summary (marker/head/số bảng) nằm ở ghi chú,
+không nằm trong block.
+
 ```text
-── restore drill (scratch): server=sp-drill-pg-93866 client=sp-drill-client-93866 network=sp-drill-net-93866 port=57166
+── restore drill (scratch): server=sp-drill-pg-24178 client=sp-drill-client-24178 network=sp-drill-net-24178 port=59555
 ── migrate graph → ref 'production' (scratch DB)
-    ✓ migrate xong: 20261003T0448_baseline 20261006T0209_batch2_identity_security 20261006T1420_batch3_trust_safety 20261006T1902_batch4_listing_quality 20261007T1708_batch4_holistic_review_fixes 20261007T2007_batch4_round4_approved_content_backfill 20261007T2208_batch5_search_telemetry 20261008T0237_batch6_chat_deal 20261008T1130_batch7_cohort_operations
+    ✓ migrate xong: 20261003T0448_baseline 20261006T0209_batch2_identity_security 20261006T1420_batch3_trust_safety 20261006T1902_batch4_listing_quality 20261007T1708_batch4_holistic_review_fixes 20261007T2007_batch4_round4_approved_content_backfill 20261007T2208_batch5_search_telemetry 20261008T0237_batch6_chat_deal 20261008T1130_batch7_cohort_operations 
 ── seed fixture (tsx + ORM)
-seed: User=2 Category=1 Listing=1 Order=1 OrderItem=1 Payment=1 (order=64c82195-… payment=f32a9967-…)
+seed: User=2 Category=1 Listing=1 Order=1 OrderItem=1 Payment=1 (order=486d794a-… payment=f166c904-…)
 ── backup: backup-db.sh (in-container, pg_dump custom format)
-→ pg_dump custom format → /work/backups/.drill-backup.euFAfD/db-drill-20261008T143825Z.dump
+→ pg_dump custom format → /work/backups/.drill-backup.tTEcez/db-drill-20261008T160300Z.dump
 → Verify archive (pg_restore --list):
 ;
-; Archive created at 2026-10-08 14:38:25 UTC
+; Archive created at 2026-10-08 16:03:00 UTC
 ;     dbname: speaker_drill
 ;     TOC Entries: 402
 ;     Compression: gzip
   … (51 bảng dữ liệu trong archive)
-✓ Backup xong: db-drill-20261008T143825Z.dump (304.0K)
+✓ Backup xong: /work/backups/.drill-backup.tTEcez/db-drill-20261008T160300Z.dump (304.0K)
+  (không truyền --keep → giữ toàn bộ backup)
 ── restore: restore-db.sh --into drill_restored (in-container, DB mới)
 → Archive nguồn: database 'speaker_drill' (51 bảng dữ liệu)
 → CREATE DATABASE drill_restored (mới — không đè gì đang có)
@@ -262,16 +272,16 @@ seed: User=2 Category=1 Listing=1 Order=1 OrderItem=1 Payment=1 (order=64c82195-
 ── verify 4/4: prisma db verify (marker + schema khớp contract) trên drill_restored
     ✓ PASS: prisma db verify: marker + schema khớp contract (exit 0)
 
-════ EVIDENCE (REDACT host/IP) ════
-- Ngày (UTC): 2026-10-08T14:38:32Z
+════ EVIDENCE — paste vào docs/operations/restore-drill-evidence.md (REDACT host/IP) ════
+- Ngày (UTC): 2026-10-08T16:03:07Z
 - Host: (redacted — máy dev, docker 27.5.1)
-- Mode: scratch (server=sp-drill-pg-93866 client=sp-drill-client-93866 network=sp-drill-net-93866 — stack throwaway, đã dọn ở trap)
-- Migrate: prisma db migrate --to production — graph 9 migration, head 20261008T1130_batch7_cohort_operations (marker 656449ac… khớp refs)
-- Backup: backup-db.sh in-container — 0s · dump db-drill-20261008T143825Z.dump (304K)
-- Restore: restore-db.sh --into drill_restored (DB mới, không đè) — 2s
-- SCRATCH timings (fixture nhỏ — KHÔNG phải RPO/RTO production): backup 0s · restore 2s · freshness 7s · dump 304K
-- Checks: 14 PASS / 0 FAIL (table parity 48 bảng · row counts · read-back equal · prisma db verify)
-═════════════════════════════════════
+- Mode: scratch (server=sp-drill-pg-24178 client=sp-drill-client-24178 network=sp-drill-net-24178 — stack throwaway, đã dọn ở trap)
+- Migrate: prisma db migrate --to production — graph: 20261003T0448_baseline 20261006T0209_batch2_identity_security 20261006T1420_batch3_trust_safety 20261006T1902_batch4_listing_quality 20261007T1708_batch4_holistic_review_fixes 20261007T2007_batch4_round4_approved_content_backfill 20261007T2208_batch5_search_telemetry 20261008T0237_batch6_chat_deal 20261008T1130_batch7_cohort_operations 
+- Backup: backup-db.sh in-container — 0s · dump db-drill-20261008T160300Z.dump (304K)
+- Restore: restore-db.sh --into drill_restored (DB mới, không đè) — 1s
+- SCRATCH timings (fixture nhỏ — KHÔNG phải RPO/RTO production): backup 0s · restore 1s · freshness 7s · dump 304K
+- Checks: 14 PASS / 0 FAIL (table parity · row counts · read-back equal · prisma db verify)
+══════════════════════════════════════════════════════════════════════════
 
 PASS: restore drill xong — mọi check PASS. Scratch stack + dump dọn ở trap EXIT.
 ```
@@ -281,10 +291,91 @@ Ghi chú lần chạy này:
 - **So với lần 2026-10-06:** graph 2 → 9 migration; 34 → **48 bảng** public
   (48 model contract — khớp phân loại ops-alerts: 9 finance-only + 3
   cascade-affected + 36 non-finance); TOC 269 → 402 entries; dump 192K → 304K.
-  Fixture + checks + script **không đổi** — chỉ cây migrate là khác (chứng minh
-  drill chạy đúng trên graph cuối).
+  Fixture + checks + **chế độ scratch của script không đổi** — chỉ cây migrate
+  là khác (chứng minh drill chạy đúng trên graph cuối; lần re-record này chạy
+  trên HEAD sau fix `--file` của drill — không đụng chế độ scratch).
 - Dữ liệu trong output là **fixture giả** trên stack scratch (email
   `drill-*@example.com`, `passwordHash` giả) — không phải dữ liệu thật;
   password scratch không bao giờ in ra; uuid cắt ngắn khi paste.
 - **Lần chạy `--file` trên server production THẬT** vẫn là **bước pre-launch
   của operator** (release checklist Batch 8 Task 9) — không có gì thay đổi.
+
+### 2026-10-08 — --file (re-run sau fix: prisma verify qua image migrate — host docker-only)
+
+**Bối cảnh (fix review Wave 0, MEDIUM):** check 4/4 cũ đòi hỏi
+`node_modules/.bin/prisma` **trên host** → trên server production
+docker-only (không Node — `scripts/ops-alerts-cron.sh:5-8`) check luôn
+CANNOT RUN → drill `--file` không bao giờ là gate evidence được. Fix: prisma
+CLI chạy trong **image `migrate` của repo** qua
+`docker compose -f docker-compose.prod.yml run --rm --no-deps -T -e DATABASE_URL migrate npx prisma db verify`
+(pattern `scripts/admin-access-review-prod.sh` — image có sẵn node_modules +
+prisma CLI + graph migrations; `DATABASE_URL` trỏ DB verify, truyền theo tên
+— không hiện trong ps args; container migrate chạy cùng network compose với
+db → DB verify reachable, db không publish port). Đường node_modules repo +
+bare node image chỉ còn **fallback dev/scratch** (khi compose/image migrate
+không chạy được).
+
+**Proof (cùng rig 2026-10-06 — container `loaviet-db` throwaway trên network
+compose của project, migrate graph thật + seed fixture qua ORM, backup qua
+chính `./scripts/db-ops.sh backup`; giấu tạm `node_modules/.bin/prisma` để giả
+host docker-only):** `14 PASS / 0 FAIL / 0 CANNOT RUN — PASS (exit 0)` —
+check 4/4 chạy qua image migrate, fallback không cần tới. Fallback được
+exercise riêng (env sạch, không có biến interpolate của compose → compose
+fail → node container PASS, exit 0). DB verify DROP đúng tên; rig tear-down
+đầy đủ; khôi phục lại prisma bin sau test.
+
+```text
+── drill --file: verify backup thật qua db-ops.sh (stack production: loaviet-db/loaviet)
+── file: …/backups/db-loaviet-20261008T155928Z.dump (304K, tuổi 10s)
+→ Archive nguồn: database 'loaviet' (51 bảng dữ liệu)
+→ CREATE DATABASE loaviet_restore_verify_20261008T155938Z (mới — không đè gì đang có)
+→ pg_restore vào loaviet_restore_verify_20261008T155938Z…
+✓ Restore xong: loaviet_restore_verify_20261008T155938Z — 48 bảng trong schema public
+  So sánh với nguồn: bảng 48 → đích 48 · dòng User 2 → đích 2
+
+Kết quả verify (non-destructive): đã restore vào DB MỚI loaviet_restore_verify_20261008T155938Z.
+Kiểm tra thêm bằng tay nếu muốn, rồi dọn khi sẵn sàng (KHÔNG in URL có mật khẩu ở đây):
+  psql "<URL quản trị>" -c 'DROP DATABASE "loaviet_restore_verify_20261008T155938Z"'
+── DB verify của lần chạy này: loaviet_restore_verify_20261008T155938Z
+── verify (file) 1/4: table count parity (schema public) — loaviet vs loaviet_restore_verify_20261008T155938Z
+    ✓ PASS: table count parity: 48 bảng (public) — source == verify DB
+── verify (file) 2/4: row counts (source vs verify DB)
+    ✓ PASS: row count User: 2 == 2
+    ✓ PASS: row count Listing: 1 == 1
+    ✓ PASS: row count Order: 1 == 1
+    ✓ PASS: row count OrderItem: 1 == 1
+    ✓ PASS: row count Payment: 1 == 1
+    ✓ PASS: row count Category: 1 == 1
+── verify (file) 3/4: read back equal (toàn bộ dòng từng bảng, source vs verify DB — KHÔNG in nội dung)
+    ✓ PASS: read back equal: User (2 dòng byte-equal)
+    ✓ PASS: read back equal: Listing (1 dòng byte-equal)
+    ✓ PASS: read back equal: Order (1 dòng byte-equal)
+    ✓ PASS: read back equal: OrderItem (1 dòng byte-equal)
+    ✓ PASS: read back equal: Payment (1 dòng byte-equal)
+    ✓ PASS: read back equal: Category (1 dòng byte-equal)
+── verify (file) 4/4: prisma db verify (marker + schema khớp contract) trên loaviet_restore_verify_20261008T155938Z — image migrate (compose)
+    ✓ PASS: prisma db verify (image migrate): marker + schema khớp contract (exit 0)
+── dọn: DROP DATABASE loaviet_restore_verify_20261008T155938Z (DB verify của lần chạy này)
+
+════ EVIDENCE — paste vào docs/operations/restore-drill-evidence.md (REDACT host/IP) ════
+- Ngày (UTC): 2026-10-08T15:59:48Z
+- Host: (redacted — máy dev, docker 27.5.1)
+- Mode: --file (backup thật, stack loaviet-db/loaviet — TEST RIG throwaway, không phải server production)
+- File: …/backups/db-loaviet-20261008T155928Z.dump (304K) · backup freshness (RPO đo được): 10s
+- Verify duration (restore vào DB mới + checks): 2s (mẫu RTO đo được)
+- Checks: 14 PASS / 0 FAIL / 0 CANNOT RUN (table parity · row counts · read-back equal · prisma db verify)
+- DB verify loaviet_restore_verify_20261008T155938Z đã DROP (dọn đúng tên lần chạy này).
+══════════════════════════════════════════════════════════════════════════
+
+PASS: drill --file xong — mọi check PASS (gate evidence).
+```
+
+Ghi chú lần chạy này:
+
+- Output là **verbatim** của lần chạy (redact host/IP + đường dẫn tuyệt đối;
+  rig không có dữ liệu thật — fixture giả như scratch; password không bao giờ
+  in ra).
+- **Lần chạy `--file` trên server production THẬT** vẫn là **bước pre-launch
+  của operator** (release checklist Batch 8 Task 9) — fix này chỉ đổi **nơi
+  prisma CLI chạy** (image migrate của repo thay vì node container), không
+  đổi check hay ngưỡng.
