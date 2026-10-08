@@ -160,7 +160,7 @@ Batch 1 = critical security finding.**
 
    ```bash
    docker exec loaviet-db psql -U loaviet -d loaviet -tAc \
-     'SELECT relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables WHERE relname IN ('"'"'Order'"'"','"'"'OrderItem'"'"','"'"'Payment'"'"','"'"'Payout'"'"','"'"'WithdrawRequest'"'"','"'"'LedgerEntry'"'"','"'"'Dispute'"'"','"'"'OrderStatusHistory'"'"','"'"'PlatformSetting'"'"','"'"'CartItem'"'"','"'"'Offer'"'"','"'"'ExchangeOffer'"'"') ORDER BY relname;'
+     "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables WHERE relname IN ('Order','OrderItem','Payment','Payout','WithdrawRequest','LedgerEntry','Dispute','OrderStatusHistory','PlatformSetting','CartItem','Offer','ExchangeOffer') ORDER BY relname;"
    ```
 
    So với watermark `backups/.ops-alerts-state.json` (counters + rowCounts
@@ -186,8 +186,9 @@ Batch 1 = critical security finding.**
    plan riêng — KHÔNG hot-fix trong Batch 8 perimeter); nếu là thao tác tay
    hợp lệ (vd operator chạy seed `PlatformSetting` trong lúc maintenance) →
    ghi nhận quy trình phải qua `--apply` có chủ đích. **Mọi trường hợp ghi
-   vào `docs/operations/private-beta-security-review.md` (findings register)
-   — alert không được phép "im lặng giải thích".**
+   vào `docs/operations/private-beta-security-review.md` (findings register
+   — file do Task 8 cùng batch tạo) — alert không được phép "im lặng giải
+   thích".**
 6. **Re-baseline watermark:** sau khi xử lý, lần chạy ops-alerts kế tiếp tự
    ghi watermark mới (delta từ snapshot sạch); xác nhận bằng một lần chạy
    thủ công: `OPS_ALERTS_MODE=docker npx tsx scripts/ops-alerts.ts` (hoặc

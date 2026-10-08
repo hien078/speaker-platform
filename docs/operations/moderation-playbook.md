@@ -97,8 +97,9 @@ Hai đường độc lập, KHÔNG thay thế nhau:
 - **Từ chối admin** — `rejectListingAction` (capability `listing.moderate`,
   `src/lib/actions/admin.ts`): chuyển → `rejected`, kèm audit
   `listing.rejected` / chặn thì `listing.reject_blocked` (reason typed:
-  `listing_version_missing` / `listing_changed_during_review` /
-  `moderator_conflict`). Quy tắc tạm (recorded): listing legacy `rejected`
+  `listing_version_missing` / `listing_changed_during_review`). Recusal
+  KHÔNG áp dụng cho reject (tự từ chối tin của mình là self-harm — recorded).
+  Quy tắc tạm (recorded): listing legacy `rejected`
   không resubmit `[FOUNDER DECISION — FD-R18]`.
 
 Takedown có thể kèm `caseId` (case phải nhắm CHÍNH listing này, state ∈
@@ -178,15 +179,19 @@ mã TOTP step-up). Case chưa actioned được chuyển atomic `actioned`
 - Listing đã công khai của người bị đình chỉ VẪN sống cho tới khi moderator
   quyết định takedown (RR-17) — đình chỉ không tự unpublish.
 - Chặn: MỌI transition publication (yêu cầu `account_not_suspended` trong
-  `checkSellerPublicationRequirements`), mở hội thoại MỚI / Deal MỘT
+  `checkSellerPublicationRequirements`), mở hội thoại MỚI / Deal MỚI
   (`assertListingSellerInteractable` → `SELLER_SUSPENDED`;
   `assertCanStartConversation` → `ACCOUNT_SUSPENDED`), gửi tin nhắn MỚI
-  trong hội thoại cũ (`assertCanSendMessage` — actor-side), nhận lời mời
-  founding seller (`INVITE_ACCOUNT_SUSPENDED`).
-- **Tin nhắn trong hội thoại ĐÃ TỒN TẠI của seller bị đình chỉ/thu hồi xác
-  minh vẫn ghi được** (perimeter chỉ chặn tương tác MỚI — Batch 6 D2/Batch 7
-  D4, actor-side guards) — ghi nhận là hành vi chấp nhận
-  `[FOUNDER DECISION — FD-R53, liên quan FD-R6]`.
+  trong hội thoại cũ (`assertCanSendMessage` — actor-side: người GỬI bị đình
+  chỉ → 403 `ACCOUNT_SUSPENDED`; counterpart bị đình chỉ KHÔNG được check —
+  A2), nhận lời mời founding seller (`INVITE_ACCOUNT_SUSPENDED`).
+- **Tin nhắn trong hội thoại ĐÃ TỒN TẠI của seller bị THU HỒI/chưa xác minh
+  vẫn ghi được** — D2 perimeter chỉ chặn tương tác MỚI (Batch 6 A10: guard
+  seller-side chạy ở `startConversationAction`/`createDealAction`, KHÔNG chạy
+  ở POST message; người bị đình chỉ thì bị chặn bởi guard actor-side ngay
+  trên). Có nên chặn luôn reply trong hội thoại cũ là policy ghi nhận cho
+  founder ruling `[FOUNDER DECISION — FD-R53, liên quan FD-R6]`. Lịch sử hội
+  thoại vẫn ĐỌC được khi bị chặn (GET không đổi — bằng chứng giữ nguyên).
 - Đình chỉ membership founding_seller (khác đình chỉ tài khoản): không
   unpublish, không thu hồi session, không chặn tin nhắn hội thoại cũ, không
   auto-hết hạn — xem FD-R51.
@@ -250,7 +255,7 @@ cho tới khi lift thủ công (`liftSuspensionAction` — audit
 | FD-R18 | Listing legacy `rejected` không resubmit (§3) |
 | FD-R50 | Copy kiểm duyệt placeholder (§8) — BLOCKING |
 | FD-R51 | Ngữ nghĩa đình chỉ membership founding_seller (§6) |
-| FD-R53 | Tin nhắn hội thoại cũ của seller bị đình chỉ vẫn ghi được (§6) |
+| FD-R53 | Reply trong hội thoại cũ của seller bị thu hồi xác minh vẫn ghi được; đình chỉ thì bị chặn actor-side (§6) |
 
 Liên quan chéo: `docs/operations/incident-playbook.md` (sự cố bảo toàn bằng
 chứng), `docs/operations/seller-verification-playbook.md` (đình chỉ chặn
