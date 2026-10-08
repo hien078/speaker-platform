@@ -99,7 +99,16 @@ $ npm audit
 ```
 
 **Re-triage 18 findings (đầy đủ):** TẤT CẢ dev-toolchain transitive, KHÔNG có
-findings nào trong dependency runtime của image production:
+findings nào trong dependency runtime của image production (stage runner chỉ
+copy `.next/standalone` + static — KHÔNG copy `node_modules` stage deps).
+**Ngoại lệ image (independent review 2026-10-08):** image `migrate`
+(Dockerfile:30-38) copy nguyên vẹn `node_modules` từ stage deps (`npm install`
+đầy đủ, gồm dev) nên CẢ 18 findings CÓ mặt trong filesystem của image mà
+compose chạy against DB production (docker-compose.prod.yml:44). Khả năng
+khai thác THẤP: `prisma db migrate` (Dockerfile:38) không serve HTTP (code
+path hono server không chạy) và không chạm `lodash _.template`/`braces` —
+code vulnerable có mặt trong image nhưng không được thực thi (ghi nhận ở
+hàng dev-toolchain §Findings register):
 
 | Chuỗi transitive | Gói có finding | Ngưỡng vào cây |
 |---|---|---|
@@ -116,7 +125,9 @@ Mọi `fixAvailable` đều **major/breaking** (`npm audit fix --force` sẽ ins
 không edit runbook).
 
 **Gate:** `npm audit --omit=dev` = 0 → **không có runtime critical/high** —
-điều kiện §9 "no known critical security issue" THỎA về dependency. Dev-toolchain
+điều kiện §9 "no known critical security issue" THỎA về dependency (gate nói
+về dependency RUNTIME của app; ngoại lệ image migrate — dev deps có mặt
+trong image nhưng code path không thực thi — xem trên). Dev-toolchain
 findings được ghi nhận ở §Findings register (LOW, ACCEPTED — không có đường
 runtime).
 
@@ -134,10 +145,15 @@ runtime).
 | prisma (dev) | ^8.0.0-rc.19 | caret |
 | bcryptjs / jose / lucide-react / clsx / tailwind-merge / dotenv | ^… | caret |
 
-`package-lock.json` **được commit** (`git ls-files` → có) — mọi install qua
-`npm ci`, lockfile khóa toàn bộ transitive (kể cả các gói có finding dev —
-không thể drift lên bản CVE mới hơn). Batch 8 thêm **0 package** (G2/G3 —
-package.json chỉ đổi ở Task 9, một script entry).
+`package-lock.json` **được commit** (`git ls-files` → có) — install local/CI
+qua `npm ci` (`.github/workflows/ci.yml:20`); **Docker deps stage dùng
+`npm install --no-audit --no-fund`, KHÔNG phải `npm ci`** (Dockerfile:13 —
+chủ ý tương thích npm 10/12, xem comment Dockerfile:12; `npm install` resolve
+theo lockfile khi package.json đồng bộ nhưng KHÔNG có bảo đảm immutable như
+`npm ci` — claim "mọi install qua npm ci" của bản trước sai, sửa theo
+independent review). Lockfile vẫn khoá transitive (kể cả các gói có finding
+dev — không drift lên bản CVE mới hơn khi lockfile được tôn trọng). Batch 8
+thêm **0 package** (G2/G3 — package.json chỉ đổi ở Task 9, một script entry).
 
 ## 3. §7.4 Browser-security headers (B1/B2)
 
@@ -220,12 +236,94 @@ checklist mang row: "nginx `Strict-Transport-Security` + `limit_req` configured
 Fail-fast: production thiếu/sai key → `instrumentation.ts` `process.exit(1)`
 TRƯỚC khi nhận request (chỉ in TÊN key + lý do, không in giá trị).
 
-**Repo scan — committed secrets (2026-10-08):**
+**Repo scan — committed secrets (2026-10-08):** HAI LỚP — (1) file-name scan
+theo tên file nhạy cảm, (2) content scan theo key-shape trên NỘI DUNG toàn bộ
+file đang track (secret dán vào `.ts`/`.md`/`.yml` cũng bị bắt, không chỉ tên
+file — independent review 2026-10-08):
 
 ```text
 $ git ls-files | grep -E '\.env$|\.pem$|secret'
 (0 kết quả — exit 1)
 ```
+
+```text
+$ git ls-files -z | xargs -0 rg -n --no-heading --color=never \
+  -e '-----BEGIN [A-Z ]*PRIVATE KEY( BLOCK)?-----' \
+  -e 'AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}' \
+  -e 'AIza[0-9A-Za-z_-]{35}' \
+  -e '(sk|rk)_live_[0-9a-zA-Z]{20,}' \
+  -e 'gh[pousr]_[0-9A-Za-z]{36}' \
+  -e 'xox[baprs]-[0-9A-Za-z-]{10,}' \
+  -e 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' \
+  -e 'postgres(ql)?://[^/:@[:space:]]+:[^/@[:space:]]+@' \
+  -e '(?i)[A-Z0-9_]*(SECRET|KEY)[A-Z0-9_]*["'\'']?\s*[:=]\s*["'\'']?[0-9a-fA-F]{32,}["'\'']?' \
+  -e '(?i)[A-Z0-9_]*(SECRET|KEY)[A-Z0-9_]*["'\'']?\s*[:=]\s*["'\'']?[A-Za-z0-9+/]{40,}={0,2}["'\'']?'
+(41 dòng — exit 0; MỌI hit đều là shape postgres URL, xem phân loại dưới)
+.agents/skills/prisma-8/references/feedback.md:226:2. **Pasting `DATABASE_URL` or other secrets into the body.** `redact` aggressively. Replace with `postgresql://USER:PASS@HOST/DB` placeholders.
+.claude/skills/prisma-8/references/feedback.md:226:2. **Pasting `DATABASE_URL` or other secrets into the body.** `redact` aggressively. Replace with `postgresql://USER:PASS@HOST/DB` placeholders.
+.cursor/skills/prisma-8/references/feedback.md:226:2. **Pasting `DATABASE_URL` or other secrets into the body.** `redact` aggressively. Replace with `postgresql://USER:PASS@HOST/DB` placeholders.
+.github/workflows/ci.yml:46:          DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder
+.devin/skills/prisma-8/references/feedback.md:226:2. **Pasting `DATABASE_URL` or other secrets into the body.** `redact` aggressively. Replace with `postgresql://USER:PASS@HOST/DB` placeholders.
+.env.example:3:DATABASE_URL="postgresql://speaker:choose-a-dev-password@localhost:5435/speaker_platform?schema=public"
+docker-compose.prod.yml:53:      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+docker-compose.prod.yml:105:      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+Dockerfile:20:ENV DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder"
+docs/operations/private-beta-batch4-listing-quality-verification.md:132:$ DATABASE_URL=postgresql://speaker:…@localhost:5435/speaker_platform npx tsx scripts/seed-beta-catalog.ts
+prisma-8.md:69:DATABASE_URL="postgresql://user:password@localhost:5432/mydb"
+scripts/restore-drill.sh:286:        export DATABASE_URL="postgresql://$OPS_DB_USER:$DB_PASSWORD_RESOLVED@$OPS_DB_CONTAINER:5432/$VERIFY_DB"
+scripts/restore-drill.sh:365:DB_URL="postgresql://$SCRATCH_USER:$DB_PASS@127.0.0.1:$PORT/$SCRATCH_DB"
+scripts/restore-drill.sh:366:RESTORED_HOST_URL="postgresql://$SCRATCH_USER:$DB_PASS@127.0.0.1:$PORT/$RESTORED_NAME"
+scripts/preflight.sh:46:  DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
+tests/unit/cleanup-uploads.test.ts:110:  vi.stubEnv("DATABASE_URL", "postgresql://test:test@localhost:5432/test");
+scripts/test-integration.sh:36:DB_URL="postgresql://speaker:$DB_PASS@127.0.0.1:$PORT/$DB_NAME"
+tests/unit/seed-beta-catalog-guard.test.ts:19:    expect(isLocalSeedTarget("postgresql://u:p@localhost:5432/loaviet")).toBe(true);
+tests/unit/seed-beta-catalog-guard.test.ts:20:    expect(isLocalSeedTarget("postgresql://u:p@127.0.0.1:5432/loaviet")).toBe(true);
+tests/unit/seed-beta-catalog-guard.test.ts:21:    expect(isLocalSeedTarget("postgresql://u:p@[::1]:5432/loaviet")).toBe(true);
+tests/unit/seed-beta-catalog-guard.test.ts:25:    expect(isLocalSeedTarget("postgresql://loaviet:pw@db:5432/loaviet")).toBe(false);
+tests/unit/seed-beta-catalog-guard.test.ts:26:    expect(isLocalSeedTarget("postgresql://u:p@10.0.0.5:5432/loaviet")).toBe(false);
+tests/unit/seed-beta-catalog-guard.test.ts:27:    expect(isLocalSeedTarget("postgresql://u:p@loaviet.internal:5432/loaviet")).toBe(false);
+tests/unit/seed-beta-catalog-guard.test.ts:38:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/unit/seed-beta-catalog-guard.test.ts:49:    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+tests/unit/seed-beta-catalog-guard.test.ts:74:    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+tests/unit/seed-beta-catalog-guard.test.ts:85:    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+tests/unit/seed-beta-catalog-guard.test.ts:91:    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:1/scratch");
+scripts/smoke.sh:55:DB_URL="postgresql://speaker:$DB_PASS@127.0.0.1:$DB_PORT/$DB_NAME"
+scripts/smoke.sh:65:  DATABASE_URL="postgresql://placeholder:placeholder@localhost:5432/placeholder" \
+tests/unit/backfill-listing-location.test.ts:122:  vi.stubEnv("DATABASE_URL", "postgresql://speaker:pw@127.0.0.1:5435/speaker_platform");
+tests/unit/backfill-listing-location.test.ts:142:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/unit/backfill-listing-location.test.ts:162:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/unit/backfill-listing-location.test.ts:175:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/unit/env.test.ts:25:    DATABASE_URL: "postgresql://user:pass@localhost:5432/db",
+tests/unit/search-resolve.test.ts:441:    vi.stubEnv("DATABASE_URL", "postgresql://u:p@127.0.0.1:5432/scratch");
+tests/unit/search-resolve.test.ts:585:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/docker/docker-compose.smoke.yml:38:      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+tests/docker/docker-compose.smoke.yml:53:      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+tests/integration/listing-search-text.test.ts:329:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+tests/integration/listing-search-text.test.ts:347:    vi.stubEnv("DATABASE_URL", "postgresql://loaviet:pw@db:5432/loaviet");
+```
+
+**Phân loại 41 hit — KHÔNG có secret thật (0 real):**
+
+- **11 placeholder/example** trong config template + docs:
+  `placeholder:placeholder` (Dockerfile:20, .github/workflows/ci.yml:46,
+  scripts/preflight.sh:46, scripts/smoke.sh:65), `choose-a-dev-password`
+  (.env.example:3), `user:password` (prisma-8.md:69), `USER:PASS@HOST/DB`
+  (4 bản skill reference .agents/.claude/.cursor/.devin
+  skills/prisma-8/references/feedback.md:226), `speaker:…` đã redact
+  (docs/operations/private-beta-batch4-listing-quality-verification.md:132);
+- **9 interpolation** — KHÔNG có password literal: `${DB_PASSWORD}`
+  (docker-compose.prod.yml:53/105, tests/docker/docker-compose.smoke.yml:38/53),
+  `$DB_PASS`/`$DB_PASSWORD_RESOLVED` (scripts/restore-drill.sh:286/365/366,
+  scripts/test-integration.sh:36, scripts/smoke.sh:55);
+- **21 test fixture** — credential giả trong test (`u:p`/`pw`/`test:test`/
+  `user:pass`): tests/unit/seed-beta-catalog-guard.test.ts (11 hit),
+  tests/unit/backfill-listing-location.test.ts (4 hit),
+  tests/unit/cleanup-uploads.test.ts:110, tests/unit/env.test.ts:25,
+  tests/unit/search-resolve.test.ts:441/585,
+  tests/integration/listing-search-text.test.ts:329/347;
+- **0 hit** cho private key (PEM/PGP), AWS (`AKIA`/`ASIA`), GCP (`AIza`),
+  Stripe (`sk_live`/`rk_live`), GitHub (`ghp_`…), Slack (`xox*`), JWT
+  (`eyJ…`), hex/base64 ≥32 ký tự gán `*_SECRET`/`*_KEY`.
 
 **`.env` không track:** `.gitignore:38` `.env*` + `:49` `.env` — worktree
 không có `.env` (dev DB reach qua `docker exec`, không cần file).
@@ -413,12 +511,25 @@ finance guard — dormant: cần Order completed, không thể có khi finance o
   khác;
 - **KHÔNG có custom token layer** — nhất quán với toàn bộ Batches 2–7 (không
   batch nào thêm token; thêm layer = surface mới, plan mới);
-- Route handlers POST (`/api/chat/[id]`, `/api/upload`, `/api/cron/*`,
-  `/api/payments/*`) KHÔNG có origin check của framework — mỗi route tự guard:
-  chat = participant check + rate limit; upload = auth + quota; cron =
-  `CRON_SECRET` (fail-closed 503); MoMo IPN = HMAC chữ ký (fail-closed);
-  momo create = finance shutdown 503. Các guard này là per-route tests đã
-  cite ở ma trận (hàng 26/27/28);
+- Route handlers POST (`/api/chat/[id]`, `/api/upload`, `/api/auth/logout`,
+  `/api/cron/*`, `/api/payments/*`) KHÔNG có origin check của framework.
+  **Control CSRF cho các route `/api/*` POST này là `sameSite: "lax"` trên
+  session cookie** (`src/lib/session.ts:146`), KHÔNG phải guard per-route
+  (independent review 2026-10-08): request giả mạo cross-site mang THEO
+  cookie của chính nạn nhân nên participant check (chat) + rate limit, auth +
+  quota (upload) đều pass — form POST cross-site `enctype=text/plain` (body
+  craftable thành JSON) được `request.json()` parse bình thường
+  (`app/api/chat/[id]/route.ts:107` — route không kiểm tra Content-Type);
+  logout cũng chỉ đọc cookie (`app/api/auth/logout/route.ts:3` →
+  `destroySession`). Lax không gắn cookie vào cross-site POST nên request giả
+  mạo đến route là 401 UNAUTHENTICATED (logout không có cookie → không có gì
+  để revoke). Được ghim bởi `tests/unit/session.test.ts:231`
+  (`toMatchObject({ httpOnly: true, sameSite: "lax", path: "/" })`) — nếu
+  cookie từng đổi sang `SameSite=None`, route-handler CSRF sẽ mở;
+- Route KHÔNG xác thực bằng cookie thì guard per-route vẫn đúng nghĩa (CSRF
+  không thay thế được secret): cron = `CRON_SECRET` (fail-closed 503); MoMo
+  IPN = HMAC chữ ký (fail-closed); momo create = finance shutdown 503. Các
+  guard này là per-route tests đã cite ở ma trận (hàng 26/27/28);
 - **Tương tác header đã ghi nhận (corrections #8):** `Referrer-Policy:
   no-referrer` CHỈ trên `/invite/:token` — KHÔNG trên `/invite` (tokenless),
   vì no-referrer làm browser gửi `Origin: null` trên action POST cùng origin →
@@ -442,7 +553,7 @@ finance guard — dormant: cần Order completed, không thể có khi finance o
 | LOW | ACCEPTED | src/lib/actions/reviews.ts:24 | `submitReviewAction` ghi `Review` không có finance guard (dormant — cần Order completed; finance off) | Revisit ở finance re-enable review (RR-9 family) | no |
 | LOW | ACCEPTED | src/lib/actions/seller-verification.ts | Seller declaration submit KHÔNG có rate limit (surface đã đăng nhập) | Thêm limit ở plan mới nếu quan sát abuse; FD-R65 tune | no |
 | LOW | ACCEPTED | src/lib/actions/appeals.ts | `recordAppealAction` KHÔNG có rate limit (B3 R5) | Accepted — intake thủ công, moderation queue là chặn | no |
-| LOW | ACCEPTED | dev-toolchain (prisma CLI rc / eslint-config-next) | `npm audit` đầy đủ: 18 findings (13 high/5 moderate) — TẤT CẢ dev-transitive, 0 runtime (`--omit=dev` = 0) | Bump khi prisma 8 stable (upgrade-app.md); KHÔNG `audit fix --force` (major downgrade) | no |
+| LOW | ACCEPTED | dev-toolchain (prisma CLI rc / eslint-config-next) | `npm audit` đầy đủ: 18 findings (13 high/5 moderate) — TẤT CẢ dev-transitive, 0 runtime app (`--omit=dev` = 0). Image `migrate` (Dockerfile:32) copy full `node_modules` deps (gồm dev) → 18 findings CÓ mặt trong image chạy against DB production; code path khai thác (hono server, `lodash _.template`) không được `prisma db migrate` thực thi | Bump khi prisma 8 stable (upgrade-app.md); KHÔNG `audit fix --force` (major downgrade); thu hẹp node_modules image migrate (omit dev) = plan mới nếu muốn | no |
 | LOW | ACCEPTED | src/lib/rate-limit.ts | RR-1/RR-20: limiter in-memory single-instance — restart reset bucket, CGNAT bucket chung | 1-instance compose + nginx `limit_req` (checklist row); shared limiter khi scale-out | no |
 | LOW | ACCEPTED | src/lib/admin-mfa.ts | RR-2: TOTP replay trong cửa sổ ±60s — không durable consumed column | Durable column = migration mới (G2 — plan riêng); compensating controls §6.1 | no |
 | LOW | ACCEPTED | src/prisma/contract.prisma (User.phone) | RR-3: phone-verify race — không partial unique index trên phone đã verify | Index = migration mới (G2); ops query §6.1 là control hiện tại | no |
