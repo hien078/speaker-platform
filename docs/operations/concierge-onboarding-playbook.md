@@ -64,6 +64,13 @@ Cơ chế đã ship (Batch 7):
 4. Thu hồi nhầm: `revokeInviteAction` (audit
    `founding_seller.invite_revoked`).
 
+**⚠️ Production (cho tới FD-R1) — CHỈ kênh email:** block thủ công duy nhất
+(runbook §6) set `emailVerifiedAt` thôi — ứng viên `contactChannel=phone`
+KHÔNG BAO GIỜ accept được trong production (`acceptInviteAction` đòi
+`phoneVerifiedAt` — `src/lib/actions/founding-sellers.ts:477`, không có
+đường production nào set). **Không tạo ứng viên kênh phone; chỉ issue invite
+kênh email** (chi tiết hệ quả — §4, FD-R69).
+
 **TTL lời mời: 14 ngày** (`FOUNDING_SELLER_INVITE_TTL_DAYS` — tunable
 constant, không phải env) `[FOUNDER DECISION — FD-R46]`.
 
@@ -124,7 +131,27 @@ minh, nhưng production OTP adapter đang fail-closed (chưa có provider) →
 **không có đường tự xác minh kênh trong production**. Cho tới khi provider
 land (FD-R1), đường DUY NHẤT để người được mời có kênh đã xác minh là **block
 psql thủ công per-user của runbook Batch 2 §6** (`user.email_verified_manual`,
-two-person rule — xem `docs/operations/account-recovery-playbook.md` §4).
+two-person rule — xem `docs/operations/account-recovery-playbook.md` §4) —
+và **block đó xác minh EMAIL thôi**: nó set `emailVerifiedAt` (chỉ khi đang
+null), KHÔNG bao giờ set `phoneVerifiedAt` (runbook §6). Hệ quả bắt buộc nêu
+thẳng cho concierge:
+
+- **Chỉ issue invite kênh email; KHÔNG tạo ứng viên `contactChannel=phone`**
+  trong production (`createCandidateAction` cho phép phone —
+  `src/lib/actions/founding-sellers.ts:107` — nhưng invitee phone kẹt mãi ở
+  `INVITE_CHANNEL_UNVERIFIED`, `:477`, vì không đường production nào set
+  `phoneVerifiedAt`).
+- **Seller KHÔNG qua được `phone_verified`** — `submitSellerVerificationAction`
+  chặn với "còn thiếu: xác minh số điện thoại"
+  (`src/lib/seller-verification-policy.ts:245,184`; action
+  `src/lib/actions/seller-verification.ts:199-217`) → checklist
+  `docs/operations/founding-seller-onboarding-checklist.md` giai đoạn 4
+  (`verification_pending`) trở đi **chặn trong production** cho tới FD-R1 —
+  không seller nào được verify/công khai. **LAUNCH BLOCKER.**
+- **KHÔNG tự chế block phone** trong playbook: nếu cần đường phone trước
+  FD-R1, đó là block audited (two-person) riêng do founder duyệt
+  `[FOUNDER DECISION — FD-R1/FD-R69 — BLOCKING]`.
+
 Founder quyết: chờ provider, hoặc chấp nhận token possession + giao out-of-band
 là bằng chứng kênh, hoặc chạy block thủ công cho từng người
 `[FOUNDER DECISION — FD-R69 — BLOCKING]`.
@@ -213,7 +240,7 @@ prospect → invited → registered → verification_pending → verified
 | FD-R47 | Ngưỡng badge "cần hỗ trợ" 7 ngày (§6) |
 | FD-R48 | Bộ PROVISIONAL: bảng chuyển, reason codes, manually-settable, rate values, caps (§5) — BLOCKING (founder-authored/acknowledgment per FD-3) |
 | FD-R49 | Acknowledge residual risk token trong URL (§3) |
-| FD-R69 | Channel binding vs FD-2 — đường production cho kênh đã xác minh (§4) — BLOCKING |
+| FD-R69 | Channel binding vs FD-2 — đường production cho KÊNH EMAIL đã xác minh (§4, runbook §6 email-only); phone không có đường, seller kẹt `phone_verified` (giai đoạn 4 checklist) tới FD-R1 — BLOCKING |
 | FD-R70 | Admin trong founding cohort: tự mời bị từ chối, admin khác được (§4) |
 | FD-R73 | `invitedFoundingSellers` ever-invited monotonic (§6) |
 

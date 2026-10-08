@@ -30,10 +30,18 @@
    phone (và ngược lại). OTP: 6 chữ số, TTL 10 phút (`OTP_TTL_MINUTES`), tối
    đa 5 lần sai (`OTP_MAX_ATTEMPTS`), cooldown gửi 60 giây
    (`OTP_RESEND_COOLDOWN_SEC`), 3 mã/10 phút/đích.
-   **Production fail-closed (FD-2):** chưa có provider email/SMS thật —
-   `OtpDeliveryAdapter` production từ chối gửi (`OTP_DELIVERY_UNAVAILABLE`)
-   → luồng này trong production chỉ chạy được khi kênh đã được đánh dấu verified
-   bằng đường thủ công §4.
+   **Production fail-closed (FD-2/FD-R1 — LAUNCH BLOCKER):** chưa có provider
+   email/SMS thật — `OtpDeliveryAdapter` production TỪ CHỐI MỌI lần gửi:
+   `sendOtp` throw `OTP_DELIVERY_UNAVAILABLE` **bất kể kênh đã được đánh dấu
+   verified hay chưa** (`src/lib/verification-delivery.ts:91-101,118-119`;
+   mọi đường xin mã đều qua adapter này — `requestOtp`, `src/lib/otp.ts:166`).
+   Hệ quả phải nêu thẳng: **trong production KHÔNG kênh nào (email lẫn phone)
+   tự xác minh được, và `/recover` KHÔNG BAO GIỜ gửi được mã cho tới khi
+   FD-R1 (provider) land** — đánh dấu kênh verified thủ công (§4) KHÔNG làm
+   luồng này chạy được. Người dùng vẫn nhận thông báo trung tính (§1.2) nhưng
+   mã không bao giờ tới (throw được `captureError` trong `after()` — response
+   không đổi, `src/lib/actions/recovery.ts:217-247`). Tự phục vụ đặt lại mật
+   khẩu trong production là **BẤT KHẢ THI** cho tới FD-R1 — xem §4.
 4. **Xác nhận:** mã + mật khẩu mới → MỌI failure collapse về cùng một lỗi
    (không phân biệt "không có tài khoản"/"sai mã"/"hết hạn"/"khóa").
    Mật khẩu mới + **thu hồi TOÀN BỘ session** trong CÙNG transaction
@@ -78,9 +86,31 @@ support).
 
 **Khi nào:** người dùng mất MỌI kênh đã xác minh (email + phone) — recovery
 tự phục vụ chỉ chạy qua kênh đã verified (§1.3), nên không còn đường tự phục
-vụ. Đây cũng là **đường production DUY NHẤT để người được mời (invitee) /
-seller có kênh đã xác minh cho tới khi provider OTP land (FD-2/FD-R69)** —
-xem `docs/operations/concierge-onboarding-playbook.md` §4.
+vụ. Block §6 cũng là **đường production DUY NHẤT để người được mời (invitee)
+có KÊNH EMAIL đã xác minh cho tới khi provider OTP land (FD-2/FD-R69)** — xem
+`docs/operations/concierge-onboarding-playbook.md` §4. **Block này set
+`emailVerifiedAt` thôi** (runbook §6 — `UPDATE "User" SET
+"emailVerifiedAt" = now()` chỉ khi đang null): KHÔNG set `phoneVerifiedAt`,
+và KHÔNG làm `/recover` gửi được mã (§1.3 — delivery vẫn throw).
+
+**⚠️ LAUNCH BLOCKER — bước 4 dưới đây KHÔNG chạy được trong production cho
+tới FD-R1:** adapter OTP production fail-closed (§1.3) → sau block §6,
+người dùng vào `/recover` vẫn CHỈ nhận thông báo trung tính, mã không bao giờ
+tới. Trong production, cho tới khi provider land:
+
+- **KHÔNG chạy block §6 cho mục đích khôi phục mật khẩu** — nó chỉ flip một
+  flag (`emailVerifiedAt`); người dùng vẫn không đặt lại được mật khẩu, trong
+  khi mutation + audit đã xảy ra. (Chạy nó cho invite acceptance kênh email —
+  concierge §4, FD-R69 — là mục đích khác.)
+- **KHÔNG đặt `passwordHash` tay** dưới bất kỳ hình thức nào: đường đó không
+  có audit block, không thu hồi session — đúng mutation thủ công unaudited mà
+  playbook này tồn tại để chặn. Nếu cần block khôi phục mật khẩu audited
+  (two-person), đó là founder decision `[FOUNDER DECISION — FD-R1/FD-R3 —
+  BLOCKING]` — chờ block được review + duyệt, KHÔNG tự chế.
+- **Route ca mất quyền truy cập về founder** (FD-R1/FD-R3). Trong lúc chờ:
+  chứa bằng thu hồi session (`/admin/users` "Thu hồi phiên" —
+  `revokeAllUserSessionsAction`, audit `session.revoked_all`) và đình chỉ
+  (`suspendUserAction`) theo incident playbook §4a.
 
 **Quy trình đã ship — tham chiếu runbook Batch 2 §6, KHÔNG tự chế lệnh:**
 `docs/operations/admin-bootstrap-recovery-runbook.md` §6 ("Khôi phục tài
@@ -104,13 +134,18 @@ rule** (KHÔNG phải maintenance command):
    **mọi session bị thu hồi** bởi `confirmPasswordRecoveryAction` — §1.4).
    Nghĩa là: quy trình thủ công KHÔNG tự đặt mật khẩu, KHÔNG tự thu hồi
    session — phần thu hồi diễn ra trong luồng tự phục vụ có audit riêng.
+   **Bước này KHÔNG chạy được trong production cho tới FD-R1** (§1.3 — OTP
+   không bao giờ tới dù kênh đã verified): chỉ chạy trọn §4 trên dev/staging
+   hoặc sau khi provider land.
 
 **Hình dạng quy trình (ghi nhận, không invent):** ai (operator có quyền DB +
 người xác nhận thứ hai), audit trail (`user.email_verified_manual` trong
 `AuditEvent` — tra được qua `/admin/audit`, capability `audit.read`), thu hồi
-session sau (tự động ở bước 4). Mọi thao tác psql thủ công khác (đặt
-`passwordHash` tay) chỉ khi không còn cách nào — runbook §3 ghi chú tương tự
-cho admin.
+session sau (tự động ở bước 4). **Đặt `passwordHash` tay BỊ CẤM** — đường tay
+không có audit block, không thu hồi session; trong production "không còn cách
+nào" giờ LUÔN đúng (§1.3), nên nếu cần block khôi phục mật khẩu audited
+(two-person) thì đó là founder decision (FD-R1/FD-R3) — KHÔNG phải mặc định
+operator.
 
 **Lockout MFA admin** (khác domain — tham chiếu, không duplicate): runbook
 Batch 2 §2 (còn mã khôi phục → tự phục vụ; mất hết → `mfa-reset` → re-enroll)
@@ -122,10 +157,10 @@ two-person rule). Support KHÔNG can thiệp MFA admin — xem
 
 | Mục | Ghi chú |
 |---|---|
-| FD-R1 | Provider OTP production (điều kiện để luồng §1 chạy được trong production) — BLOCKING (FD-2) |
+| FD-R1 | Provider OTP production — điều kiện để §1 (tự phục vụ) VÀ §4 bước 4 chạy được trong production; chưa land thì không kênh nào xác minh được, `/recover` không gửi được mã, seller không qua được `phone_verified` (LAUNCH BLOCKER) — BLOCKING (FD-2) |
 | FD-R2 | Ô Scoped RBAC cho support/moderator (§3) — BLOCKING |
 | FD-R3 | Proofing out-of-band cho đường thủ công §4 — BLOCKING |
-| FD-R69 | Đường này là kênh production duy nhất cho kênh đã xác minh tới khi FD-R1 land (§4) — BLOCKING |
+| FD-R69 | Block §6 (email-only) là đường production duy nhất cho KÊNH EMAIL đã xác minh tới khi FD-R1 land (§4); kênh phone không có đường — invite phone + seller verification chặn tới FD-R1 — BLOCKING |
 
 Liên quan chéo: `docs/operations/concierge-onboarding-playbook.md` §4
 (FD-R69), `docs/operations/incident-playbook.md` §4 (nghi ngờ chiếm tài

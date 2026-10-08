@@ -77,8 +77,10 @@ script thành công. Một sự cố chỉ thấy qua người dùng (không qua
    ```
 
    Log JSON `captureError`/`captureEvent` (`src/lib/observability-core.ts`)
-   là nguồn log cấu trúc; giữ cả `backups/ops-alerts.log` (output cron
-   ops-alerts) nếu liên quan.
+   là nguồn log cấu trúc; `backups/ops-alerts.log` (output cron ops-alerts)
+   + `backups/.ops-alerts-state.json` copy NGAY vào thư mục sự cố khi alert
+   đến từ ops-alerts (§5 bước 1 — cron `*/15` sẽ đè state file ở lần chạy kế
+   tiếp, `scripts/ops-alerts.ts:1058-1065`).
 4. **Chụp snapshot DB TRƯỚC khi khắc phục, khi an toàn** (container-on-network
    pattern — KHÔNG host pg tools, db không publish port):
 
@@ -106,14 +108,24 @@ founder policy (FD-R7) — trong sự cố KHÔNG xóa evidence vì "hết hạn
 
 ### 4a. Nghi ngờ chiếm tài khoản người dùng
 
-1. **Thu hồi session:** `/admin/security` (operator giữ `session.revoke` —
-   super/ops): `revokeUserSessionAction` (từng session, audit
-   `session.revoked`) / `revokeAllUserSessionsAction` (toàn bộ, audit
-   `session.revoked_all`) — `src/lib/actions/admin-identity.ts`.
+1. **Thu hồi session của NẠN NHÂN:** `/admin/users?u=<id>` (tra cứu exact
+   theo id — `app/admin/users/page.tsx:64-77`) → nút **"Thu hồi phiên"**
+   (`revokeAllUserSessionsAction` với userId của nạn nhân, audit
+   `session.revoked_all` — `src/lib/actions/admin-identity.ts:174-225`;
+   từng phiên: `revokeUserSessionAction`, audit `session.revoked`).
+   LƯU Ý: `/admin/security` chỉ liệt kê phiên của CHÍNH operator
+   (`listUserSessions(user.id)` — `app/admin/security/page.tsx:47-49`); nút
+   "Đăng xuất các thiết bị khác" ở đó truyền userId CỦA OPERATOR — KHÔNG dùng
+   trang đó để thu hồi phiên nạn nhân.
 2. **Buộc đặt lại mật khẩu:** hướng dẫn người dùng qua `/recover` (OTP tới kênh
    đã xác minh → mật khẩu mới → mọi session thu hồi trong cùng tx). Nếu
-   nghi kẻ tấn công đang giữ MỌI kênh đã xác minh → xem §4c đường thủ công
-   (two-person rule) — cân nhắc kỹ vì đường này cấp quyền truy cập lại.
+   nghi kẻ tấn công đang giữ MỌI kênh đã xác minh → xem
+   `docs/operations/account-recovery-playbook.md` §4 (runbook §6 — two-person
+   rule) — cân nhắc kỹ vì đường này cấp quyền truy cập lại. **Production
+   (cho tới FD-R1): `/recover` KHÔNG gửi được mã** (adapter fail-closed —
+   account-recovery playbook §1.3) → bước này chỉ chứa được bằng thu hồi
+   session + đình chỉ (bước 1/4); ca cần reset mật khẩu escalate founder
+   (FD-R1/FD-R3).
 3. **Đối soát audit:** tra `user.recovery_requested` / `user.recovery_completed`
    (recovery có phải người dùng thật không), `session.revoked*`,
    `user.email_changed`/`user.phone_changed`/`user.password_changed`,
@@ -131,8 +143,15 @@ block psql `admin.mfa_reset_manual` (two-person rule). Sau khi lấy lại quy�
 
 - **Rà soát `admin.role_manage`:** `setAdminRoleAction` (super_admin +
   step-up) — kiểm tra `admin.role_set` audit gần đây có thay đổi role bất
-  thường không; thu hồi role nghi ngờ (giữ bất biến ≥ 2 super_admin — runbook
-  §4 last-super-admin guard).
+  thường không; thu hồi role nghi ngờ NGAY khi có bằng chứng (mọi
+  grant/change/gỡ tự thu hồi toàn bộ session của đích trong cùng tx —
+  `src/lib/actions/admin-identity.ts:535`). Guard của code là **≥ 1
+  super_admin — không bao giờ về 0**: `assertNotLastSuperAdminTx` chỉ chặn
+  khi đích là super_admin CUỐI CÙNG (`src/lib/admin-role-ops.ts:34-48`) —
+  với 2 super_admin, hạ ngay admin nghi bị chiếm vẫn giữ 1, KHÔNG chờ cấp
+  super_admin thứ ba mới phong tỏa. (Runbook §1 khuyến nghị giữ ≥ 2
+  super_admin khi có > 1 người vận hành — tư thế vận hành, cấp bù SAU khi
+  chứa, không phải guard chặn containment.)
 - **Rà soát hành động của admin nghi ngờ:** mọi action privileged đã có
   AuditEvent (actor/action/reason) — đối chiếu khung thời gian nghi ngờ.
 - Ghi nhận FD-R58 (security review): `session.revoke` không có rank check
@@ -156,43 +175,66 @@ khi `FINANCIAL_FEATURES_ENABLED=false` (đọc từ container app —
 ghi các bảng này → **mọi alert CRITICAL này là nghi ngờ bypass ranh giới
 Batch 1 = critical security finding.**
 
-1. **Xác nhận:** chạy lại watermark query (read-only — operator trên VPS):
+**Bằng chứng của alert là dòng CRITICAL trong `backups/ops-alerts.log`**
+(output cron `*/15` — `scripts/ops-alerts-cron.sh:13`), một dòng JSON
+(`formatAlertLine` — `scripts/ops-alerts.ts:582-592`) với `detail` đủ bảng +
+delta ins/upd/del + rowCount (`:462-471`). **KHÔNG xác nhận bằng cách chạy
+lại query rồi so với `backups/.ops-alerts-state.json`:** lần chạy đã raise
+alert TỰ GHI counters mới vào state file ngay sau khi đánh giá
+(`writeStateFile` — `scripts/ops-alerts.ts:1058-1065`) → giá trị hiện tại
+LUÔN bằng watermark → delta đọc được là 0 → vi phạm thật có thể bị dismiss
+là "không xác nhận". Lần cron kế tiếp (≤ 15 phút sau) lại đè state file và
+exit 0 — không còn bằng chứng nào nếu không copy kịp.
+
+1. **Bảo toàn bằng chứng TRƯỚC cron kế tiếp (bước đầu tiên):** copy log +
+   state file vào thư mục sự cố (operator trên VPS):
 
    ```bash
-   docker exec loaviet-db psql -U loaviet -d loaviet -tAc \
-     "SELECT relname, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables WHERE relname IN ('Order','OrderItem','Payment','Payout','WithdrawRequest','LedgerEntry','Dispute','OrderStatusHistory','PlatformSetting','CartItem','Offer','ExchangeOffer') ORDER BY relname;"
+   mkdir -p backups/incident-<ts> && \
+     cp backups/ops-alerts.log backups/incident-<ts>/ && \
+     cp backups/.ops-alerts-state.json backups/incident-<ts>/
+   # tuỳ chọn: tạm dừng cron ops-alerts (comment dòng crontab) tới khi điều tra xong.
    ```
 
-   So với watermark `backups/.ops-alerts-state.json` (counters + rowCounts
-   mỗi bảng) — bảng nào đổi, chiều nào (ins/upd/del). Lưu ý phân loại
-   (monitoring-signals.md §2): 9 bảng finance-only → CRITICAL trên mọi
-   delta; 3 bảng cascade-affected (`CartItem`/`Offer`/`ExchangeOffer`) →
-   delete là đợi mong từ xoá listing (WARN), ins/upd là CRITICAL.
-   Counter giảm/stats reset → `finance-boundary-rebaseline` WARN (không
-   CRITICAL giả) — đối chiếu `docker exec loaviet-db psql … pg_stat_reset`
-   có ai chạy không.
-2. **Đóng băng:** `docker compose -f docker-compose.prod.yml stop app` (dừng
+2. **Xác nhận TỪ DÒNG CRITICAL trong log đã copy** (không phải từ state
+   file): grep `finance-boundary-violation` trong
+   `backups/incident-<ts>/ops-alerts.log` — `detail` nêu bảng + chiều delta
+   (ins/upd/del) + rowCount. Phân loại (monitoring-signals.md §2): 9 bảng
+   finance-only → CRITICAL trên mọi delta; 3 bảng cascade-affected
+   (`CartItem`/`Offer`/`ExchangeOffer`) → delete là đợi mong từ xoá listing
+   (WARN), ins/upd là CRITICAL. Counter giảm/stats reset →
+   `finance-boundary-rebaseline` WARN (không CRITICAL giả) — đối chiếu
+   `docker exec loaviet-db psql … pg_stat_reset` có ai chạy không. (Query
+   pg_stat đọc trực tiếp vẫn chạy được để đối chiếu rowCount HIỆN TẠI với
+   rowCount trong dòng alert — KHÔNG phải để so watermark.)
+3. **Đóng băng:** `docker compose -f docker-compose.prod.yml stop app` (dừng
    app — chặn write tiếp; db giữ nguyên cho điều tra). Đây là SEV1 — gọi
    founder.
-3. **Chụp snapshot** (§3.4): `./scripts/db-ops.sh backup` — bằng chứng + rollback.
-4. **Điều tra write path:** bảng đổi + khung thời gian (watermark lần chạy
-   trước ↔ lần này) → `AuditEvent` trong khung đó (mọi action app đều audit);
-   log app (`§3.3`); nếu không có audit tương ứng → nghi raw SQL/psql tay →
-   đối chiếu session psql của operator. RR-9 ghi nhận: hai đường dormant
-   (`resolveDisputeAction`, order-completion) set `approved` không qua gate —
-   unreachable khi finance off, nhưng nếu bảng finance có delta thì kiểm tra
-   cả hai.
-5. **Khắc phục + ghi nhận:** vá lỗ bypass (nếu là code → security review +
+4. **Chụp snapshot** (§3.4): `./scripts/db-ops.sh backup` — bằng chứng + rollback.
+5. **Điều tra write path:** bảng + khung thời gian TỪ `ts` CỦA DÒNG ALERT
+   (không phải "watermark lần chạy trước ↔ lần này" — watermark cũ đã bị
+   chính lần chạy alert đè) → `AuditEvent` trong khung đó (mọi action app
+   đều audit); log app (`§3.3`); nếu không có audit tương ứng → nghi raw
+   SQL/psql tay → đối chiếu session psql của operator. RR-9 ghi nhận: hai
+   đường dormant (`resolveDisputeAction`, order-completion) set `approved`
+   không qua gate — unreachable khi finance off, nhưng nếu bảng finance có
+   delta thì kiểm tra cả hai.
+6. **Khắc phục + ghi nhận:** vá lỗ bypass (nếu là code → security review +
    plan riêng — KHÔNG hot-fix trong Batch 8 perimeter); nếu là thao tác tay
    hợp lệ (vd operator chạy seed `PlatformSetting` trong lúc maintenance) →
    ghi nhận quy trình phải qua `--apply` có chủ đích. **Mọi trường hợp ghi
    vào `docs/operations/private-beta-security-review.md` (findings register
    — file do Task 8 cùng batch tạo) — alert không được phép "im lặng giải
    thích".**
-6. **Re-baseline watermark:** sau khi xử lý, lần chạy ops-alerts kế tiếp tự
-   ghi watermark mới (delta từ snapshot sạch); xác nhận bằng một lần chạy
-   thủ công: `OPS_ALERTS_MODE=docker npx tsx scripts/ops-alerts.ts` (hoặc
-   wrapper cron Path B) → exit 0.
+7. **Khởi động lại app TRƯỚC re-baseline:** `docker compose -f
+   docker-compose.prod.yml up -d app`. Health check đọc `/api/health` của
+   app (`scripts/ops-alerts.ts:273-277`) — app đang stop thì health LUÔN
+   CRITICAL (unreachable) → chạy ops-alerts khi app còn stop sẽ exit 1 mãi,
+   KHÔNG phải "re-baseline sạch".
+8. **Re-baseline watermark:** sau khi xử lý + app lên lại, lần chạy
+   ops-alerts kế tiếp tự ghi watermark mới (delta từ snapshot sạch); xác
+   nhận bằng một lần chạy thủ công: `OPS_ALERTS_MODE=docker npx tsx
+   scripts/ops-alerts.ts` (hoặc wrapper cron Path B) → exit 0.
 
 ## 6. Post-incident review (template — append mỗi sự cố)
 
@@ -226,6 +268,7 @@ timeline đối chiếu `AuditEvent` trước khi đóng (§3.5); mọi follow-u
 | FD-R37 | Kênh phân phát alert (§2) |
 | FD-R38 | Thang sự cố SEV1–3 + on-call/leo thang (§1–§2) |
 | FD-R7 | Retention evidence trong điều tra (§3) |
+| FD-R1 | Provider OTP production — chưa land thì `/recover` (§4a bước 2) không gửi được mã trong production, ca reset mật khẩu escalate founder — BLOCKING (FD-2) |
 
 Liên quan chéo: `docs/operations/monitoring-signals.md` (catalog tín hiệu —
 read-only), `docs/operations/moderation-playbook.md` (takedown/đình chỉ là

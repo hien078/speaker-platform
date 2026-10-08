@@ -43,10 +43,23 @@ tên khóa/slug — không echo giá trị thô.
 DATABASE_URL=… npx tsx scripts/seed-beta-catalog.ts --apply --models founder.json
 
 # Production (host không có Node; qua image migrate trên compose network —
-# pattern runbook §0 docs/operations/admin-bootstrap-recovery-runbook.md):
+# pattern runbook §0 docs/operations/admin-bootstrap-recovery-runbook.md).
+# Service migrate KHÔNG mount gì ngoài volume uploads (docker-compose.prod.yml:64-72)
+# — scripts/+src/ VÀ FILE FOUNDER đều phải mount tay: thiếu mount file thì
+# script fail `SEED_MODELS_FILE_INVALID:unreadable:…` TRƯỚC khi chạm DB
+# (statSync/readFileSync chạy TRONG container — scripts/seed-beta-catalog.ts:163-175).
+# Bước NGƯỜI DÙNG (founder/user chạy trên VPS từ thư mục deploy — agent
+# KHÔNG chạy chống production): dry-run TRƯỚC (không --apply — không mutate
+# gì), xem danh sách slug sẽ tạo, rồi mới chạy thật:
 docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
-  migrate npx tsx scripts/seed-beta-catalog.ts --apply --allow-production --models founder.json
+  -v "$PWD/founder.json:/app/founder.json:ro" \
+  migrate npx tsx scripts/seed-beta-catalog.ts --models /app/founder.json
+# dry-run sạch → chạy thật:
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  -v "$PWD/founder.json:/app/founder.json:ro" \
+  migrate npx tsx scripts/seed-beta-catalog.ts --apply --allow-production --models /app/founder.json
 ```
 
 Hành vi seed (`scripts/seed-beta-catalog.ts`):
@@ -75,7 +88,13 @@ ship EMPTY (không file → không tạo gì). Cùng sitting review với model:
 DATABASE_URL=… npx tsx scripts/seed-search-aliases.ts --apply --aliases founder-aliases.json
 # Mục: { "alias": "soundlink", "target": "model", "productModelId": "<uuid>" }
 #      { "alias": "loa jbl",  "target": "brand", "brandId": "<uuid>" }
-# Production: tiền tố docker compose run migrate như §2 (--allow-production).
+# Production: tiền tố docker compose run migrate NHƯ §2 — kèm mount file alias
+# (service migrate không mount file ngoài — docker-compose.prod.yml:64-72);
+# dry-run trước (không --apply), --apply --allow-production sau:
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  -v "$PWD/founder-aliases.json:/app/founder-aliases.json:ro" \
+  migrate npx tsx scripts/seed-search-aliases.ts --apply --allow-production --aliases /app/founder-aliases.json
 ```
 
 Hành vi (`scripts/seed-search-aliases.ts`): dry-run mặc định; idempotent
