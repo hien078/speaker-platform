@@ -49,9 +49,14 @@ FIN_ENABLED="$(docker exec "$APP_CONTAINER" printenv FINANCIAL_FEATURES_ENABLED 
 # ── Chạy logic trong image migrate (repo-pinned) trên compose network ─────────
 # --user: state file/heartbeat ghi với uid/gid của user chạy cron (pattern
 # scripts/db-ops.sh) — không để file root-owned trên host.
+# --no-deps (như scripts/admin-access-review-prod.sh): monitor KHÔNG được khởi
+# động service phụ (db/app đang stop thì phải BÁO CÁO qua tín hiệu health/
+# unreachable, không phải `docker compose run` kéo cả stack lên).
 # Mounts: scripts/ + src/ read-only (image migrate không copy hai thư mục này —
-# runbook §0); backups/ rw cho state file.
-exec docker compose -f docker-compose.prod.yml run --rm \
+# runbook §0); backups/ rw cho state file. LƯU Ý: scripts/+src/ mount từ repo
+# checkout trên host, còn node_modules nằm TRONG image build lúc deploy → mỗi
+# lần deploy phải rebuild image migrate (xem monitoring-signals.md §0).
+exec docker compose -f docker-compose.prod.yml run --rm --no-deps \
   --user "$(id -u):$(id -g)" \
   -v "$PWD/scripts:/app/scripts:ro" \
   -v "$PWD/src:/app/src:ro" \

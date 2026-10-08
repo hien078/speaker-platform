@@ -76,19 +76,27 @@ import * as path from "node:path";
  * Batch 1 (spec §4.1/§4.10) → CRITICAL. Delete chỉ xảy ra qua FK cascade từ
  * xoá Order — không có app flow nào xoá Order.
  *
- * Writer evidence (file:line — xem monitoring-signals.md §2):
- * - Order: orders.ts:24/158/200/237/283/340, offers.ts:21/61, escrow.ts:28,
- *   helpers.ts:67 (processAutoReleases), admin.ts:107 (resolveDispute)
- * - OrderItem: orders.ts:24 (createOrderAction), offers.ts:61 (respondOffer)
- * - Payment: orders.ts:159 (payEscrow), escrow.ts:28, offers.ts:61, admin.ts:107
- * - Payout: orders.ts:284 (confirmReceipt), exchange.ts:150, admin.ts:107
- * - WithdrawRequest: withdraw.ts:25/71
- * - LedgerEntry: ledger.ts:36 (recordLedgerTx — guard ở THÂN thư viện)
- * - Dispute: orders.ts:385 (openDispute), admin.ts:107 (resolveDispute)
- * - OrderStatusHistory: escrow.ts:28 (markEscrowPaid :57),
- *   helpers.ts:36 recordStatusChange (mọi caller: orders/offers/admin — đã guard)
- * - PlatformSetting: admin.ts:204 (updateSettingAction) + seed.ts (dev/test —
- *   seed.ts:16 từ chối chạy ở NODE_ENV=production)
+ * Writer evidence (file:line — grep-verified trên cây Batch 7 đã merge; xem
+ * monitoring-signals.md §2; đường dẫn dưới src/lib/actions/ trừ khi ghi rõ):
+ * - Order: orders.ts:128 (createOrderAction), orders.ts:238/306/357/418/509/579
+ *   (status update/claim), offers.ts:110/171 (create), src/lib/escrow.ts:43
+ *   (markEscrowPaid — guard :28), helpers.ts:174 (processAutoReleases :158)
+ * - OrderItem: orders.ts:152 (createOrderAction), offers.ts:124/185
+ *   (respondOffer/acceptCounter)
+ * - Payment: orders.ts:184 (payEscrowAction :221), orders.ts:249/317/426/449/517
+ *   (update), offers.ts:132/193, exchange.ts:130, src/lib/escrow.ts:48,
+ *   helpers.ts:179 (processAutoReleases)
+ * - Payout: orders.ts:430 (confirmReceiptAction :401), exchange.ts:184,
+ *   helpers.ts:182 (processAutoReleases), admin.ts:411 (resolveDisputeAction :361)
+ * - WithdrawRequest: withdraw.ts:54 (create), withdraw.ts:91 (updateAll claim)
+ * - LedgerEntry: src/lib/ledger.ts:45 (recordLedgerTx :28 — guard :36 ở THÂN thư viện)
+ * - Dispute: orders.ts:573 (openDisputeAction :556), admin.ts:379
+ *   (resolveDisputeAction :361)
+ * - OrderStatusHistory: src/lib/escrow.ts:57 (markEscrowPaid :21 — guard :28),
+ *   helpers.ts:61 recordStatusChange :54 (mọi caller: orders/offers/admin — đã guard)
+ * - PlatformSetting: admin.ts:467/469 (updateSettingAction :458) +
+ *   src/prisma/seed.ts:323/327 (dev/test — seed.ts:16 từ chối chạy ở
+ *   NODE_ENV=production)
  */
 export const FINANCE_ONLY_TABLES = [
   "Order",
@@ -105,25 +113,37 @@ export const FINANCE_ONLY_TABLES = [
 /**
  * CASCADE-AFFECTED — ins/upd của writer đã finance-guard (CRITICAL khi disabled),
  * NHƯNG delete đến từ luồng xoá listing bình thường (KHÔNG finance guard):
- * deleteListingAction xoá CartItem trực tiếp (listings.ts:294) + FK
- * `onDelete: Cascade` từ Listing (Offer/ExchangeOffer/CartItem — contract) →
- * n_tup_del trên các bảng này là ĐỢI MONG → WARN, không CRITICAL (alert fatigue).
+ * deleteListingAction (listings.ts:1393) — Listing.deleteAll() có điều kiện
+ * status (listings.ts:1461-1463) cascade FK `onDelete: Cascade` xoá
+ * Offer/ExchangeOffer/CartItem, + deleteAll trực tiếp CartItem (listings.ts:1468,
+ * belt-and-suspenders sau cascade) → n_tup_del trên các bảng này là ĐỢI MONG
+ * → WARN, không CRITICAL (alert fatigue).
  */
 export const CASCADE_AFFECTED_TABLES = ["CartItem", "Offer", "ExchangeOffer"] as const;
 
 /**
  * NON-FINANCE — có writer KHÔNG finance guard (hoặc domain phi tài chính) →
  * KHÔNG monitored (không trong FINANCE_TABLES). Bằng chứng writer chính:
- * - PriceHistory: createListingAction listings.ts:118, updateListingAction
- *   reprice listings.ts:267, mergeModelAction catalog.ts:39 — luồng listing/
- *   catalog bình thường (review fix 1: CRITICAL mỗi lần đăng tin = alert fatigue)
+ * - PriceHistory: createListingAction listings.ts:491, updateListingAction
+ *   reprice listings.ts:1187, submit/publish listings.ts:1349,
+ *   mergeModelAction catalog.ts:132, recordSoldPrices orders.ts:390 — luồng
+ *   listing/catalog bình thường (review fix 1: CRITICAL mỗi lần đăng tin = alert fatigue)
  * - Cart: registerAction auth.ts:122, finishLogin auth.ts:139 — luồng auth
  * - Review: submitReviewAction reviews.ts:21 — KHÔNG finance guard (finding
  *   security review Task 8)
+ * - Batch 5 telemetry/search: emitProductEvent (src/lib/product-events.ts),
+ *   seed-search-aliases.ts — KHÔNG FK tới bảng finance
+ * - Batch 6 Deal: src/lib/actions/deals.ts — Deal/DealStatusHistory không FK
+ *   tới bảng finance (tests/integration/batch6-migration.test.ts assert không
+ *   op id khớp finance regex)
+ * - Batch 7 cohort ops: src/lib/actions/founding-sellers.ts —
+ *   FoundingSellerCandidate/BetaInviteToken không FK tới bảng finance
+ *   (tests/integration/batch7-migration.test.ts assert không op id khớp finance regex)
  * - các bảng còn lại: domain identity/catalog/moderation/audit (Batch 2) —
  *   không phải ranh giới tài chính.
  * Drift test assert MỌI model contract nằm đúng một lớp — model mới không thể
- * bị bỏ sót silently.
+ * bị bỏ sót silently (quy tắc: model mới phải được phân loại trong chính batch
+ * thêm nó — xem monitoring-signals.md §6).
  */
 export const NON_FINANCE_TABLES = [
   "User",
@@ -157,6 +177,14 @@ export const NON_FINANCE_TABLES = [
   "UserSuspension",
   "Appeal",
   "ListingImageUpload",
+  // Batch 5 telemetry/search, Batch 6 Deal, Batch 7 cohort ops — không FK tới
+  // bảng finance nào (merge fix Wave 0; xem comment NON-FINANCE ở trên).
+  "ProductEvent",
+  "SearchAlias",
+  "Deal",
+  "DealStatusHistory",
+  "FoundingSellerCandidate",
+  "BetaInviteToken",
 ] as const;
 
 /** Monitored set = finance-only ∪ cascade-affected (12 bảng — SQL + watermark). */

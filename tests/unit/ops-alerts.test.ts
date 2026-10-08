@@ -11,8 +11,8 @@
  * Review fix (commit "fix(ops): accurate finance-boundary signals"):
  * - Phân loại table theo WRITER THẬT (grep từng bảng): finance-only (CRITICAL
  *   mọi ins/upd/del) / cascade-affected (CRITICAL ins/upd, delete WARN —
- *   deleteListingAction xoá CartItem trực tiếp + FK Cascade xoá Offer/
- *   ExchangeOffer) / non-finance (PriceHistory — createListingAction/
+ *   deleteListingAction listings.ts:1393 cascade FK + deleteAll trực tiếp
+ *   CartItem listings.ts:1468) / non-finance (PriceHistory — createListingAction/
  *   updateListingAction/mergeModelAction KHÔNG guard; Cart — registerAction/
  *   finishLogin; Review — submitReviewAction không guard, finding cho Task 8).
  * - TRUNCATE vô hình với n_tup_* → so row count trong state file (v2).
@@ -584,8 +584,11 @@ describe("phân loại finance table theo writer (grep-verified) — mọi model
   });
 
   it("PriceHistory KHÔNG monitored — writer không guard: createListingAction/updateListingAction/mergeModelAction (review fix 1)", () => {
-    // listings.ts:118 create, listings.ts:267 reprice, catalog.ts:39 merge — luồng
-    // listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue.
+    // listings.ts:491 create (createListingAction), listings.ts:1187 reprice
+    // (updateListingAction), listings.ts:1349 (submit/publish), catalog.ts:132
+    // merge (mergeModelAction) — luồng listing/catalog bình thường → CRITICAL
+    // mỗi lần đăng tin = alert fatigue. Writer finance: orders.ts:390
+    // recordSoldPrices :384 (đã guard).
     expect(FINANCE_TABLES).not.toContain("PriceHistory");
     expect(NON_FINANCE_TABLES).toContain("PriceHistory");
   });
@@ -602,6 +605,25 @@ describe("phân loại finance table theo writer (grep-verified) — mọi model
 
   it("cascade-affected: CartItem/Offer/ExchangeOffer — ins/upd finance-guard, delete từ deleteListingAction + FK Cascade", () => {
     expect([...CASCADE_AFFECTED_TABLES].sort()).toEqual(["CartItem", "ExchangeOffer", "Offer"]);
+  });
+
+  it("Batch 5–7 models (ProductEvent/SearchAlias/Deal/DealStatusHistory/FoundingSellerCandidate/BetaInviteToken) đều NON-FINANCE — merge fix Wave 0", () => {
+    // Writer không finance guard: emitProductEvent (src/lib/product-events.ts),
+    // seed-search-aliases.ts (Batch 5 telemetry/search), src/lib/actions/deals.ts
+    // (Batch 6 Deal), src/lib/actions/founding-sellers.ts (Batch 7 cohort ops) —
+    // không FK tới bảng finance nào (evidence: tests/integration/batch6-migration
+    // .test.ts + batch7-migration.test.ts assert không op id nào khớp finance regex).
+    for (const t of [
+      "ProductEvent",
+      "SearchAlias",
+      "Deal",
+      "DealStatusHistory",
+      "FoundingSellerCandidate",
+      "BetaInviteToken",
+    ] as const) {
+      expect(FINANCE_TABLES, t).not.toContain(t);
+      expect(NON_FINANCE_TABLES, t).toContain(t);
+    }
   });
 
   it("OTP_MAX_ATTEMPTS khớp src/lib/otp.ts (server-only — tsx không import được)", () => {

@@ -55,7 +55,15 @@ Wrapper (POSIX bash — chỉ cần docker + bash trên host):
    `DEFAULT_THRESHOLDS.windowMinutes` — chỉnh ngưỡng thì sửa cả hai, cùng commit.
 4. Mounts: `scripts/` + `src/` read-only (image migrate không copy hai thư mục
    này); `backups/` rw cho state file; `--user $(id -u):$(id -g)` để state file
-   không root-owned (pattern `scripts/db-ops.sh`).
+   không root-owned (pattern `scripts/db-ops.sh`). **`--no-deps`** (merge fix
+   Wave 0, như `scripts/admin-access-review-prod.sh`): monitor KHÔNG được kéo
+   service phụ lên — `db`/`app` đang stop thì phải BÁO CÁO qua tín hiệu health
+   unreachable, không phải `docker compose run` khởi động cả stack.
+   **Lưu ý mount (merge fix Wave 0):** `scripts/`+`src/` đến từ repo checkout
+   trên host, còn `node_modules` nằm TRONG image `migrate` build lúc deploy →
+   mỗi lần deploy phải rebuild image migrate
+   (`docker compose -f docker-compose.prod.yml build migrate`), nếu không cron
+   chạy code mới trên dependency cũ.
 
 **Deploy prerequisite (ghi vào release checklist):** cài MỘT trong hai crontab
 trên + build image migrate (`docker compose -f docker-compose.prod.yml build`) —
@@ -97,6 +105,34 @@ Mọi ngưỡng là **PROPOSED DEFAULTS** trong `DEFAULT_THRESHOLDS` (`scripts/o
 — founder chỉnh bằng cách đổi hằng số, logic không đổi (FD-R35; spec §9/§12 không định
 mức). Lịch cron 15 phút/lần cũng là đề xuất `[FOUNDER DECISION]`.
 
+### 1b. `captureError` call sites theo scope — nguồn đếm của tín hiệu error-rate
+
+Tín hiệu `error-rate` đếm MỌI dòng `"level":"error"` mà `captureError` ghi ra
+stderr JSON (`src/lib/observability-core.ts`), không phân biệt code. Sổ đầy đủ
+**34 call site** (grep-verified trên cây Batch 7 merge — merge fix Wave 0,
+đóng hand-off Batch 7 `:474,491`):
+
+| Scope | Số site | Typed codes / vị trí |
+|---|---|---|
+| `telemetry` | 11 | `TELEMETRY_RECORDER_FAILED` ×2 (`app/api/chat/[id]/route.ts:217`, `src/lib/telemetry-recorders.ts:54`), `TELEMETRY_KEY_UNAVAILABLE`, `TELEMETRY_SCHEMA_REJECTED` ×2, `TELEMETRY_PII_REJECTED` ×2, `TELEMETRY_INTERNAL_LOOKUP_FAILED`, `TELEMETRY_EMIT_FAILED`, `TELEMETRY_COHORT_READ_FAILED` (`src/lib/product-events.ts:402-567`), `SEARCH_EVENT_READBACK_FAILED` (`src/lib/search-telemetry.ts:99`) |
+| `upload` | 6 | `app/api/upload/route.ts:209/227/247/273/287/296` — error object + meta `{ userId, storageKey }` |
+| `recovery` | 4 | `src/lib/actions/recovery.ts:238/243/336/347` — error object + action name |
+| `cohort` | 2 | `COHORT_FUNNEL_SYNC_FAILED` (`src/lib/actions/founding-sellers.ts:631`), `COHORT_NOTIFY_FAILED` (`:667`) — Batch 7 |
+| `deal` | 2 | `DEAL_NOTIFY_FAILED` ×2 (`src/lib/actions/deals.ts:230/532`) — Batch 6 |
+| `moderation` | 2 | `src/lib/actions/moderation.ts:301/803` — notifyError + meta |
+| `momo:ipn` | 2 | `INVALID_SIGNATURE` (`app/api/payments/momo/ipn/route.ts:45`) + error object (`:82`) |
+| `admin-mfa` | 1 | `src/lib/admin-mfa.ts:287` — error object |
+| `rate-limit` | 1 | `src/lib/rate-limit.ts:141` — error object + scope |
+| `cron:auto-release` | 1 | `app/api/cron/auto-release/route.ts:52` — error object |
+| `exchange.complete` | 1 | `src/lib/actions/exchange.ts:230` — error object + offerId |
+| `uploads.serve` | 1 | `app/uploads/[key]/route.ts:111` — error object + key (uuid server-side) |
+
+**Phân loại (merge fix Wave 0):** mọi site **fail-open** (luồng chính không bị
+chặn vì lỗi telemetry/notify), được đếm chung trong error-rate WARN khi vượt
+ngưỡng — **không có alert theo từng code, không PII** (chỉ typed code +
+`sqlState`/meta id nội bộ, cùng kỷ luật redact `AuditEvent.detail`).
+Ops-alerts **không** thay đổi code theo mục này.
+
 ## 2. Finance-boundary watermark — phân loại table theo WRITER THẬT
 
 **Phân loại bằng grep từng bảng** (review fix — không giả định "tên nghe tài
@@ -109,40 +145,46 @@ thể bị bỏ sót silently.
 Mọi writer đều sau `assertFinancialFeaturesEnabled()` (hoặc guard ở thân thư
 viện) — khi `FINANCIAL_FEATURES_ENABLED=false` không có luồng hợp lệ nào ghi:
 
-| Table | Writer (file:line — đều đã finance-guard) |
+| Table | Writer (file:line — grep-verified trên cây Batch 7 merge, đều đã finance-guard) |
 |---|---|
-| `Order` | orders.ts:24/158/200/237/283/340, offers.ts:21/61, escrow.ts:28, helpers.ts:67 (processAutoReleases), admin.ts:107 (resolveDispute) |
-| `OrderItem` | orders.ts:24 (createOrderAction), offers.ts:61 (respondOfferAction) |
-| `Payment` | orders.ts:159 (payEscrow), escrow.ts:28, offers.ts:61, admin.ts:107 |
-| `Payout` | orders.ts:284 (confirmReceipt), exchange.ts:150, admin.ts:107 |
-| `WithdrawRequest` | withdraw.ts:25/71 |
-| `LedgerEntry` | ledger.ts:36 (recordLedgerTx — guard ở thân thư viện) |
-| `Dispute` | orders.ts:385 (openDispute), admin.ts:107 (resolveDispute) |
-| `OrderStatusHistory` | escrow.ts:28 (markEscrowPaid :57), helpers.ts:36 recordStatusChange (mọi caller orders/offers/admin — đã guard) |
-| `PlatformSetting` | admin.ts:204 (updateSettingAction) + seed.ts (dev/test — seed.ts:16 từ chối ở NODE_ENV=production) |
+| `Order` | orders.ts:128 (createOrderAction), orders.ts:238/306/357/418/509/579 (status update/claim), offers.ts:110/171 (create), src/lib/escrow.ts:43 (markEscrowPaid — guard :28), helpers.ts:174 (processAutoReleases :158) |
+| `OrderItem` | orders.ts:152 (createOrderAction), offers.ts:124/185 (respondOffer/acceptCounter) |
+| `Payment` | orders.ts:184 (payEscrowAction :221), orders.ts:249/317/426/449/517 (update), offers.ts:132/193, exchange.ts:130, src/lib/escrow.ts:48, helpers.ts:179 (processAutoReleases) |
+| `Payout` | orders.ts:430 (confirmReceiptAction :401), exchange.ts:184, helpers.ts:182 (processAutoReleases), admin.ts:411 (resolveDisputeAction :361) |
+| `WithdrawRequest` | withdraw.ts:54 (create), withdraw.ts:91 (updateAll claim) |
+| `LedgerEntry` | src/lib/ledger.ts:45 (recordLedgerTx :28 — guard :36 ở thân thư viện) |
+| `Dispute` | orders.ts:573 (openDisputeAction :556), admin.ts:379 (resolveDisputeAction :361) |
+| `OrderStatusHistory` | src/lib/escrow.ts:57 (markEscrowPaid :21 — guard :28), helpers.ts:61 (recordStatusChange :54 — mọi caller orders/offers/admin đã guard) |
+| `PlatformSetting` | admin.ts:467/469 (updateSettingAction :458) + src/prisma/seed.ts:323/327 (dev/test — seed.ts:16 từ chối ở NODE_ENV=production) |
 
 ### (b) Cascade-affected — CRITICAL ins/upd; delete → WARN (3 bảng)
 
 ins/upd của writer đã finance-guard, NHƯNG delete đến từ **luồng xoá listing
-bình thường (KHÔNG finance guard)**: `deleteListingAction` xoá `CartItem` trực
-tiếp (listings.ts:294) + FK `onDelete: Cascade` từ Listing
-(contract: `Offer.listing`, `ExchangeOffer.listing`, `CartItem.listing`) →
+bình thường (KHÔNG finance guard)**: `deleteListingAction`
+(src/lib/actions/listings.ts:1393) — `Listing.deleteAll()` có điều kiện status
+(listings.ts:1461-1463) cascade FK `onDelete: Cascade` (contract:
+`Offer.listing`, `ExchangeOffer.listing`, `CartItem.listing`) + `CartItem`
+deleteAll trực tiếp (listings.ts:1468 — belt-and-suspenders sau cascade) →
 `n_tup_del` trên các bảng này là đợi mong → WARN, không CRITICAL:
 
 | Table | ins/upd writer (finance-guard) | delete đến từ |
 |---|---|---|
-| `CartItem` | cart.ts:13/44 (addToCart/updateCartItem) | listings.ts:294 (deleteListingAction xoá trực tiếp) + FK Cascade |
-| `Offer` | offers.ts:21/61 (createOffer/respondOffer) | FK Cascade từ xoá Listing |
-| `ExchangeOffer` | exchange.ts:24/83/116/150/202 | FK Cascade từ xoá Listing |
+| `CartItem` | cart.ts:36 (addToCartAction :12), cart.ts:57 (updateCartItemAction :43) | deleteListingAction listings.ts:1393 — FK Cascade (Listing.deleteAll :1461-1463) + CartItem deleteAll :1468 |
+| `Offer` | offers.ts:110/132 (createOfferAction :17), offers.ts:171/193 (respondOffer :60) | FK Cascade từ xoá Listing |
+| `ExchangeOffer` | exchange.ts:130 (createExchangeOfferAction :22), exchange.ts:184 (completeExchangeAction :151) | FK Cascade từ xoá Listing |
 
 ### (c) Non-finance — KHÔNG monitored (writer không guard / domain phi tài chính)
 
 | Table | Bằng chứng writer không finance-guard |
 |---|---|
-| `PriceHistory` | **createListingAction** listings.ts:118, **updateListingAction** reprice listings.ts:267, **mergeModelAction** catalog.ts:39 — luồng listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue (review fix 1); writer finance: orders.ts:272 recordSoldPrices (đã guard) |
+| `PriceHistory` | **createListingAction** listings.ts:491, **updateListingAction** reprice listings.ts:1187, submit/publish listings.ts:1349, **mergeModelAction** catalog.ts:132 — luồng listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue (review fix 1); writer finance: orders.ts:390 recordSoldPrices :384 (đã guard) |
 | `Cart` | **registerAction** auth.ts:122, **finishLogin** auth.ts:139 — luồng auth (mỗi user mới 1 Cart) |
 | `Review` | **submitReviewAction** reviews.ts:21 — KHÔNG finance guard (ghi Review cho đơn completed) — **finding cho security review Task 8** |
-| 27 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2); AbuseReport, ModerationCase, ModerationEvidence, ModerationAction, UserBlock, UserSuspension, Appeal (Batch 3 trust & safety), ListingImageUpload (Batch 4 upload ownership) — không FK tới bảng finance, không phải ranh giới tài chính |
+| 33 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2); AbuseReport, ModerationCase, ModerationEvidence, ModerationAction, UserBlock, UserSuspension, Appeal (Batch 3 trust & safety), ListingImageUpload (Batch 4 upload ownership); ProductEvent, SearchAlias (Batch 5 telemetry/search — emitProductEvent src/lib/product-events.ts, seed-search-aliases.ts), Deal, DealStatusHistory (Batch 6 Deal — src/lib/actions/deals.ts), FoundingSellerCandidate, BetaInviteToken (Batch 7 cohort ops — src/lib/actions/founding-sellers.ts) — không FK tới bảng finance, không phải ranh giới tài chính |
+
+Tổng (merge fix Wave 0): **9 finance-only + 3 cascade-affected (= 12 monitored,
+không đổi) + 36 non-finance = 48 model contract** — drift test
+(`tests/unit/ops-alerts.test.ts`) assert đủ 3 lớp phủ mọi model.
 
 ### Cơ chế watermark
 
@@ -213,22 +255,27 @@ alert ngoài. Email/Telegram/OTel là tích hợp **deploy-time** qua seam
 `captureError`/`captureEvent` (`src/lib/observability-core.ts` — thay thân hàm,
 call-site không đổi) — không hardcode ở đây. `[FOUNDER DECISION — FD-R37]`
 
-## 6. Re-verify sau các batch sau (thực thi sớm)
+## 6. Phân loại model mới — quy tắc thường trực (merge fix Wave 0: DONE)
 
-Tài liệu này được viết khi Batch 8 Task 5 thực thi trên cây chỉ có **Batch 0–2**
-(early execution — xem report Batch 8). Các tham chiếu cần đối chiếu lại khi
-Batch 3–7 merge (Task 10 của Batch 8 re-verify):
+Tài liệu này được viết khi Task 5 thực thi sớm trên cây chỉ có **Batch 0–2**;
+các nhánh "re-verify after Batch N" đã được đóng trên cây merge Batch 5–7
+(commit `fix(ops): reconcile early batch 8 work with batches 5-7`):
 
-- Batch 5 PII-guard source-scan (nếu tồn tại sau merge) — ops-alerts dùng cùng bộ
-  shape scan trong test riêng; nếu Batch 5 xuất một module shape-scan dùng chung,
-  cân nhắc import thay duplicate.
-- **Bảng phân loại §2 phải được GREP LẠI sau mỗi batch thêm model mới** — drift
-  test chặn model mới chưa phân loại, nhưng việc phân loại đúng (finance-only /
-  cascade / non-finance) là của batch thêm model. Batch 3 (7 bảng trust & safety)
-  và Batch 4 `ListingImageUpload` đã xếp non-finance khi merge; Batch 6 `Deal`/`DealStatusHistory`, Batch 7
-  `FoundingSellerCandidate`/`BetaInviteToken` — đều sẽ rơi vào classification test
-  khi merge → phân loại ở batch đó.
-- Batch 7 invite/console — không có tín hiệu nào đọc các bảng đó (ngoài phạm vi
+- **Quy tắc thường trực: mọi model contract mới phải được phân loại
+  (finance-only / cascade-affected / non-finance) trong CHÍNH batch thêm nó** —
+  drift test (`tests/unit/ops-alerts.test.ts`) chặn model chưa phân loại, nhưng
+  việc phân loại ĐÚNG là của batch thêm model (evidence writer grep kèm commit
+  đó).
+- Đã phân loại khi merge: Batch 3 (7 bảng trust & safety), Batch 4
+  `ListingImageUpload`, Batch 5 `ProductEvent`/`SearchAlias`, Batch 6
+  `Deal`/`DealStatusHistory`, Batch 7 `FoundingSellerCandidate`/`BetaInviteToken`
+  — sáu model Batch 5–7 đều **non-finance** (không FK tới bảng finance; evidence:
+  `tests/integration/batch6-migration.test.ts` +
+  `batch7-migration.test.ts` assert không op id nào khớp finance regex).
+- Batch 5 PII-guard source-scan: Batch 5 không xuất module shape-scan dùng
+  chung — ops-alerts giữ bộ shape scan riêng trong test (duplicate có drift
+  pin, không import được module server-only — Global Constraints).
+- Batch 7 invite/console: không có tín hiệu nào đọc các bảng đó (ngoài phạm vi
   monitoring P0 này).
 
 ## 7. Exercise containerised runner (Path B) — đã chạy local

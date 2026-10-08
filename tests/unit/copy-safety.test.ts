@@ -33,21 +33,22 @@
  *    finance lịch sử chỉ đọc, Batch 1 Task 5; spec §4.2 là copy CÔNG KHAI).
  *    Pin biến mất → test FAIL để soi lại phân loại.
  *
- * EARLY EXECUTION (Batch 8 Task 2 chạy trước Batch 3–7 — xem report): những
- * gì plan trỏ mà chưa có trong tree được ghi "re-verify after Batch N",
- * KHÔNG stub:
+ * Merge fix (Wave 0 — commit "fix(ops): reconcile early batch 8 work with
+ * batches 5-7"): Task 2 được thực thi sớm trên cây chỉ có Batch 0–2; các nhánh
+ * "EARLY EXECUTION" (re-verify after Batch N) đã HUYỀN TRỰC HOÁ trên cây merge
+ * Batch 5–7 (grep-verified):
  *  - src/components/safety-guidance.tsx (Batch 6 Task 6 — §6.4 render gần
- *    chat/deal): describe điều kiện — tự kích hoạt khi file xuất hiện; từ đó
- *    component cũng nằm trong scope walk (LIVE_FILES) tự động.
- *  - Copy §6.4 gần chat flow (app/chat/[id], chat-window): Batch 6 Task 6 —
- *    hiện tại surface deal-adjacent sống là listing detail (Batch 1) + nội
- *    dung policy safety_guidance (Batch 8 Task 1).
+ *    chat/deal) CÓ trong tree, được app/chat/[id]/page.tsx import + render —
+ *    describe BẤT ĐIỀU KIỆN (component bị xoá → test FAIL, không skip
+ *    silently), kèm pin import/render trên chat page.
+ *  - Copy §6.4 gần chat flow: chat page mount SafetyGuidance (Batch 6 Task 6b)
+ *    + listing detail (Batch 1) + nội dung policy safety_guidance (Task 1).
  *  - app/admin/seller-verification/page.tsx KHÔNG chứa câu §6.2 trung tính
  *    (code Batch 2: hàng đợi ops review — badge "Đã xác minh" là trạng thái
  *    email/phone, không phải claim người bán) — theo code, ghi nhận lệch plan.
  */
 import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { POLICY_KEYS, policyContent } from "../../src/lib/policy-registry";
@@ -349,10 +350,10 @@ describe("§5.2/§6.4 — các dòng safety guidance còn + render gần chat/de
     expect(body).toContain(SAFETY_52_LINE);
   });
 
-  it("listing detail (surface deal-adjacent sống hiện tại — Batch 1) render hướng dẫn §6.4-adjacent", () => {
-    // EARLY EXECUTION: Batch 6 Task 6 (safety-guidance.tsx gần chat/deal) chưa
-    // merge — surface deal-adjacent sống trong tree là listing detail (CTA
-    // "Nhắn người bán" + hộp hướng dẫn + disclaimer §5.2). Re-verify after Batch 6.
+  it("listing detail (surface deal-adjacent Batch 1) render hướng dẫn §6.4-adjacent", () => {
+    // Surface deal-adjacent Batch 1 (CTA "Nhắn người bán" + hộp hướng dẫn +
+    // disclaimer §5.2). Batch 6 Task 6b đã thêm SafetyGuidance trên chat page —
+    // describe dưới pin riêng (merge fix Wave 0: bỏ nhánh early-execution).
     const text = normalize(read("app/listings/[slug]/page.tsx"));
     expect(text).toContain("Hẹn ở nơi công cộng");
     expect(text).toContain("kiểm tra và test loa kỹ trước khi trả tiền");
@@ -362,25 +363,29 @@ describe("§5.2/§6.4 — các dòng safety guidance còn + render gần chat/de
   });
 });
 
-/** Batch 6 Task 6 — component render §6.4 gần chat/deal (EARLY EXECUTION: chưa có trong tree). */
+/** Batch 6 Task 6 — component render §6.4 gần chat/deal (merge fix Wave 0: BẤT ĐIỀU KIỆN). */
 const SAFETY_GUIDANCE_COMPONENT = "src/components/safety-guidance.tsx";
-const safetyComponentInTree = existsSync(`${root}/${SAFETY_GUIDANCE_COMPONENT}`);
+const CHAT_PAGE = "app/chat/[id]/page.tsx";
 
-// describe.skip điều kiện — tự kích hoạt khi Batch 6 merge (file xuất hiện);
-// từ đó component cũng nằm trong scope walk (LIVE_FILES) tự động. Re-verify
-// after Batch 6 (Batch 8 Task 10 re-run).
-(safetyComponentInTree ? describe : describe.skip)(
-  "Batch 6 safety-guidance component — re-verify after Batch 6",
-  () => {
-    it("chứa đủ sáu điểm §6.4 + dòng §5.2 (không promise language — scope walk tự quét)", () => {
-      const text = normalize(read(SAFETY_GUIDANCE_COMPONENT));
-      for (const point of SAFETY_64_POINTS) {
-        expect(text).toContain(point);
-      }
-      expect(text).toContain(SAFETY_52_LINE);
-    });
-  },
-);
+// Merge fix Wave 0: describe BẤT ĐIỀU KIỆN — component bị xoá thì read throw →
+// test FAIL, KHÔNG skip silently. Component nằm trong scope walk (LIVE_FILES)
+// tự động. Drift pin với src/content/policies/safety-guidance.ts: cả hai mang
+// đúng SAFETY_64_POINTS / SAFETY_52_LINE (assert song song ở describe §4 và §5).
+describe("Batch 6 safety-guidance component — §6.4 render gần chat/deal (merge fix: unconditional)", () => {
+  it("chứa đủ sáu điểm §6.4 + dòng §5.2 (không promise language — scope walk tự quét)", () => {
+    const text = normalize(read(SAFETY_GUIDANCE_COMPONENT));
+    for (const point of SAFETY_64_POINTS) {
+      expect(text).toContain(point);
+    }
+    expect(text).toContain(SAFETY_52_LINE);
+  });
+
+  it("app/chat/[id]/page.tsx import + render <SafetyGuidance> (Batch 6 Task 6b — mount gần chat)", () => {
+    const page = read(CHAT_PAGE);
+    expect(page).toContain('import { SafetyGuidance } from "@/src/components/safety-guidance"');
+    expect(page).toContain("<SafetyGuidance");
+  });
+});
 
 // ─── 5. Nội dung policy — không promise language ─────────────────────────────
 
