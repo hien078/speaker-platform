@@ -32,51 +32,16 @@ import {
  * abort tx khi constraint violation — Batch 3/6 rule) và KHÔNG BAO GIỜ
  * trong page render (S5: render không ghi db).
  *
- * ── Task 1 seam (parallel worktree — typecheck sau merge) ─────────────────────
- * `FoundingSellerCandidate` (và `BetaInviteToken`) thuộc migration batch 7 —
- * Task 1 (contract + migration) chạy song song trong worktree khác và CHƯA
- * merge ở tree này, nên table chưa có trong contract emit tại đây. Cho tới
- * merge, table được đọc qua structural view cục bộ với MỘT cast tập trung
- * (dưới đây) — "typecheck against the contract happens after merge"
- * (corrections parallelism map). SAU MERGE: thay bằng typed access trực tiếp
- * `db.orm.public.FoundingSellerCandidate` và xoá cast (theo dõi trong
- * docs/operations/private-beta-batch7-cohort-operations-verification.md);
- * enum contract emit cho status là cùng union giá trị
- * FOUNDING_SELLER_CANDIDATE_STATUSES (migration test Task 1 pin từng giá trị).
  */
 
 export * from "@/src/lib/founding-seller-vocab";
 
-// ─── Task 1 seam — structural view của FoundingSellerCandidate ───────────────
-
-/** Row funnel-sync đọc/ghi — subset của table Task 1 (đủ cho sync). */
-type FoundingSellerCandidateFunnelRow = {
-  id: string;
-  userId: string | null;
+/** Patch funnel-sync ghi — status + milestone timestamps (chỉ set khi null). */
+type FoundingSellerCandidateFunnelPatch = {
   status: FoundingSellerCandidateStatus;
-  verifiedAt: string | null;
-  firstListingAt: string | null;
+  verifiedAt?: string;
+  firstListingAt?: string;
 };
-
-/** Table handle — đúng dạng các call sync dùng (first + where().updateAll()). */
-type FoundingSellerCandidateFunnelTable = {
-  first(filter: { userId: string }): Promise<FoundingSellerCandidateFunnelRow | null>;
-  where(filter: {
-    id: string;
-    status: FoundingSellerCandidateStatus;
-  }): {
-    updateAll(
-      data: Partial<FoundingSellerCandidateFunnelRow>,
-    ): Promise<FoundingSellerCandidateFunnelRow[]>;
-  };
-};
-
-/** MỘT cast tập trung cho Task 1 seam — xem header module trước khi đổi. */
-const FoundingSellerCandidateTable = (
-  db.orm.public as unknown as {
-    FoundingSellerCandidate: FoundingSellerCandidateFunnelTable;
-  }
-).FoundingSellerCandidate;
 
 // ─── Funnel sync — thứ tự monotonic riêng (EXEMPT canTransitionCandidate) ─────
 
@@ -180,7 +145,7 @@ async function funnelGroundTruthTarget(
 export async function syncFoundingSellerFunnel(
   userId: string,
 ): Promise<FoundingSellerFunnelSync | null> {
-  const candidate = await FoundingSellerCandidateTable.first({ userId });
+  const candidate = await db.orm.public.FoundingSellerCandidate.first({ userId });
   if (candidate === null) return null;
 
   const from = candidate.status;
@@ -198,7 +163,7 @@ export async function syncFoundingSellerFunnel(
   }
 
   const now = new Date().toISOString();
-  const patch: Partial<FoundingSellerCandidateFunnelRow> = { status: target };
+  const patch: FoundingSellerCandidateFunnelPatch = { status: target };
   if (SYNC_RANK[target] >= SYNC_RANK.verified && candidate.verifiedAt === null) {
     patch.verifiedAt = now; // milestone verified đạt được trên đường nhảy
   }
@@ -208,7 +173,7 @@ export async function syncFoundingSellerFunnel(
 
   // COMPARE-AND-SET: chỉ ghi khi status còn đúng như lúc đọc — 0 row = đã có
   // ai đó di chuyển candidate; sync nhường (không retry — corrections #22).
-  const updated = await FoundingSellerCandidateTable.where({
+  const updated = await db.orm.public.FoundingSellerCandidate.where({
     id: candidate.id,
     status: from,
   }).updateAll(patch);
