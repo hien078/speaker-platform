@@ -53,6 +53,14 @@
  *     Batch 8): console + forms KHÔNG chứa đảm bảo/bảo đảm/bảo hiểm/bảo vệ
  *     (thanh toán|giao dịch)/giữ tiền hộ/escrow/guarantee/insurance/thưởng/
  *     incentive — KỂ CẢ trailing comment.
+ * 14. b7-t8 review fix (confirmed Task 5 finding, LOW): supply readiness
+ *     §12.1 đếm từ LIVE rows — milestone lưu `verifiedAt` KHÔNG đếm (không bao
+ *     giờ clear khi verification bị revoke; exited/inactive vẫn giữ) —
+ *     verified = LIVE SellerVerification "verified" AND status ∉
+ *     {exited, inactive}; approved-listings sum = chỉ ứng viên trong chương
+ *     trình AND membership founding_seller ACTIVE (suspended → listing không
+ *     đếm). ?userId= CHỈ thu hẹp BẢNG — summary §5.10 + supply §12.1 tính từ
+ *     cohort ĐẦY (behavior render qua real RBAC — corrections #21 recipe).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
@@ -95,11 +103,18 @@ vi.mock("next/navigation", () => ({
 vi.mock("next/headers", () => ({
   headers: vi.fn(async () => new Headers()),
   cookies: vi.fn(async () => ({
-    get: () => undefined,
-    set: () => {},
-    delete: () => {},
-    has: () => false,
-    getAll: () => [],
+    get: (name: string) => {
+      const value = cookieState.store.get(name);
+      return value === undefined ? undefined : { name, value };
+    },
+    set: (name: string, value: string) => {
+      cookieState.store.set(name, value);
+    },
+    delete: (name: string) => {
+      cookieState.store.delete(name);
+    },
+    has: (name: string) => cookieState.store.has(name),
+    getAll: () => [...cookieState.store.entries()].map(([name, value]) => ({ name, value })),
   })),
 }));
 
@@ -120,7 +135,12 @@ const dbState = vi.hoisted(() => ({
   verifications: [] as Row[],
   listings: [] as Row[],
   audits: [] as Row[],
+  policyAcceptances: [] as Row[],
+  suspensions: [] as Row[],
 }));
+
+/** Cookie store điều khiển được — login qua COOKIE THẬT (corrections #21 recipe). */
+const cookieState = vi.hoisted(() => ({ store: new Map<string, string>() }));
 
 vi.mock("@/src/prisma/db.client", () => {
   const fieldOps = (row: Row) =>
@@ -142,16 +162,27 @@ vi.mock("@/src/prisma/db.client", () => {
       ? Boolean(pred(fieldOps(row)))
       : Object.entries(pred).every(([k, v]) => row[k] === v);
 
-  const makeModel = (rows: Row[]) => {
-    const query = (preds: Pred[]) => ({
-      where: (pred: Pred) => query([...preds, pred]),
-      include: () => query(preds),
-      orderBy: () => query(preds),
+  const makeModel = (rows: Row[], attach?: (row: Row) => void) => {
+    const query = (preds: Pred[], includeRel?: string) => ({
+      where: (pred: Pred) => query([...preds, pred], includeRel),
+      include: (rel: string) => query(preds, rel),
+      orderBy: () => query(preds, includeRel),
       first: async (filter?: Pred) => {
         const all = [...preds, ...(filter ? [filter] : [])];
-        return rows.find((r) => all.every((p) => matches(r, p))) ?? null;
+        const hit = rows.find((r) => all.every((p) => matches(r, p))) ?? null;
+        if (hit === null) return null;
+        const copy = { ...hit };
+        if (includeRel === "user" && attach) attach(copy);
+        return copy;
       },
-      all: async () => rows.filter((r) => preds.every((p) => matches(r, p))).map((r) => ({ ...r })),
+      all: async () =>
+        rows
+          .filter((r) => preds.every((p) => matches(r, p)))
+          .map((r) => {
+            const copy = { ...r };
+            if (includeRel === "user" && attach) attach(copy);
+            return copy;
+          }),
       updateAll: async (data: Row) => {
         const hit = rows.filter((r) => preds.every((p) => matches(r, p)));
         for (const r of hit) Object.assign(r, data);
@@ -169,6 +200,8 @@ vi.mock("@/src/prisma/db.client", () => {
       first: (filter?: Pred) => query([]).first(filter),
       all: () => query([]).all(),
       where: (pred: Pred) => query([pred]),
+      include: (rel: string) => query([], rel),
+      orderBy: () => query([]),
       create: (data: Row) => query([]).create(data),
       updateAll: (data: Row) => query([]).updateAll(data),
       aggregate: (fn: (a: { count: () => number }) => Row) => query([]).aggregate(fn),
@@ -177,13 +210,17 @@ vi.mock("@/src/prisma/db.client", () => {
 
   const models = {
     User: makeModel(dbState.users),
-    UserSession: makeModel(dbState.sessions),
+    UserSession: makeModel(dbState.sessions, (row) => {
+      row["user"] = dbState.users.find((u) => u["id"] === row["userId"]) ?? null;
+    }),
     FoundingSellerCandidate: makeModel(dbState.candidates),
     BetaInviteToken: makeModel(dbState.tokens),
     BetaCohortMembership: makeModel(dbState.memberships),
     SellerVerification: makeModel(dbState.verifications),
     Listing: makeModel(dbState.listings),
     AuditEvent: makeModel(dbState.audits),
+    PolicyAcceptance: makeModel(dbState.policyAcceptances),
+    UserSuspension: makeModel(dbState.suspensions),
   };
   return {
     db: {
@@ -202,8 +239,12 @@ import {
   summarizeCandidates,
   type CandidateRowView,
   type OperatorOption,
+  type SupplyReadinessRow,
 } from "@/src/components/founding-seller-console";
 import { InviteIssueForm } from "@/src/components/founding-seller-forms";
+import * as betaCohortPage from "../../app/admin/beta-cohort/page";
+import { createHash } from "node:crypto";
+import { SESSION_COOKIE } from "@/src/lib/session";
 import {
   assignCandidateOperatorAction,
   recordCandidateContactAction,
@@ -360,11 +401,16 @@ describe("source contract — app/admin/beta-cohort/page.tsx (guard + S5 + §5.1
     expect(src).not.toMatch(/\.(update|updateAll|create|delete|deleteAll)\(/);
   });
 
-  it("searchParams.userId filter — link target từ /admin/users (plan Task 5)", () => {
+  it("searchParams.userId filter — CHỈ thu hẹp BẢNG; summary/supply từ cohort ĐẦY (b7-t8 review fix)", () => {
     const src = read(PAGE);
     expect(src).toContain("searchParams");
     expect(src).toMatch(/userId\?: string/);
-    expect(src).toContain("where({ userId: userIdFilter })");
+    // Load cohort ĐẦY — KHÔNG where theo userId (summary/supply không bị thu hẹp)
+    expect(src).not.toContain("where({ userId: userIdFilter })");
+    // Filter JS CHỈ áp lên rows (bảng); summary + supply dùng allCandidates/allRows
+    expect(src).toMatch(/allRows\.filter\(\(r\) => r\.userId === userIdFilter\)/);
+    expect(src).toContain("summarizeCandidates(allCandidates)");
+    expect(src).toContain("buildSupplyReadinessView(allRows)");
   });
 
   it("live reads §5.10 — publication requirements + approved count + assistance + relations", () => {
@@ -639,20 +685,63 @@ describe("source contract — KHÔNG reveal-PII path (A2 fail closed, spec §5.4
 // 7. Pure-logic — view-model helpers (plan Task 5 "pure-logic tests")
 // ══════════════════════════════════════════════════════════════════════════════
 
-describe("buildSupplyReadinessView — targets là DISPLAY STRING, counts từ live data (§12.1)", () => {
+describe("buildSupplyReadinessView — LIVE counts (b7-t8 review fix: milestone verifiedAt KHÔNG đếm)", () => {
+  const row = (over: Partial<SupplyReadinessRow>): SupplyReadinessRow => ({
+    invitedAt: NOW,
+    status: "verified",
+    verificationStatus: "verified",
+    membershipStatus: "active",
+    approvedListingCount: 0,
+    ...over,
+  });
+
+  it("verified count = LIVE SellerVerification 'verified' AND status ∉ {exited, inactive}", () => {
+    const view = buildSupplyReadinessView([
+      row({}), // live verified — đếm
+      row({ verificationStatus: "revoked" }), // verification bị revoke — KHÔNG đếm (milestone verifiedAt từng set cũng vậy)
+      row({ verificationStatus: "pending" }), // chưa verified — KHÔNG đếm
+      row({ status: "exited" }), // đã rời chương trình — KHÔNG đếm
+      row({ status: "inactive" }), // ngừng hoạt động — KHÔNG đếm
+      row({ verificationStatus: null, status: "registered" }), // chưa link/chưa verify — KHÔNG đếm
+    ]);
+    expect(view.verifiedFoundingSellers).toBe(1);
+  });
+
+  it("approved-listings sum: CHỈ ứng viên trong chương trình AND membership active", () => {
+    const view = buildSupplyReadinessView([
+      row({ approvedListingCount: 7 }), // active — đếm
+      row({ approvedListingCount: 5, membershipStatus: "suspended" }), // suspended — KHÔNG đếm
+      row({ approvedListingCount: 3, status: "exited" }), // exited — KHÔNG đếm
+      row({ approvedListingCount: 2, status: "inactive" }), // inactive — KHÔNG đếm
+      row({ approvedListingCount: 4, membershipStatus: null }), // chưa có membership — KHÔNG đếm
+    ]);
+    expect(view.approvedListingsByFoundingSellers).toBe(7);
+  });
+
+  it("invited count giữ ever-invited monotonic (invitedAt set — đếm funnel §12.3)", () => {
+    const view = buildSupplyReadinessView([
+      row({ invitedAt: NOW }),
+      row({ invitedAt: null }),
+      row({ invitedAt: NOW, status: "exited" }), // đã mời rồi rời chương trình — vẫn TỪNG được mời
+    ]);
+    expect(view.invitedFoundingSellers).toBe(2);
+  });
+
   it("trả đúng shape: counts + targetInvited 20–50 + targetListings 100–300", () => {
-    const view = buildSupplyReadinessView(
-      [
-        { invitedAt: NOW, verifiedAt: NOW },
-        { invitedAt: null, verifiedAt: null }, // prospect — chưa mời
-        { invitedAt: NOW, verifiedAt: null },
-      ],
-      42,
-    );
+    const view = buildSupplyReadinessView([
+      row({ invitedAt: NOW, approvedListingCount: 2 }),
+      row({
+        invitedAt: null,
+        status: "prospect",
+        verificationStatus: null,
+        membershipStatus: null,
+      }), // prospect — chưa mời
+      row({ invitedAt: NOW, status: "registered", verificationStatus: null }),
+    ]);
     expect(view).toEqual({
       invitedFoundingSellers: 2, // ever-invited (invitedAt set)
-      verifiedFoundingSellers: 1, // ever-verified (verifiedAt set)
-      approvedListingsByFoundingSellers: 42,
+      verifiedFoundingSellers: 1, // live verified (row 1)
+      approvedListingsByFoundingSellers: 2, // chỉ row 1 (active membership)
       targetInvited: "20–50",
       targetListings: "100–300",
     });
@@ -660,8 +749,8 @@ describe("buildSupplyReadinessView — targets là DISPLAY STRING, counts từ l
 
   it("KHÔNG gate theo count — helper thuần, không throw/không chặn (§12.1 founder approval)", () => {
     // count 0 hoặc 10.000 — helper vẫn trả view (targets là tham chiếu, không phải chặn)
-    expect(buildSupplyReadinessView([], 0).targetInvited).toBe("20–50");
-    expect(buildSupplyReadinessView([{ invitedAt: NOW, verifiedAt: NOW }], 100_000).targetListings).toBe("100–300");
+    expect(buildSupplyReadinessView([]).targetInvited).toBe("20–50");
+    expect(buildSupplyReadinessView([row({ approvedListingCount: 100_000 })]).targetListings).toBe("100–300");
   });
 });
 
@@ -750,6 +839,226 @@ describe("regression — admin page guard net (tests/unit/admin-page-guards.test
   it("page mới gọi requireCapability( — lưới guard bắt được", () => {
     const src = read(PAGE);
     expect(src).toMatch(/requireCapability\(|requireAdminUser\(/);
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 10. Behavioral render — ?userId= CHỈ lọc bảng; summary/supply từ cohort ĐẦY
+//     (b7-t8 review fix — real RBAC qua UserSession row + cookie, corrections #21)
+// ══════════════════════════════════════════════════════════════════════════════
+
+describe("behavioral render — /admin/beta-cohort ?userId= (b7-t8 review fix)", () => {
+  const sha256Hex = (v: string) => createHash("sha256").update(v).digest("hex");
+
+  const mkUser = (over: Partial<Row>): Row => ({
+    id: "user-x",
+    email: "x@loaviet.test",
+    passwordHash: "bcrypt-x",
+    name: "X",
+    role: "buyer",
+    avatarUrl: null,
+    phone: null,
+    city: null,
+    bio: null,
+    isVerifiedSeller: false,
+    adminRole: null,
+    emailVerifiedAt: null,
+    phoneVerifiedAt: null,
+    sellerType: null,
+    sellerOperatingProvinceCode: null,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+    ...over,
+  });
+
+  const mkCandidate = (over: Partial<Row>): Row => ({
+    id: "cand-x",
+    userId: null,
+    contactChannel: "email",
+    contactReference: "lienhe@example.com",
+    source: "nguồn tuyển",
+    targetCommunity: "ha-noi",
+    status: "prospect",
+    assignedOperatorId: null,
+    invitedAt: null,
+    registeredAt: null,
+    verifiedAt: null,
+    firstListingAt: null,
+    qualityListingCount: 0,
+    lastContactAt: null,
+    notes: null,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...over,
+  });
+
+  /** Login qua COOKIE THẬT + UserSession row (corrections #21 — KHÔNG mock rbac). */
+  const login = (user: Row, opts?: { isAdmin?: boolean }): void => {
+    const id = `sess-${user.id}`;
+    const token = `token-${id}`;
+    dbState.sessions.push({
+      id,
+      userId: user.id,
+      tokenHash: sha256Hex(token),
+      isAdmin: opts?.isAdmin ?? false,
+      createdAt: new Date(Date.now() - 60_000).toISOString(),
+      lastSeenAt: null,
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      revokedAt: null,
+      revokedReason: null,
+      steppedUpAt: null,
+      userAgent: "unit-test-agent/1.0",
+    });
+    cookieState.store.set(SESSION_COOKIE, token);
+  };
+
+  type BetaCohortPageFn = (props: { searchParams: Promise<{ userId?: string }> }) => Promise<unknown>;
+
+  /** Render page + text host-level đã normalize whitespace (JSX `label: {n}`). */
+  const renderPage = async (sp: { userId?: string } = {}): Promise<unknown> =>
+    (betaCohortPage.default as unknown as BetaCohortPageFn)({
+      searchParams: Promise.resolve(sp),
+    });
+
+  /** Text host-level của CHÍNH page (summary/supply/concierge — KHÔNG vào table). */
+  const textOfPage = async (sp: { userId?: string } = {}): Promise<string> =>
+    textOf(await renderPage(sp)).replace(/\s+/g, " ").trim();
+
+  /** rows truyền cho console (bảng) — element reference, invoke không cần. */
+  const consoleRowsOf = async (sp: { userId?: string } = {}): Promise<string[]> => {
+    const consoles = elementsOf(await renderPage(sp), FoundingSellerConsole);
+    expect(consoles).toHaveLength(1);
+    return (consoles[0]!["rows"] as Array<{ id: string }>).map((r) => r.id);
+  };
+
+  beforeEach(() => {
+    dbState.users.length = 0;
+    dbState.sessions.length = 0;
+    dbState.candidates.length = 0;
+    dbState.tokens.length = 0;
+    dbState.memberships.length = 0;
+    dbState.verifications.length = 0;
+    dbState.listings.length = 0;
+    dbState.audits.length = 0;
+    dbState.policyAcceptances.length = 0;
+    dbState.suspensions.length = 0;
+    cookieState.store.clear();
+
+    // Admin console (real RBAC — MFA session) + 3 ứng viên: A (link seller-1,
+    // verified + membership active + 2 tin approved), B (link seller-2, mới
+    // mời), C (prospect chưa link).
+    dbState.users.push(
+      mkUser({ id: "admin-ops", email: "ops@loaviet.test", name: "Ops", role: "admin", adminRole: "operations_admin" }),
+      mkUser({
+        id: "seller-1",
+        email: "seller1@loaviet.test",
+        name: "Seller Một",
+        emailVerifiedAt: NOW,
+        phoneVerifiedAt: NOW,
+        sellerType: "individual",
+        sellerOperatingProvinceCode: "ha-noi",
+      }),
+      mkUser({ id: "seller-2", email: "seller2@loaviet.test", name: "Seller Hai" }),
+    );
+    login(dbState.users[0]!, { isAdmin: true });
+
+    dbState.candidates.push(
+      mkCandidate({
+        id: "cand-a",
+        userId: "seller-1",
+        source: "nguồn tuyển A",
+        status: "registered",
+        invitedAt: NOW,
+        registeredAt: NOW,
+      }),
+      mkCandidate({
+        id: "cand-b",
+        userId: "seller-2",
+        contactReference: "seller2@loaviet.test",
+        source: "nguồn tuyển B",
+        status: "invited",
+        invitedAt: NOW,
+      }),
+      mkCandidate({ id: "cand-c", source: "nguồn tuyển C", status: "prospect" }),
+    );
+
+    dbState.memberships.push({
+      id: "bcm-1",
+      userId: "seller-1",
+      cohort: "founding_seller",
+      status: "active",
+      invitedBy: null,
+      invitedAt: NOW,
+      acceptedAt: NOW,
+      expiresAt: null,
+      notes: null,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+
+    dbState.verifications.push({
+      id: "sv-1",
+      userId: "seller-1",
+      status: "verified",
+      reasonCode: "requirements_met",
+      reviewedById: null,
+      submittedAt: NOW,
+      reviewedAt: NOW,
+      createdAt: NOW,
+      updatedAt: NOW,
+    });
+
+    dbState.policyAcceptances.push({
+      id: "pa-1",
+      userId: "seller-1",
+      policyKey: "seller_rules",
+      policyVersion: "v1",
+      acceptedAt: NOW,
+      createdAt: NOW,
+    });
+
+    dbState.listings.push(
+      { id: "list-1", sellerId: "seller-1", status: "approved", updatedAt: NOW, createdAt: NOW },
+      { id: "list-2", sellerId: "seller-1", status: "approved", updatedAt: NOW, createdAt: NOW },
+    );
+  });
+
+  it("?userId= — summary §5.10 + supply §12.1 tính từ cohort ĐẦY, bảng chỉ hàng đã lọc", async () => {
+    const text = await textOfPage({ userId: "seller-1" });
+
+    // Summary — số của TOÀN BỘ cohort (3 ứng viên), không phải 1 hàng đã lọc
+    expect(text).toContain("Tổng ứng viên: 3");
+    expect(text).toContain("Đã mời: 1"); // cand-B (invited) — bị lọc khỏi bảng nhưng vẫn đếm
+    expect(text).toContain("Đã tham gia: 1"); // cand-A (registered)
+    // Supply readiness — live counts của cohort đầy
+    expect(text).toContain("Founding seller đã mời: 2"); // cand-A + cand-B (ever-invited)
+    expect(text).toContain("Founding seller đã xác minh: 1"); // cand-A live verified
+    expect(text).toContain("Tin đã duyệt của founding seller: 2"); // 2 tin approved của cand-A
+    // Thông báo filter có mặt (clearly labelled)
+    expect(text).toContain("Đang lọc ứng viên đã liên kết người dùng này");
+    // BẢNG (rows truyền console) — chỉ hàng đã lọc (cand-A); cand-B/cand-C vắng
+    expect(await consoleRowsOf({ userId: "seller-1" })).toEqual(["cand-a"]);
+  });
+
+  it("KHÔNG filter — bảng + summary + supply cùng cohort đầy", async () => {
+    const text = await textOfPage({});
+    expect(text).toContain("Tổng ứng viên: 3");
+    expect(text).not.toContain("Đang lọc ứng viên đã liên kết người dùng này");
+    expect(await consoleRowsOf({})).toEqual(["cand-a", "cand-b", "cand-c"]);
+  });
+
+  it("supply readiness đếm LIVE — verification bị revoke / membership suspended không đếm", async () => {
+    // Flip ground truth SAU khi fixture đã seed: revoke verification của
+    // seller-1 + suspend membership của seller-1 → verified + listings = 0.
+    dbState.verifications[0]!.status = "revoked";
+    dbState.memberships[0]!.status = "suspended";
+
+    const text = await textOfPage({ userId: "seller-1" });
+
+    expect(text).toContain("Founding seller đã xác minh: 0"); // revoked → KHÔNG đếm
+    expect(text).toContain("Tin đã duyệt của founding seller: 0"); // suspended → KHÔNG đếm
+    // ever-invited không rụng (milestone invitedAt vẫn set)
+    expect(text).toContain("Founding seller đã mời: 2");
   });
 });
 

@@ -115,12 +115,20 @@ export function summarizeCandidates(
  * "20–50 invited founding sellers / 100–300 quality listings"), KHÔNG phải
  * gate: không code path nào chặn theo count — mở rộng lời mời buyer rộng rãi
  * là quyết định FOUNDER (§12.1 "explicitly approved"), không phải điều kiện
- * hệ thống. Counts là live reads:
+ * hệ thống.
+ *
+ * Counts là LIVE reads (b7-t8 review fix — milestone lưu KHÔNG đếm được:
+ * `verifiedAt` không bao giờ clear khi verification bị revoke, exited/inactive
+ * vẫn giữ milestone):
  *  - invitedFoundingSellers: ứng viên ĐÃ TỪNG được mời (invitedAt set — đếm
  *    monotonic theo funnel §12.3, không rụng khi seller tiến sâu hơn);
- *  - verifiedFoundingSellers: ứng viên đã đạt verified (verifiedAt set);
- *  - approvedListingsByFoundingSellers: factual count (approved) của listing
- *    các founding seller đã link — KHÔNG phải "quality" (A3).
+ *  - verifiedFoundingSellers: LIVE SellerVerification.status === "verified"
+ *    AND status ∉ {exited, inactive} — verification revoked/rejected →
+ *    KHÔNG đếm; ứng viên rời chương trình → KHÔNG đếm;
+ *  - approvedListingsByFoundingSellers: factual count (approved) — CHỈ ứng
+ *    viên đang trong chương trình (status ∉ {exited, inactive}) AND membership
+ *    founding_seller ACTIVE (suspended → listing không đếm vào mục tiêu).
+ *    KHÔNG phải "quality" (A3).
  */
 export type SupplyReadinessView = {
   invitedFoundingSellers: number;
@@ -130,18 +138,38 @@ export type SupplyReadinessView = {
   targetListings: string;
 };
 
+/** Row view cho supply readiness — LIVE reads (CandidateRowView thỏa cấu trúc). */
+export type SupplyReadinessRow = {
+  invitedAt: string | null;
+  /** STORED status của ứng viên. */
+  status: FoundingSellerCandidateStatus;
+  /** LIVE SellerVerification.status của linked user (null khi chưa link/chưa có row). */
+  verificationStatus: string | null;
+  /** BetaCohortMembership(founding_seller).status của linked user — READ-ONLY. */
+  membershipStatus: string | null;
+  /** Factual approved-listing count (approvedListingCountOf — KHÔNG phải quality, A3). */
+  approvedListingCount: number;
+};
+
 /** Mục tiêu tham chiếu §12.1 — display string, founder ack qua Batch 8 register. */
 export const SUPPLY_TARGET_INVITED = "20–50";
 export const SUPPLY_TARGET_LISTINGS = "100–300";
 
 export function buildSupplyReadinessView(
-  candidates: readonly { invitedAt: string | null; verifiedAt: string | null }[],
-  approvedListingsByFoundingSellers: number,
+  rows: readonly SupplyReadinessRow[],
 ): SupplyReadinessView {
+  // Ứng viên đang trong chương trình — exited/inactive rời chương trình, không
+  // đếm vào verified/listings của mục tiêu vận hành §12.1.
+  const inProgram = rows.filter((r) => r.status !== "exited" && r.status !== "inactive");
   return {
-    invitedFoundingSellers: candidates.filter((c) => c.invitedAt !== null).length,
-    verifiedFoundingSellers: candidates.filter((c) => c.verifiedAt !== null).length,
-    approvedListingsByFoundingSellers,
+    // ever-invited — monotonic theo funnel §12.3 (không rụng khi tiến sâu hơn)
+    invitedFoundingSellers: rows.filter((r) => r.invitedAt !== null).length,
+    // LIVE verification (KHÔNG phải milestone verifiedAt) — revoked → không đếm
+    verifiedFoundingSellers: inProgram.filter((r) => r.verificationStatus === "verified").length,
+    // factual approved count — chỉ ứng viên trong chương trình AND membership active
+    approvedListingsByFoundingSellers: inProgram
+      .filter((r) => r.membershipStatus === "active")
+      .reduce((acc, r) => acc + r.approvedListingCount, 0),
     targetInvited: SUPPLY_TARGET_INVITED,
     targetListings: SUPPLY_TARGET_LISTINGS,
   };

@@ -49,13 +49,14 @@ export default async function AdminBetaCohortPage({
   // Link target từ /admin/users (cột Beta cohort) — lọc ứng viên đã link user này.
   const userIdFilter = sp.userId?.trim() ?? "";
 
-  // Load ứng viên — MỘT query (≤ beta scale; corrections #37). KHÔNG sync,
+  // Load TOÀN BỘ cohort — MỘT query (≤ beta scale; corrections #37). KHÔNG sync,
   // KHÔNG ghi gì trong render (S5) — status render là STORED status.
-  const candidates = userIdFilter
-    ? await db.orm.public.FoundingSellerCandidate.where({ userId: userIdFilter })
-        .orderBy((c) => c.updatedAt.desc())
-        .all()
-    : await db.orm.public.FoundingSellerCandidate.orderBy((c) => c.updatedAt.desc()).all();
+  // b7-t8 review fix: ?userId= CHỈ thu hẹp BẢNG — summary §5.10 + supply
+  // readiness §12.1 vẫn tính từ cohort ĐẦY (tính từ danh sách đã lọc làm
+  // badge/mục tiêu đọc số của một user thay vì của chương trình).
+  const allCandidates = await db.orm.public.FoundingSellerCandidate.orderBy(
+    (c) => c.updatedAt.desc(),
+  ).all();
 
   // Operator đủ điều kiện được gán (select gán operator) — eligibility theo
   // ma trận Batch 2 (capabilitiesOf), KHÔNG hardcode role ở đây.
@@ -69,9 +70,10 @@ export default async function AdminBetaCohortPage({
   // SellerVerification.status, yêu cầu publication còn thiếu (Batch 2 policy),
   // factual approved-listing count, Listing mới nhất (updatedAt — "last seller
   // activity" §5.10), token active (row id cho form thu hồi — raw token không
-  // tồn tại trong db).
-  const rows: CandidateRowView[] = await Promise.all(
-    candidates.map(async (c) => {
+  // tồn tại trong db). Tính cho TOÀN BỘ cohort (summary/supply không bị ?userId=
+  // thu hẹp — xem trên); bảng lọc ở dưới.
+  const allRows: CandidateRowView[] = await Promise.all(
+    allCandidates.map(async (c) => {
       const [user, membership, verification, publication, approvedCount, lastListing, activeToken, needsAssistance] =
         await Promise.all([
           c.userId !== null ? db.orm.public.User.first({ id: c.userId }) : Promise.resolve(null),
@@ -127,13 +129,17 @@ export default async function AdminBetaCohortPage({
     }),
   );
 
+  // ?userId= filter — CHỈ cho BẢNG (rows truyền console); summary + supply
+  // readiness dùng allCandidates/allRows (cohort đầy — b7-t8 review fix).
+  const rows = userIdFilter
+    ? allRows.filter((r) => r.userId === userIdFilter)
+    : allRows;
+
   // §5.10 summary + §12.1 supply readiness — helper thuần (console component),
-  // counts từ live reads; targets là DISPLAY STRING (founder ack — Batch 8).
-  const summary = summarizeCandidates(candidates);
-  const supply = buildSupplyReadinessView(
-    candidates,
-    rows.reduce((acc, r) => acc + r.approvedListingCount, 0),
-  );
+  // counts từ live reads của cohort ĐẦY; targets là DISPLAY STRING (founder
+  // ack — Batch 8).
+  const summary = summarizeCandidates(allCandidates);
+  const supply = buildSupplyReadinessView(allRows);
 
   return (
     <div>
