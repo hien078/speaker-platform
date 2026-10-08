@@ -83,6 +83,26 @@ docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
   migrate npx tsx scripts/backfill-listing-location.ts --apply --allow-production
 
+# LẦN ĐẦU sau Batch 5 (bắt buộc, NGAY SAU backfill location): backfill
+# searchTextNormalized — search /listings khớp ĐỘC QUYỀN cột này (Batch 5 Task 7
+# bỏ arm full-text trên title), nên row NULL (toàn bộ row pre-Batch 5, kể cả dev
+# seed) KHÔNG tìm được qua ô từ khóa tới khi chạy xong. Dry-run trước, rồi
+# --apply --allow-production (idempotent):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --allow-production
+
+# SAU MỌI lần seed-beta-catalog --apply hoặc sửa/gộp model trong /admin/catalog
+# (bắt buộc): searchTextNormalized nhúng TÊN brand/model nên merge/rename để lại
+# text STALE trên các listing cũ (mergeModelAction KHÔNG viết lại text) — sửa
+# bằng --recompute-all (row đã đúng không ghi lại; cột derived, không rollback):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --recompute-all --allow-production
+
 # rồi duyệt model pending trong /admin/catalog (model chỉ hiện trong form
 # đăng tin sau khi approved) — chi tiết: docs/deployment.md §2.
 

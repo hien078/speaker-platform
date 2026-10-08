@@ -151,6 +151,30 @@ docker compose -f docker-compose.prod.yml run --rm \
   migrate npx tsx scripts/backfill-listing-location.ts --apply --allow-production
 #     Rollback nếu cần: script in declaredIds + SQL ở header script (B3).
 
+# 5c. Backfill searchTextNormalized (BẮT BUỘC ngay sau migrate — Batch 5 Task 7
+#     đổi search /listings sang khớp cột searchTextNormalized QUA ĐỊC: trang bỏ
+#     arm full-text trên title, nên MỌI row có searchTextNormalized NULL (toàn bộ
+#     row tạo TRƯỚC Batch 5, kể cả row dev seed) KHÔNG TÌM ĐƯỢC qua ô từ khóa
+#     cho tới khi bước này chạy. Dry-run trước, rồi --apply --allow-production
+#     (cùng guard/posture 5b; idempotent — chạy lại 0 row mới):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts            # dry-run (xem counts)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --allow-production
+#     STALENESS (S-4): searchTextNormalized nhúng TÊN brand/model nên trôi sau
+#     rename brand/model, sau mergeModelAction (/admin/catalog gộp model — alias
+#     được follow nhưng text các listing cũ KHÔNG tự tính lại), và sau seed
+#     beta catalog. Sửa bằng --recompute-all (tính lại MỌI row — row đã đúng
+#     KHÔNG ghi lại):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --recompute-all --allow-production
+#     Quy trình: chạy --recompute-all sau MỌI lần seed-beta-catalog --apply và
+#     sau MỌI lần sửa/gộp model trong /admin/catalog. Không rollback cần thiết —
+#     cột derived, luôn tính lại được (chạy lại backfill).
+
 # 6. Duyệt model pending trong /admin/catalog (founder) — seed tạo model ở
 #    status "pending"; model CHỈ hiện trong form đăng tin sau khi được duyệt.
 # 7. Kiểm tra sức khoẻ
