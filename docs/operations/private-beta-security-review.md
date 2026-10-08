@@ -81,8 +81,8 @@ Mọi cell đã được re-verify bằng `git grep -c -- '<key>' <file>` ở 20
   headers (Task 8a: `tests/unit/security-headers.test.ts`), finance-boundary
   detection (Task 5: `tests/unit/ops-alerts.test.ts`).
 - **Mọi suite được cite chạy green ở thời điểm thực thi** (full unit suite
-  2026-10-08: 2408/2408 + 3 test file Batch 8 mới; integration 279/279 —
-  xem §6 và Task 10 verification doc).
+  2026-10-08: 2437/2437 — 108 file, gồm 29 test Task 8 mới; integration
+  279/279 — xem §6 và Task 10 verification doc).
 
 ## 2. Dependency audit
 
@@ -174,8 +174,8 @@ nhầm lẫn khi debug local http. Ghi nhận để founder có thể thêm ở 
 tính header HIỆU DỤNG bằng cách iterate toàn bộ mảng với last-match-wins):**
 
 - `/uploads/x` → CHỈ CSP sandbox của Batch 4 + nosniff — KHÔNG Report-Only
-  (source app-wide loại trừ `/uploads` — Report-Only là key khác, sẽ叠加 nếu
-  không loại);
+  (source app-wide loại trừ `/uploads` — Report-Only là key khác, `/uploads`
+  sẽ nhận CẢ HAI nếu không loại);
 - `/invite/<token>` → `Referrer-Policy: no-referrer` + `X-Robots-Tag: noindex`;
 - `/invite` (tokenless) → `strict-origin-when-cross-origin`, KHÔNG
   `no-referrer` (corrections #8 — `no-referrer` trên `/invite` làm browser gửi
@@ -212,8 +212,8 @@ checklist mang row: "nginx `Strict-Transport-Security` + `limit_req` configured
 | `CRON_SECRET` | :60 | ≥ 16 ký tự (prod) |
 | `ADMIN_MFA_ENCRYPTION_KEY` | :14 | base64 của ĐÚNG 32 byte (`isValidAdminMfaKeyEnv` — Batch 2) |
 | `PRODUCT_EVENT_PSEUDONYM_KEY` | :25 | base64 của ĐÚNG 32 byte (`isValidProductEventKeyEnv` — Batch 5) |
-| `TRUST_PROXY_HEADERS` | :36 | chỉ `"true" \| `"false"` |
-| `FINANCIAL_FEATURES_ENABLED` | :46 | strict `"true" \| `"false"`; **prod = `"true"` là lỗi fail-fast** |
+| `TRUST_PROXY_HEADERS` | :36 | chỉ nhận `"true"` hoặc `"false"` |
+| `FINANCIAL_FEATURES_ENABLED` | :46 | strict `"true"` hoặc `"false"`; **prod = `"true"` là lỗi fail-fast** |
 | `ESCROW_AUTO_RELEASE_DAYS` | :50 | nguyên 1–30 |
 | MoMo (3 key) | :71-74 | all-or-nothing (thiếu 1/3 → issue từng key) |
 
@@ -262,7 +262,7 @@ cho qua + log.
 | OTP request (per-target) | `src/lib/otp.ts` — `OTP_PER_TARGET_RULE` 3 mã/10 phút/(userId,purpose,target) + cooldown 60s | `tests/unit/otp.test.ts @OTP_RESEND_COOLDOWN_SEC` |
 | OTP verify | `src/lib/otp.ts` — `OTP_MAX_ATTEMPTS` 5 sai/bucket, fail-closed sau khi chạm | `tests/unit/otp.test.ts @OTP_MAX_ATTEMPTS` |
 | password recovery | `src/lib/actions/recovery.ts` — `RECOVERY_REQUEST_RULE` 5/10 phút/IP; `RECOVERY_CONFIRM_RULE` 10/10 phút/IP + `RECOVERY_CONFIRM_PER_IDENTIFIER_RULE` 5/10 phút/identifier | `tests/unit/recovery-actions.test.ts @rate limit` |
-| account recovery (§7.7) | **KHÔNG có HTTP surface** — out-of-band là block psql hai người có audit của runbook §6 (`docs/operations/admin-bootstrap-recovery-runbook.md`) — không cần limiter (không phải endpoint) | `tests/unit/admin-bootstrap.test.ts` (cơ chế audit) |
+| account recovery (§7.7) | **KHÔNG có HTTP surface** — out-of-band là block psql hai người có audit của runbook §6 (`docs/operations/admin-bootstrap-recovery-runbook.md`) — không cần limiter (không phải endpoint) | `tests/integration/admin-bootstrap.test.ts` (cơ chế audit) |
 | report | `src/lib/actions/reports.ts` — `REPORT_RATE_LIMIT` 5/10 phút/user | `tests/unit/report-actions.test.ts @RATE_LIMITED` |
 | chat | `src/lib/actions/chat.ts` — `CONVERSATION_START_RATE` 20/10 phút/user; route `chat:send` `CHAT_SEND_RATE_LIMIT` 30/phút/user; `chat:poll` 120/phút/IP | `tests/unit/chat-hardening.test.ts @RATE_LIMITED` |
 | image upload | `app/api/upload/route.ts` — IP 20/10 phút + per-user 20/10 phút + **quota 60/24h** (`UPLOAD_DAILY_MAX`, đếm `ListingImageUpload`) | `tests/unit/upload-route.test.ts @UPLOAD_QUOTA` |
@@ -436,7 +436,7 @@ finance guard — dormant: cần Order completed, không thể có khi finance o
 | Severity | Status | File | Finding | Recommendation | Blocks launch |
 |---|---|---|---|---|---|
 | MEDIUM | ACCEPTED | src/lib/actions/admin-identity.ts | FD-R58: `session.revoke` KHÔNG có rank check — operations_admin có thể thu hồi session của super_admin (ma trận §5.4.1 cấp cả hai) | Founder review (FD register); rank check = plan mới nếu cần | no |
-| MEDIUM | ACCEPTED | src/lib/actions/admin-identity.ts:302 | FD-R58: `regenerateRecoveryCodesAction` chấp nhận MỘT recovery code làm proof (`verifyAdminMfaCode` trả `"totp" \| "\"recovery_code\"`) — một code lộ có thể mint 10 code mới | Founder review; yêu cầu TOTP cho regeneration = plan mới | no |
+| MEDIUM | ACCEPTED | src/lib/actions/admin-identity.ts:302 | FD-R58: `regenerateRecoveryCodesAction` chấp nhận MỘT recovery code làm proof (`verifyAdminMfaCode` trả `"totp"` hoặc `"recovery_code"`) — một code lộ có thể mint 10 code mới | Founder review; yêu cầu TOTP cho regeneration = plan mới | no |
 | LOW | ACCEPTED | src/lib/actions/auth.ts | Failed login / MFA failure KHÔNG ghi AuditEvent — auth-abuse monitoring mù ở seam AuditEvent (ops-alerts chỉ đếm được OTP/audit có sẵn) | Rate limit + nginx log bù; audit event trên failure = plan mới (Batch 2 action change, ngoài G3) | no |
 | LOW | OPEN | next.config.ts | CSP ship **Report-Only** — chưa enforce cho tới khi operator flip header | Release-checklist row: flip `Content-Security-Policy-Report-Only` → `Content-Security-Policy` sau `docker:smoke` + manual page-load (Task 9) | no |
 | LOW | ACCEPTED | src/lib/actions/reviews.ts:24 | `submitReviewAction` ghi `Review` không có finance guard (dormant — cần Order completed; finance off) | Revisit ở finance re-enable review (RR-9 family) | no |
@@ -449,6 +449,6 @@ finance guard — dormant: cần Order completed, không thể có khi finance o
 | LOW | ACCEPTED | src/lib/provinces.ts | FD-R64: legacy name `"Thừa Thiên Huế"` thiếu trong `legacyNames` của `hue` → resolve `unresolved` (fail-closed) | Founder bổ sung vào registry (FD register) | no |
 | LOW | ACCEPTED | instrumentation.ts:27 | RR-31: build warning `process.exit` trong Edge runtime (pre-existing, B2 R19) | Ghi nhận; không ảnh hưởng runtime đã deploy | no |
 
-**Tổng:** 0 CRITICAL, 0 HIGH, 8 MEDIUM/LOW ACCEPTED, 1 LOW OPEN (CSP flip —
-checklist row của operator, không phải defect code). §9 "no known critical
-security issue" **THỎA** ở thời điểm 2026-10-08.
+**Tổng:** 0 CRITICAL, 0 HIGH, 2 MEDIUM ACCEPTED (FD-R58), 10 LOW ACCEPTED,
+1 LOW OPEN (CSP flip — checklist row của operator, không phải defect code) —
+13 hàng. §9 "no known critical security issue" **THỎA** ở thời điểm 2026-10-08.
