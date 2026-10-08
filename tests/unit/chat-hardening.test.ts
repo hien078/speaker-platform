@@ -672,6 +672,15 @@ describe("POST /api/chat/[id] — body caps + imageUrl validation (S3/S4)", () =
     expect(dbState.messages.length).toBe(0);
   });
 
+  it.each(["null", "[]", "42", '"text"'])("JSON hợp lệ nhưng không phải object (%s) → 400 INVALID_BODY, KHÔNG 500, KHÔNG Message", async (raw) => {
+    const res = await postRawBody(CONVO.id, raw);
+    expect(res.status).toBe(400);
+    expect(await (res.json() as Promise<{ error: string }>)).toMatchObject({
+      error: "INVALID_BODY",
+    });
+    expect(dbState.messages.length).toBe(0);
+  });
+
   it("body.body non-string (number) → 400 INVALID_BODY, KHÔNG Message", async () => {
     const res = await postJson(CONVO.id, { body: 123 });
     expect(res.status).toBe(400);

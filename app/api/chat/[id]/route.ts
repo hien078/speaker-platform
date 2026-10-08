@@ -108,6 +108,10 @@ export async function POST(
   } catch {
     return Response.json({ error: "INVALID_BODY" }, { status: 400 });
   }
+  // JSON hợp lệ nhưng không phải object (null / mảng / số) → 400, không để body.body ném TypeError → 500
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return Response.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
   if (body.body !== undefined && typeof body.body !== "string") {
     return Response.json({ error: "INVALID_BODY" }, { status: 400 });
   }
