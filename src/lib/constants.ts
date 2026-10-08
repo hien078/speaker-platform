@@ -11,6 +11,7 @@ import type {
 } from "@/src/lib/moderation-vocab";
 // type-only (xoá khi compile) — constants.ts vẫn client-safe; map thiếu key fail typecheck.
 import type { InventoryContext, ListingFulfillmentMethod, PhotoChecklistSlot } from "@/src/lib/listing-schema";
+import type { DealOutcome, DealStatus } from "@/src/lib/deal-vocab";
 
 export const ROLE_LABELS: Record<string, string> = {
   buyer: "Người mua",
@@ -252,4 +253,31 @@ export const MODERATION_ACTION_TYPE_LABELS: Record<ModerationActionType, string>
   "user.suspended": "Đình chỉ người dùng",
   "user.suspension_lifted": "Gỡ đình chỉ",
   "appeal.recorded": "Ghi nhận kháng cáo",
+};
+
+// ─── Deal (Batch 6 Task 6a — spec §5.2) ──────────────────────────────────────
+
+/**
+ * PROVISIONAL (A9/FD-3): nhãn trạng thái Deal — product copy tiếng Việt của
+ * 4 trạng thái §5.2, KHÔNG phải văn bản pháp lý; Batch 8 Founder Decision
+ * Register duyệt bản cuối. Type từ deal-vocab (client-safe — type-only
+ * import; map thiếu/thừa key fail typecheck).
+ */
+export const DEAL_STATUS_LABELS: Record<DealStatus, string> = {
+  open: "Đang mở",
+  completed: "Hoàn tất",
+  cancelled: "Đã hủy",
+  no_deal: "Không đạt",
+};
+
+/**
+ * PROVISIONAL (A9/FD-3): nhãn kết quả per party (D3 — marking, KHÔNG phải
+ * trạng thái deal). Fulfillment Deal KHÔNG có map riêng — reuse
+ * FULFILLMENT_METHOD_LABELS của Batch 4 (corrections #20, cùng vocabulary
+ * §5.2/A7).
+ */
+export const DEAL_OUTCOME_LABELS: Record<DealOutcome, string> = {
+  success: "Thỏa thuận thành công",
+  no_deal: "Không đạt thỏa thuận",
+  cancelled: "Đã hủy thỏa thuận",
 };
