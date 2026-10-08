@@ -13,12 +13,17 @@
  * component này. Import CHỈ từ deal-vocab (client-safe) + constants +
  * actions/deals (B2 hygiene — pin deal-ui.test.ts).
  *
+ * FORM RESET (b6-review LOW-2): form KHÔNG gắn action prop — dispatch thủ
+ * công onSubmit + preventDefault + startTransition (pattern b4-holistic
+ * round-1) để agreedPrice/fulfillmentMethod KHÔNG bị React 19
+ * requestFormReset wipe sau action trả {error} (pin deal-ui.test.ts §4b).
+ *
  * Enforcement sống ở ACTION (createDealAction đọc FRESH + enforce §5.2:
  * listing approved, buyer của hội thoại, seller eligibility §7.8, block,
  * suspension, một deal open per (listing, buyer)); form chỉ là UX — nút
  * render không có nghĩa được phép.
  */
-import { useActionState } from "react";
+import { useActionState, useTransition } from "react";
 import { Handshake, LoaderCircle } from "lucide-react";
 import { createDealAction, type DealFormState } from "@/src/lib/actions/deals";
 import {
@@ -62,10 +67,27 @@ export function DealCreateForm({
     createDealAction,
     {},
   );
+  // Dispatch thủ công (b6-review LOW-2 — pattern b4-holistic round-1 của
+  // PortableListingForm): React 19 gọi requestFormReset trên MỌI form action
+  // KHÔNG throw — kể cả action trả {error} — nên gắn action prop sẽ
+  // form.reset() wipe agreedPrice/fulfillmentMethod (DOM) sau error → người
+  // dùng phải nhập lại. Bỏ action prop + dispatch qua onSubmit +
+  // startTransition: KHÔNG requestFormReset; pending của useActionState vẫn
+  // track đúng (gọi trong transition — React docs).
+  const [, startTransition] = useTransition();
   const compact = variant === "compact";
 
   return (
-    <form action={formAction} className={compact ? "" : "space-y-3"}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        startTransition(() => {
+          void formAction(fd);
+        });
+      }}
+      className={compact ? "" : "space-y-3"}
+    >
       <input type="hidden" name="listingId" value={listingId} />
 
       {!compact && (

@@ -8,6 +8,11 @@
  * DEAL_OUTCOMES (D3 — marking per party, KHÔNG phải trạng thái deal), label
  * từ DEAL_OUTCOME_LABELS (constants — không tự chế giá trị).
  *
+ * FORM RESET (b6-review LOW-1): form KHÔNG gắn action prop — dispatch thủ
+ * công onSubmit + preventDefault + startTransition (pattern b4-holistic
+ * round-1) để outcome/markSold/cancellationReason KHÔNG bị React 19
+ * requestFormReset wipe sau action trả {error} (pin deal-ui.test.ts §4b).
+ *
  * MARK SOLD (D6/FD-3): checkbox "Đánh dấu tin đã bán" CHỈ render khi
  * viewerRole === "seller" VÀ chọn "success", default OFF — bilateral
  * completion một mình KHÔNG bán listing (sold không thể hoàn tác); buyer
@@ -21,7 +26,7 @@
  * Import CHỈ từ deal-vocab (client-safe) + constants + actions/deals
  * (B2 hygiene — pin deal-ui.test.ts).
  */
-import { useActionState, useState } from "react";
+import { useActionState, useState, useTransition } from "react";
 import { ClipboardCheck, LoaderCircle } from "lucide-react";
 import { markDealOutcomeAction, type DealFormState } from "@/src/lib/actions/deals";
 import {
@@ -54,10 +59,28 @@ export function DealOutcomeForm({
     markDealOutcomeAction,
     {},
   );
+  // Dispatch thủ công (b6-review LOW-1 — pattern b4-holistic round-1 của
+  // PortableListingForm): React 19 gọi requestFormReset trên MỌI form action
+  // KHÔNG throw — kể cả action trả {error} — nên gắn action prop sẽ
+  // form.reset() bỏ chọn radio (DOM) + wipe textarea/checkbox TRONG KHI
+  // useState vẫn giữ outcome cũ → retry đọc FormData từ DOM ĐÃ RESET (outcome
+  // rỗng → DEAL_OUTCOME_INVALID, markSold mất). Bỏ action prop + dispatch qua
+  // onSubmit + startTransition: KHÔNG requestFormReset; pending của
+  // useActionState vẫn track đúng (gọi trong transition — React docs).
+  const [, startTransition] = useTransition();
   const [outcome, setOutcome] = useState<DealOutcome | "">("");
 
   return (
-    <form action={formAction} className="mt-3 space-y-3">
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const fd = new FormData(e.currentTarget);
+        startTransition(() => {
+          void formAction(fd);
+        });
+      }}
+      className="mt-3 space-y-3"
+    >
       <input type="hidden" name="dealId" value={dealId} />
 
       <fieldset>

@@ -47,6 +47,11 @@
  *     "Nhắn người bán" (KHÔNG thêm && user — corrections #16); compact
  *     DealCreateForm chỉ cho buyer đã có hội thoại (corrections #31); giữ
  *     disclaimer Batch 1 (pins finance-public-surface).
+ *  9. (§4b — b6-review LOW-1/LOW-2) React 19 form reset: hai form KHÔNG gắn
+ *     action prop — dispatch thủ công onSubmit + preventDefault +
+ *     startTransition (pattern b4-holistic round-1 PortableListingForm) để
+ *     outcome/markSold/cancellationReason/agreedPrice/fulfillmentMethod
+ *     KHÔNG bị form.reset() wipe sau action trả {error}.
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -320,6 +325,61 @@ describe("DealOutcomeForm — useActionState(markDealOutcomeAction) + D6 markSol
 
   it("mọi control có <label htmlFor> (spec §10 accessibility)", () => {
     expect(src()).toMatch(/htmlFor=/);
+  });
+});
+
+// ─── 4b. b6-review LOW-1/LOW-2 — React 19 form reset: inputs sống qua error ───
+
+/**
+ * b6-review LOW-1/LOW-2 (2-skeptic verification Tasks 6a/6b): React 19 gọi
+ * requestFormReset trên MỌI form action KHÔNG throw — kể cả action trả
+ * {error} — nên form.reset() wipe DOM: radio outcome bỏ chọn + markSold bỏ
+ * tick + cancellationReason/agreedPrice/fulfillmentMethod rỗng, TRONG KHI
+ * useState VẪN giữ outcome cũ → retry đọc FormData từ DOM ĐÃ RESET (outcome
+ * rỗng → DEAL_OUTCOME_INVALID, markSold mất). Hợp đồng fix = pattern
+ * b4-holistic round-1 của PortableListingForm
+ * (tests/unit/portable-listing-form.test.ts:159-179): KHÔNG action prop —
+ * dispatch thủ công onSubmit + preventDefault + startTransition(formAction(fd))
+ * → KHÔNG requestFormReset → mọi control giữ nguyên giá trị qua error
+ * response (pending của useActionState vẫn track đúng khi gọi trong
+ * transition — React docs). Repo không có jsdom/E2E infra (ghi nhận từ Batch
+ * 2) nên hợp đồng là source-contract như Batch 4, không render test.
+ */
+describe("DealOutcomeForm — outcome/markSold/reason sống qua action error (React 19 form reset)", () => {
+  const src = () => read("src/components/deal-outcome-form.tsx");
+
+  it("KHÔNG action prop trên <form> — dispatch thủ công onSubmit + startTransition (KHÔNG requestFormReset)", () => {
+    expect(src()).not.toMatch(/<form\s[^>]*action=\{formAction\}/);
+    expect(src()).toContain("onSubmit={(e) => {");
+    expect(src()).toContain("e.preventDefault()");
+    expect(src()).toContain("startTransition(() => {");
+    expect(src()).toContain("void formAction(fd)");
+  });
+
+  it("FormData build từ form tại submit — radio controlled, textarea/checkbox KHÔNG defaultValue", () => {
+    // FormData đọc DOM TRỰC TIẾP tại submit — radio vẫn controlled (checked
+    // từ useState) nên lựa chọn sống qua re-render error; KHÔNG có
+    // defaultValue nào bị form.reset() wipe (dù reset path đã bị bỏ ở test trên).
+    expect(src()).toContain("new FormData(e.currentTarget)");
+    expect(src()).toMatch(/checked=\{outcome === o\}/);
+    expect(src()).toMatch(/onChange=\{\(\) => setOutcome\(o\)\}/);
+    expect(src()).not.toContain("defaultValue");
+  });
+});
+
+describe("DealCreateForm — agreedPrice/fulfillmentMethod sống qua action error (React 19 form reset)", () => {
+  const src = () => read("src/components/deal-create-form.tsx");
+
+  it("KHÔNG action prop trên <form> — dispatch thủ công onSubmit + startTransition (KHÔNG requestFormReset)", () => {
+    // full variant: agreedPrice/fulfillmentMethod là uncontrolled DOM input —
+    // KHÔNG action prop thì KHÔNG có requestFormReset nào wipe chúng sau
+    // {error}; compact variant chỉ nút nên không mất gì thêm.
+    expect(src()).not.toMatch(/<form\s[^>]*action=\{formAction\}/);
+    expect(src()).toContain("onSubmit={(e) => {");
+    expect(src()).toContain("e.preventDefault()");
+    expect(src()).toContain("startTransition(() => {");
+    expect(src()).toContain("void formAction(fd)");
+    expect(src()).toContain("new FormData(e.currentTarget)");
   });
 });
 
