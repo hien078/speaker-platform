@@ -18,6 +18,8 @@ import {
 } from "@/src/lib/seller-verification-status";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
+import { assertListingSellerInteractable } from "@/src/lib/deal";
+import { DealCreateForm } from "@/src/components/deal-create-form";
 import {
   recordListingView,
   recordSearchResultClick,
@@ -35,6 +37,18 @@ import {
 } from "lucide-react";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Typed §7.8 codes → CTA trung tính (D12 — Batch 6 Task 6b). CHỈ các mã này
+ * được map thành "không nhận tin nhắn mới"; mọi lỗi khác (infra/db) rethrow —
+ * KHÔNG catch-all (§4.5: action enforce, page không nuốt lỗi để render CTA
+ * chết hay giả vờ mọi thứ ổn).
+ */
+const SELLER_INELIGIBLE_CODES = [
+  "SELLER_SUSPENDED",
+  "SELLER_NOT_VERIFIED",
+  "SELLER_MEMBERSHIP_INACTIVE",
+] as const;
 
 export default async function ListingDetailPage({
   params,
@@ -132,6 +146,39 @@ export default async function ListingDetailPage({
         .where({ userId: user.id, listingId: listing.id })
         .first()
     : null;
+
+  // ─── D12 (Batch 6 Task 6b — spec §6.1/§7.8): CTA gating ──────────────────
+  // Eligibility §7.8 của seller-of-the-listing cho CTA chat/thỏa thuận — UI
+  // CONVENIENCE (startConversationAction/createDealAction đọc FRESH + enforce
+  // server-side; §4.5 backend authorization). CHỈ typed SELLER_* codes map
+  // thành copy trung tính; lỗi infra/db rethrow (KHÔNG catch-all). Anonymous
+  // vẫn thấy CTA (KHÔNG thêm `&& user` — corrections #16); chỉ tính khi nhánh
+  // CTA có thể render (approved + non-owner) để không thêm 3 read cho owner.
+  const ctaVisible = listing.status === "approved" && !isOwner;
+  let sellerEligible = true;
+  if (ctaVisible) {
+    try {
+      await assertListingSellerInteractable(listing.sellerId);
+    } catch (e) {
+      if (
+        e instanceof Error &&
+        (SELLER_INELIGIBLE_CODES as readonly string[]).includes(e.message)
+      ) {
+        sellerEligible = false;
+      } else {
+        throw e;
+      }
+    }
+  }
+  // §6.1 secondary CTA compact — CHỈ cho buyer ĐÃ có hội thoại với tin này
+  // (createDealAction trả DEAL_CONVERSATION_REQUIRED khi chưa nhắn — nút
+  // compact vô dụng cho người chưa từng chat; corrections #31).
+  const buyerConvo =
+    user && ctaVisible && sellerEligible
+      ? await db.orm.public.Conversation
+          .where({ listingId: listing.id, buyerId: user.id })
+          .first()
+      : null;
 
   // Product Model link (§5) — specs + giá tham chiếu
   const model = listing.productModelId
@@ -365,13 +412,27 @@ export default async function ListingDetailPage({
             <div className="mt-4 space-y-2.5">
               {listing.status === "approved" && !isOwner ? (
                 <>
-                  <form action={startChat}>
-                    <input type="hidden" name="listingId" value={listing.id} />
-                    <button type="submit" className="btn-primary w-full">
-                      <MessageCircle className="size-4" />
-                      Nhắn người bán
-                    </button>
-                  </form>
+                  {sellerEligible ? (
+                    <>
+                      <form action={startChat}>
+                        <input type="hidden" name="listingId" value={listing.id} />
+                        <button type="submit" className="btn-primary w-full">
+                          <MessageCircle className="size-4" />
+                          Nhắn người bán
+                        </button>
+                      </form>
+                      {user && buyerConvo !== null && (
+                        <DealCreateForm listingId={listing.id} variant="compact" />
+                      )}
+                    </>
+                  ) : (
+                    /* D12: seller không còn nhận tương tác mới (đình chỉ /
+                       xác minh bị thu hồi / membership hết hạn) → copy trung
+                       tính THAY CTA chết — action vẫn enforce (§4.5). */
+                    <p className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+                      Người bán hiện không nhận tin nhắn mới
+                    </p>
+                  )}
                   <p className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
                     Thanh toán và giao nhận hàng do bạn và người bán tự thỏa thuận,
                     diễn ra độc lập ngoài LoaViet. LoaViet không giữ tiền và không bảo đảm giao dịch.

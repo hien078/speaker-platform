@@ -6,6 +6,8 @@ import { getBlockState, isUserSuspended } from "@/src/lib/moderation";
 import { unblockUserAction } from "@/src/lib/actions/blocks";
 import { ReportDialog } from "@/src/components/report-dialog";
 import { ChatWindow } from "@/src/components/chat-window";
+import { DealPanel } from "@/src/components/deal-panel";
+import { SafetyGuidance } from "@/src/components/safety-guidance";
 import { formatVND } from "@/src/lib/utils";
 import { ArrowLeft, Ban, ShieldX } from "lucide-react";
 
@@ -56,6 +58,16 @@ export default async function ConversationPage({
     isUserSuspended(user.id),
   ]);
   const composerDisabled = blockState !== "none" || viewerSuspended;
+
+  // Batch 6 Task 6b (S11 — spec §5.2): deal của hội thoại tra THEO
+  // conversationId (Deal.conversationId không FK — deal sống qua listing
+  // deletion), KHÔNG theo (listingId, buyerId). Deal MỚI NHẤT của hội thoại —
+  // deal terminal không chặn buyer tạo deal mới (D4; panel tự render form
+  // tạo mới ở dưới trạng thái cuối).
+  const deal = await db.orm.public.Deal
+    .where({ conversationId: convo.id })
+    .orderBy((d) => d.createdAt.desc())
+    .first();
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 lg:px-8">
@@ -165,6 +177,24 @@ export default async function ConversationPage({
           disabled={composerDisabled}
         />
       </div>
+
+      {/* Thỏa thuận §5.2 (Batch 6 Task 6b) — panel nhận deal đã load theo
+          conversationId ở trên + listing theo redaction listingVisible
+          (corrections #15 — viewer không được thấy content của tin đã gỡ);
+          viewerRole từ convo (buyer/seller của hội thoại). */}
+      <DealPanel
+        deal={deal}
+        listing={
+          listing && listingVisible
+            ? { id: listing.id, title: listing.title, status: listing.status }
+            : null
+        }
+        viewerRole={user.id === convo.buyerId ? "buyer" : "seller"}
+      />
+
+      {/* §6.4 — hướng dẫn an toàn giao dịch, MỘT LẦN, sau panel (Task 6a
+          component; panel KHÔNG tự render — tránh render đôi). */}
+      <SafetyGuidance className="card mt-4 p-4 text-sm text-[var(--ink-2)]" />
     </main>
   );
 }

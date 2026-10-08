@@ -1,10 +1,9 @@
 /**
- * Deal UI — hợp đồng source + drift labels (Batch 6 plan Task 6, PHẦN 6a —
- * spec §6.4/§5.2/§4.2; source-contract style của finance-public-surface.test.ts,
+ * Deal UI — hợp đồng source + drift labels (Batch 6 plan Task 6 —
+ * spec §6.4/§5.2/§4.2/§6.1; source-contract style của finance-public-surface.test.ts,
  * không jsdom).
  *
- * Scope 6a (parallelism map Wave 2 — corrections 2026-10-08; panel/forms/page
- * mounts là Task 6b, Wave 4, mở RỘNG file này — không assert gì về chúng ở đây):
+ * Scope 6a (parallelism map Wave 2 — corrections 2026-10-08):
  *
  *  1. SafetyGuidance (src/components/safety-guidance.tsx): render đủ 6 điểm
  *     §6.4 + dòng §5.2 ("The UI must state") + dòng trung tính Batch 1 —
@@ -23,6 +22,31 @@
  *     (mọi giá trị có nhãn, mọi nhãn là giá trị hợp lệ — plan Task 6 drift);
  *     KHÔNG có DEAL_FULFILLMENT_METHOD_LABELS — fulfillment Deal reuse
  *     FULFILLMENT_METHOD_LABELS của Batch 4 (corrections #20).
+ *
+ * Scope 6b (Wave 4 — file này là bản mở rộng của Task 6b; source-contract cho
+ * panel/forms/page mounts theo plan Task 6 Step 1 + corrections #15/#16/#31):
+ *
+ *  5. DealPanel (src/components/deal-panel.tsx): server component (props in,
+ *     React out — KHÔNG đọc db); §5.2 line + DEAL_STATUS_LABELS + formatVND;
+ *     DealCreateForm cho buyer+approved khi deal null HOẶC terminal (S11/D4);
+ *     DealOutcomeForm chỉ khi open + viewer chưa mark; KHÔNG tự mount
+ *     SafetyGuidance (trang mount MỘT LẦN); cancellationReason render React
+ *     text (KHÔNG dangerouslySetInnerHTML).
+ *  6. DealCreateForm / DealOutcomeForm ("use client" + useActionState):
+ *     import CHỈ deal-vocab + constants + actions/deals (B2 hygiene —
+ *     exact-module match cho @/src/lib/deal, substring scan false-positive
+ *     trên deal-vocab); mọi control có <label htmlFor> (§10 accessibility);
+ *     markSold checkbox CHỈ seller + success, default off (D6/FD-3);
+ *     cancellationReason textarea chỉ cancelled + maxLength bound (D3).
+ *  7. app/chat/[id]/page.tsx: deal tra THEO conversationId (S11 — không theo
+ *     (listingId, buyerId)); DealPanel + SafetyGuidance (MỘT LẦN, sau panel);
+ *     giữ select redaction + block banner/report dialog Batch 3 (Q4 additive).
+ *  8. app/listings/[slug]/page.tsx (D12/§6.1): eligibility qua
+ *     assertListingSellerInteractable — CHỈ typed SELLER_* codes map thành
+ *     copy trung tính, lỗi khác rethrow (KHÔNG catch-all); anonymous vẫn thấy
+ *     "Nhắn người bán" (KHÔNG thêm && user — corrections #16); compact
+ *     DealCreateForm chỉ cho buyer đã có hội thoại (corrections #31); giữ
+ *     disclaimer Batch 1 (pins finance-public-surface).
  */
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
@@ -152,5 +176,241 @@ describe("constants — deal status/outcome labels drift", () => {
     for (const method of DEAL_FULFILLMENT_METHODS) {
       expect(FULFILLMENT_METHOD_LABELS).toHaveProperty(method);
     }
+  });
+});
+
+// ─── 3. DealPanel — source contract (Task 6b — spec §5.2/S11/D4/D12) ──────────
+
+describe("DealPanel — panel thỏa thuận trên trang hội thoại (source contract)", () => {
+  const src = () => read("src/components/deal-panel.tsx");
+
+  it("server component — props in, React out (KHÔNG 'use client', KHÔNG db)", () => {
+    expect(src()).toContain("export function DealPanel");
+    expect(src()).not.toContain('"use client"');
+    expect(src()).not.toContain('"use server"');
+    expect(src()).not.toContain("db.client");
+    expect(src()).not.toContain("server-only");
+  });
+
+  it("render §5.2 line + DEAL_STATUS_LABELS + formatVND agreedPrice + fulfillment label", () => {
+    expect(src()).toContain(SAFETY_52_LINE);
+    expect(src()).toContain("DEAL_STATUS_LABELS");
+    expect(src()).toContain("formatVND");
+    expect(src()).toContain("FULFILLMENT_METHOD_LABELS");
+  });
+
+  it("DealCreateForm cho buyer + listing approved khi deal null HOẶC terminal (S11/D4)", () => {
+    expect(src()).toContain("DealCreateForm");
+    expect(src()).toContain('variant="full"');
+    expect(src()).toContain("isTerminalDealStatus");
+    expect(src()).toMatch(/viewerRole === "buyer"/);
+    expect(src()).toMatch(/listing\?\.status === "approved"/);
+  });
+
+  it("DealOutcomeForm CHỈ khi deal open + viewer chưa mark (D3 — đã mark thì chờ)", () => {
+    expect(src()).toContain("DealOutcomeForm");
+    expect(src()).toMatch(/deal\.status === "open"/);
+    expect(src()).toMatch(/viewerOutcomeAt === null/);
+    expect(src()).toContain("Bạn đã đánh dấu kết quả");
+  });
+
+  it("KHÔNG tự mount SafetyGuidance (trang mount MỘT LẦN — tránh render đôi)", () => {
+    expect(src()).not.toContain("SafetyGuidance");
+  });
+
+  it("KHÔNG dangerouslySetInnerHTML — cancellationReason render React text (stored-XSS)", () => {
+    expect(src()).not.toContain("dangerouslySetInnerHTML");
+    expect(src()).toContain("deal.cancellationReason");
+  });
+
+  it("§4.2: KHÔNG promise language (scan cả comment — chỉ dòng negation được phép)", () => {
+    const withoutNegation = src()
+      .split("\n")
+      .filter((line) => !line.includes(NEUTRAL_LINE))
+      .join("\n");
+    expect(withoutNegation).not.toMatch(PROMISE_RE);
+  });
+});
+
+// ─── 4. Client forms — B2 hygiene + D6 markSold (Task 6b) ──────────────────────
+
+/** B2 hygiene — client form Deal import CHỈ từ deal-vocab + constants + actions. */
+const assertClientFormHygiene = (path: string): void => {
+  const src = read(path);
+  expect(src, `${path}: "use client"`).toContain('"use client"');
+  expect(src, `${path}: useActionState`).toContain("useActionState");
+  // KHÔNG import db / server-only / module domain server
+  expect(src, `${path}: db`).not.toContain("db.client");
+  expect(src, `${path}: server-only`).not.toContain("server-only");
+  // exact-module match — substring scan false-positive trên deal-vocab
+  expect(src, `${path}: @/src/lib/deal`).not.toMatch(/from "@\/src\/lib\/deal"/);
+  // import TỪ deal-vocab + constants + actions (plan Task 6 — chỉ ba nguồn này)
+  expect(src, `${path}: deal-vocab`).toContain("@/src/lib/deal-vocab");
+  expect(src, `${path}: constants`).toContain("@/src/lib/constants");
+  expect(src, `${path}: actions/deals`).toContain("@/src/lib/actions/deals");
+  // stored-XSS contract
+  expect(src, `${path}: dangerouslySetInnerHTML`).not.toContain("dangerouslySetInnerHTML");
+  // §4.2 — KHÔNG promise language (scan cả comment, negation được allowlist)
+  const withoutNegation = src
+    .split("\n")
+    .filter((line) => !line.includes(NEUTRAL_LINE))
+    .join("\n");
+  expect(withoutNegation, `${path}: promise language`).not.toMatch(PROMISE_RE);
+};
+
+describe("DealCreateForm — useActionState(createDealAction) + variant (source contract)", () => {
+  const src = () => read("src/components/deal-create-form.tsx");
+
+  it('B2 hygiene: "use client" + import CHỈ deal-vocab + constants + actions', () => {
+    assertClientFormHygiene("src/components/deal-create-form.tsx");
+    expect(src()).toContain("createDealAction");
+  });
+
+  it("compact (trang listing §6.1) render CHỈ nút submit — hai trường chỉ full variant", () => {
+    expect(src()).toMatch(/variant === "compact"/);
+    // hai trường giá/phương thức gate trên !compact — compact không gửi gì thêm
+    expect(src()).toMatch(/\{!compact && \(/);
+    expect(src()).toContain("Tạo thỏa thuận");
+  });
+
+  it("full variant: agreedPrice (bound D5) + fulfillmentMethod select (labels Batch 4)", () => {
+    expect(src()).toContain("DEAL_AGREED_PRICE_MIN");
+    expect(src()).toContain("DEAL_AGREED_PRICE_MAX");
+    expect(src()).toContain("DEAL_FULFILLMENT_METHODS");
+    expect(src()).toContain("FULFILLMENT_METHOD_LABELS");
+  });
+
+  it("mọi control có <label htmlFor> (spec §10 accessibility)", () => {
+    expect(src()).toMatch(/htmlFor=/);
+  });
+
+  it("lỗi typed hiển thị tiếng Việt, KHÔNG phản chiếu input (DEAL_CONVERSATION_REQUIRED)", () => {
+    expect(src()).toContain("DEAL_CONVERSATION_REQUIRED");
+    expect(src()).toContain("Hãy nhắn người bán trước khi tạo thỏa thuận");
+  });
+});
+
+describe("DealOutcomeForm — useActionState(markDealOutcomeAction) + D6 markSold (source contract)", () => {
+  const src = () => read("src/components/deal-outcome-form.tsx");
+
+  it('B2 hygiene: "use client" + import CHỈ deal-vocab + constants + actions', () => {
+    assertClientFormHygiene("src/components/deal-outcome-form.tsx");
+    expect(src()).toContain("markDealOutcomeAction");
+  });
+
+  it("markSold checkbox CHỈ seller + chọn success, default OFF (D6/FD-3 — buyer không thấy)", () => {
+    expect(src()).toContain("markSold");
+    expect(src()).toMatch(/viewerRole === "seller"/);
+    expect(src()).toMatch(/outcome === "success"/);
+    // default off — KHÔNG defaultChecked/checked mặc định
+    expect(src()).not.toContain("defaultChecked");
+    expect(src()).toContain("Đánh dấu tin đã bán");
+  });
+
+  it("cancellationReason textarea CHỈ khi chọn cancelled + maxLength bound (D3)", () => {
+    expect(src()).toMatch(/outcome === "cancelled"/);
+    expect(src()).toContain("DEAL_CANCELLATION_REASON_MAX");
+    expect(src()).toContain("cancellationReason");
+  });
+
+  it("ba lựa chọn từ DEAL_OUTCOMES + label DEAL_OUTCOME_LABELS (không tự chế giá trị)", () => {
+    expect(src()).toContain("DEAL_OUTCOMES");
+    expect(src()).toContain("DEAL_OUTCOME_LABELS");
+  });
+
+  it("mọi control có <label htmlFor> (spec §10 accessibility)", () => {
+    expect(src()).toMatch(/htmlFor=/);
+  });
+});
+
+// ─── 5. app/chat/[id] — DealPanel + SafetyGuidance mounts (Task 6b) ───────────
+
+describe("app/chat/[id] — deal panel mount (S11) + safety guidance (§6.4)", () => {
+  const src = () => read("app/chat/[id]/page.tsx");
+
+  it("deal tra THEO conversationId (S11 — KHÔNG theo (listingId, buyerId))", () => {
+    expect(src()).toMatch(/Deal\s*\.where\(\{ conversationId: convo\.id \}\)/);
+    expect(src()).toContain(".orderBy((d) => d.createdAt.desc())");
+    // panel không tra theo cặp (listing, buyer) — deal sống qua listing deletion
+    expect(src()).not.toMatch(/Deal\s*\.where\(\{ listingId:/);
+  });
+
+  it("DealPanel mount với listing redaction (corrections #15) + viewerRole từ convo", () => {
+    expect(src()).toContain("<DealPanel");
+    // listingVisible ? {...} : null — viewer không được thấy content đã gỡ
+    expect(src()).toMatch(/listing && listingVisible/);
+    expect(src()).toMatch(/\{ id: listing\.id, title: listing\.title, status: listing\.status \}/);
+    expect(src()).toContain('user.id === convo.buyerId ? "buyer" : "seller"');
+  });
+
+  it("SafetyGuidance mount ĐÚNG MỘT LẦN, SAU DealPanel (§6.4 near chat/deal flows)", () => {
+    const guidanceCount = (src().match(/<SafetyGuidance/g) ?? []).length;
+    expect(guidanceCount).toBe(1);
+    expect(src()).toContain("<DealPanel");
+    expect(src().indexOf("<SafetyGuidance")).toBeGreaterThan(src().indexOf("<DealPanel"));
+  });
+
+  it("giữ nguyên select redaction pin (chat-pages.test.ts) + block banner + report dialog Batch 3 (Q4)", () => {
+    // select pin — KHÔNG đổi (corrections #15)
+    expect(src()).toMatch(/l\.select\("id", "title", "slug", "price", "status", "acceptExchange"\)/);
+    // Batch 3 mounts giữ nguyên (file-conflict rules Q4 — additive mount)
+    expect(src()).toContain("getBlockState");
+    expect(src()).toContain("isUserSuspended");
+    expect(src()).toContain("ReportDialog");
+    expect(src()).toContain("unblockUserAction");
+    expect(src()).toContain("ChatWindow");
+  });
+});
+
+// ─── 6. app/listings/[slug] — D12 CTA gating + §6.1 secondary CTA (Task 6b) ──
+
+describe("app/listings/[slug] — D12 eligibility gating + §6.1 secondary CTA (source contract)", () => {
+  const src = () => read("app/listings/[slug]/page.tsx");
+
+  it("eligibility qua assertListingSellerInteractable — CHỈ typed SELLER_* codes, lỗi khác RETHROW", () => {
+    expect(src()).toContain("assertListingSellerInteractable");
+    expect(src()).toContain("SELLER_INELIGIBLE_CODES");
+    expect(src()).toContain("SELLER_SUSPENDED");
+    expect(src()).toContain("SELLER_NOT_VERIFIED");
+    expect(src()).toContain("SELLER_MEMBERSHIP_INACTIVE");
+    // KHÔNG catch-all: nhánh else rethrow lỗi infra/db (§4.5 — action enforce)
+    expect(src()).toMatch(/else\s*\{\s*throw e;\s*\}/);
+  });
+
+  it("eligible → 'Nhắn người bán' + DealCreateForm compact (§6.1); ineligible → copy trung tính (D12)", () => {
+    expect(src()).toContain("Nhắn người bán");
+    expect(src()).toContain('<DealCreateForm listingId={listing.id} variant="compact" />');
+    expect(src()).toContain("Người bán hiện không nhận tin nhắn mới");
+  });
+
+  it("anonymous vẫn thấy CTA — KHÔNG thêm && user (corrections #16)", () => {
+    // nhánh CTA giữ nguyên điều kiện cũ (approved + !isOwner) — khách chưa đăng
+    // nhập thấy "Nhắn người bán"; compact form mới mới gate trên user.
+    expect(src()).toMatch(/listing\.status === "approved" && !isOwner \?/);
+    expect(src()).not.toMatch(/listing\.status === "approved" && !isOwner && user/);
+  });
+
+  it("compact form CHỈ cho buyer đã có hội thoại (corrections #31 — DEAL_CONVERSATION_REQUIRED vô dụng)", () => {
+    expect(src()).toContain(".where({ listingId: listing.id, buyerId: user.id })");
+    expect(src()).toMatch(/\{user && buyerConvo !== null && \(/);
+  });
+
+  it("giữ disclaimer Batch 1 + hint an toàn (pins finance-public-surface + copy-safety)", () => {
+    expect(src()).toContain("ngoài LoaViet");
+    expect(src()).toContain("không giữ tiền");
+    expect(src()).toContain("không bảo đảm giao dịch");
+    expect(src()).toContain("startConversationAction");
+    // Batch 3 report dialog + Batch 5 emission call sites giữ nguyên (Q4)
+    expect(src()).toContain("ReportDialog");
+    expect(src()).toContain("recordListingView");
+    expect(src()).toContain("recordSearchResultClick");
+  });
+
+  it("§4.2: KHÔNG promise language NGOÀI dòng negation (scan cả comment)", () => {
+    const withoutNegation = src()
+      .split("\n")
+      .filter((line) => !line.includes(NEUTRAL_LINE))
+      .join("\n");
+    expect(withoutNegation).not.toMatch(PROMISE_RE);
   });
 });

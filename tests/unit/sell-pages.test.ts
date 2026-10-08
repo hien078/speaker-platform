@@ -143,6 +143,15 @@ const dbState = vi.hoisted(() => ({
   actions: [] as Row[],
   priceHistory: [] as Row[],
   wishlist: [] as Row[],
+  // Batch 6 Task 6b (corrections #16/#31): trang detail giờ gọi
+  // assertListingSellerInteractable (đọc UserSuspension qua moderation +
+  // SellerVerification + BetaCohortMembership) và tra Conversation của buyer
+  // cho compact CTA — thiếu model thì guard throw TypeError thay vì map
+  // ineligible (đó là lý do mock phải mở rộng, không phải catch-all ở page).
+  suspensions: [] as Row[],
+  verifications: [] as Row[],
+  memberships: [] as Row[],
+  conversations: [] as Row[],
 }));
 
 vi.mock("@/src/prisma/db.client", () => {
@@ -202,6 +211,11 @@ vi.mock("@/src/prisma/db.client", () => {
     ModerationAction: makeModel(dbState.actions),
     PriceHistory: makeModel(dbState.priceHistory),
     WishlistItem: makeModel(dbState.wishlist),
+    // Batch 6 Task 6b — guard §7.8 eligibility + compact CTA lookup
+    UserSuspension: makeModel(dbState.suspensions),
+    SellerVerification: makeModel(dbState.verifications),
+    BetaCohortMembership: makeModel(dbState.memberships),
+    Conversation: makeModel(dbState.conversations),
   };
 
   return {
@@ -220,6 +234,10 @@ import * as modelPageModule from "../../app/models/[slug]/page";
 import * as listingDetailPageModule from "../../app/listings/[slug]/page";
 import { PortableListingForm } from "../../src/components/portable-listing-form";
 import { ListingForm } from "../../src/components/listing-form";
+// Batch 6 Task 6b — CTA gating behavior (D12): action boundary đã mock ở
+// trên (startConversationAction) + client form mount qua component thật.
+import { startConversationAction as startChat } from "@/src/lib/actions/chat";
+import { DealCreateForm } from "../../src/components/deal-create-form";
 import { submitListingAction } from "@/src/lib/actions/listings";
 import { checkSellerPublicationRequirements } from "@/src/lib/seller-verification-policy";
 
@@ -334,6 +352,42 @@ const seedCatalog = (): void => {
   dbState.categories.push({ ...CATEGORY_BETA }, { ...CATEGORY_LEGACY });
   dbState.brands.push({ ...BRAND });
   dbState.models.push({ ...MODEL_ROW });
+};
+
+/**
+ * Seller đủ điều kiện §7.8 (Batch 6 Task 6b — D12 fixture, Batch 4
+ * verified-seller shape: SellerVerification verified + BetaCohortMembership
+ * founding_seller active, không hạn chế). Không có UserSuspension row =
+ * không đình chỉ (isUserSuspended đọc status "active" mà thôi).
+ */
+const seedEligibleSeller = (userId: string): void => {
+  dbState.verifications.push({
+    id: `sv-${userId}`,
+    userId,
+    status: "verified",
+    method: "operations_review",
+    policyVersion: "v1",
+    note: null,
+    reasonCode: null,
+    reviewedAt: null,
+    reviewerId: null,
+    submittedAt: null,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+  });
+  dbState.memberships.push({
+    id: `bm-${userId}`,
+    userId,
+    cohort: "founding_seller",
+    status: "active",
+    expiresAt: null,
+    acceptedAt: null,
+    invitedAt: null,
+    invitedBy: null,
+    notes: null,
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+  });
 };
 
 // ─── Page call helpers ────────────────────────────────────────────────────────
@@ -491,6 +545,10 @@ beforeEach(() => {
   dbState.actions.length = 0;
   dbState.priceHistory.length = 0;
   dbState.wishlist.length = 0;
+  dbState.suspensions.length = 0;
+  dbState.verifications.length = 0;
+  dbState.memberships.length = 0;
+  dbState.conversations.length = 0;
   sessionState.current = null;
   authState.user = {
     id: SELLER_ID,
@@ -902,6 +960,12 @@ describe("app/listings/[slug] — read gate: admin authority session MFA + capab
 
   beforeEach(() => {
     dbState.listings.push(detailListing());
+    // Batch 6 Task 6b (corrections #16): seller đủ điều kiện §7.8 — nhánh
+    // approved + non-owner của trang giờ chạy eligibility; fixture giữ shape
+    // verified-seller thật (không có row → SELLER_NOT_VERIFIED → copy trung
+    // tính thay CTA — test "approved → render cho khách chưa đăng nhập" vẫn
+    // pass nhưng không còn phản ánh shape thật).
+    seedEligibleSeller(DETAIL_SELLER);
   });
 
   it("display role 'admin' (adminRole null) → notFound — role KHÔNG là nguồn quyền", async () => {
@@ -951,6 +1015,177 @@ describe("app/listings/[slug] — read gate: admin authority session MFA + capab
     sessionState.current = null;
     const tree = await callDetail(DETAIL_SLUG);
     expect(textOf(tree)).toContain("JBL Charge 5 đã qua sử dụng");
+  });
+});
+
+// ─── 4c. app/listings/[slug] — D12 CTA gating (Batch 6 Task 6b) ────────────────
+//
+// §6.1 "Nhắn người bán" + secondary "Tạo thỏa thuận" gate trên eligibility §7.8
+// của seller-of-the-listing (D12 — UI convenience, action enforce):
+//  - anonymous vẫn thấy "Nhắn người bán" (KHÔNG thêm && user — corrections #16);
+//  - typed SELLER_* codes → copy trung tính "Người bán hiện không nhận tin
+//    nhắn mới" thay vì CTA chết (legacy approved listing của seller chưa xác
+//    minh vẫn searchable — Batch 5 seam — nhưng new chat bị chặn ở action);
+//  - compact DealCreateForm chỉ cho buyer ĐÃ có hội thoại với tin này
+//    (corrections #31 — createDealAction trả DEAL_CONVERSATION_REQUIRED khi chưa).
+
+describe("app/listings/[slug] — D12 CTA gating (Batch 6 Task 6b)", () => {
+  const D12_SELLER = "seller-d12";
+  const D12_BUYER = "buyer-d12";
+  const D12_SLUG = "loa-d12";
+
+  /** Listing approved của seller D12 (relations gắn sẵn — mock include pass-through). */
+  const d12Listing = (over: Row = {}): Row =>
+    listingRow({
+      id: "listing-d12",
+      sellerId: D12_SELLER,
+      slug: D12_SLUG,
+      status: "approved",
+      productModelId: null, // bỏ modelStats (aggregate fixture 0)
+      images: [],
+      seller: {
+        id: D12_SELLER,
+        name: "Seller D12",
+        city: "Hà Nội",
+        createdAt: "2026-10-01T00:00:00.000Z",
+        avatarUrl: null,
+        sellerVerification: null,
+      },
+      ...over,
+    });
+
+  /** Session buyer đã đăng nhập (không admin — CTA viewer thường). */
+  const buyerSession = () => ({
+    session: {
+      id: "sess-d12",
+      userId: D12_BUYER,
+      isAdmin: false,
+      createdAt: "2026-10-06T08:00:00.000Z",
+      lastSeenAt: null,
+      expiresAt: "2026-10-07T08:00:00.000Z",
+      steppedUpAt: null,
+      userAgent: null,
+    },
+    user: {
+      id: D12_BUYER,
+      email: "buyer@loaviet.test",
+      name: "Buyer D12",
+      role: "buyer",
+      avatarUrl: null,
+      isVerifiedSeller: false,
+      adminRole: null,
+      sessionId: "sess-d12",
+    },
+  });
+
+  beforeEach(() => {
+    dbState.listings.push(d12Listing());
+    seedEligibleSeller(D12_SELLER);
+  });
+
+  it("seller đủ điều kiện + anonymous → 'Nhắn người bán' (KHÔNG && user — corrections #16)", async () => {
+    sessionState.current = null;
+    const tree = await callDetail(D12_SLUG);
+    expect(hasFormWithAction(tree, startChat)).toBe(true);
+    expect(textOf(tree)).not.toContain("Người bán hiện không nhận tin nhắn mới");
+    // anonymous KHÔNG có compact form (chưa đăng nhập — corrections #31)
+    expect(hasElement(tree, DealCreateForm)).toBe(false);
+  });
+
+  it("buyer ĐÃ có hội thoại → DealCreateForm compact (§6.1 secondary CTA)", async () => {
+    sessionState.current = buyerSession();
+    dbState.conversations.push({
+      id: "convo-d12",
+      listingId: "listing-d12",
+      buyerId: D12_BUYER,
+      sellerId: D12_SELLER,
+      lastMessageAt: null,
+      createdAt: "2026-10-02T00:00:00.000Z",
+    });
+    const tree = await callDetail(D12_SLUG);
+    const props = propsOf(tree, DealCreateForm);
+    expect(props).not.toBeNull();
+    expect(props!.listingId).toBe("listing-d12");
+    expect(props!.variant).toBe("compact");
+    // CTA chính vẫn render cùng (không thay thế nhau)
+    expect(hasFormWithAction(tree, startChat)).toBe(true);
+  });
+
+  it("buyer CHƯA có hội thoại → KHÔNG compact form (DEAL_CONVERSATION_REQUIRED — corrections #31)", async () => {
+    sessionState.current = buyerSession();
+    const tree = await callDetail(D12_SLUG);
+    expect(hasElement(tree, DealCreateForm)).toBe(false);
+    expect(hasFormWithAction(tree, startChat)).toBe(true);
+  });
+
+  it("seller revoked (SELLER_NOT_VERIFIED) → copy trung tính thay CTA chết (D12)", async () => {
+    sessionState.current = buyerSession();
+    dbState.verifications.length = 0;
+    dbState.verifications.push({ id: "sv-revoked", userId: D12_SELLER, status: "revoked" });
+    const tree = await callDetail(D12_SLUG);
+    const text = textOf(tree);
+    expect(text).toContain("Người bán hiện không nhận tin nhắn mới");
+    expect(hasFormWithAction(tree, startChat)).toBe(false);
+    expect(hasElement(tree, DealCreateForm)).toBe(false);
+  });
+
+  it("seller bị đình chỉ (UserSuspension active) → copy trung tính (§7.8 suspension)", async () => {
+    sessionState.current = buyerSession();
+    dbState.suspensions.push({
+      id: "susp-d12",
+      userId: D12_SELLER,
+      status: "active",
+      reasonCode: "confirmed_abuse",
+      suspendedAt: "2026-10-02T00:00:00.000Z",
+      liftedAt: null,
+    });
+    const tree = await callDetail(D12_SLUG);
+    expect(textOf(tree)).toContain("Người bán hiện không nhận tin nhắn mới");
+    expect(hasFormWithAction(tree, startChat)).toBe(false);
+  });
+
+  it("membership hết hạn → copy trung tính (corrections #6 — expiresAt đã qua = inactive)", async () => {
+    sessionState.current = buyerSession();
+    dbState.memberships.length = 0;
+    dbState.memberships.push({
+      id: "bm-expired",
+      userId: D12_SELLER,
+      cohort: "founding_seller",
+      status: "active",
+      expiresAt: "2020-01-01T00:00:00.000Z",
+    });
+    const tree = await callDetail(D12_SLUG);
+    expect(textOf(tree)).toContain("Người bán hiện không nhận tin nhắn mới");
+    expect(hasFormWithAction(tree, startChat)).toBe(false);
+  });
+
+  it("owner → KHÔNG CTA (nhánh quản lý tin của mình giữ nguyên)", async () => {
+    sessionState.current = {
+      session: {
+        id: "sess-d12-owner",
+        userId: D12_SELLER,
+        isAdmin: false,
+        createdAt: "2026-10-06T08:00:00.000Z",
+        lastSeenAt: null,
+        expiresAt: "2026-10-07T08:00:00.000Z",
+        steppedUpAt: null,
+        userAgent: null,
+      },
+      user: {
+        id: D12_SELLER,
+        email: "seller-d12@loaviet.test",
+        name: "Seller D12",
+        role: "seller",
+        avatarUrl: null,
+        isVerifiedSeller: true,
+        adminRole: null,
+        sessionId: "sess-d12-owner",
+      },
+    };
+    const tree = await callDetail(D12_SLUG);
+    expect(hasFormWithAction(tree, startChat)).toBe(false);
+    expect(hasElement(tree, DealCreateForm)).toBe(false);
+    expect(textOf(tree)).toContain("Quản lý tin đăng của bạn");
   });
 });
 
