@@ -113,6 +113,7 @@ security review (Batch 8 Task 8) — mỗi lần review đều đối chiếu l�
 | Lần review (mục dated) | Reviewer | Date | Decision (APPROVED / REJECTED / PENDING) | Ghi chú finding |
 |---|---|---|---|---|
 | 2026-10-06 — dev run (§5.1) | — (chờ founder) | — | PENDING | dev scratch DB: 1 super_admin chưa enroll MFA (dữ liệu dev, không phải production) |
+| 2026-10-08 — dev/scratch re-run trên graph 9 migration (§5.2) | — (chờ founder) | — | PENDING | scratch DB (graph Batch 7): 1 super_admin chưa enroll MFA (dữ liệu scratch, không phải production) |
 | (production pre-launch run — operator paste tại đây) | | | | |
 
 ## 5. Evidence — các lần review (mỗi lần append một mục dated)
@@ -147,5 +148,51 @@ dev không bắt buộc MFA để test) + `LAST_SUPER_ADMIN` (đúng guard runbo
 **Production pre-launch run là bước của operator** — chạy `./scripts/admin-access-review-prod.sh` trên
 server, paste mục dated mới tại đây; release checklist (Batch 8 Task 9) mang
 dòng sign-off tương ứng.
+
+### 2026-10-08 — dev/scratch re-run (merge fix Wave 0 — graph 9 migration)
+
+**Bối cảnh (corrections item 9):** lần chạy 2026-10-06 được ghi trên cây chỉ có
+Batch 0–2 (graph `baseline → batch2`). Lần này re-run **cùng script, không đổi
+gì**, trên cây merge Batch 5–7 (HEAD sau commit `fix(ops): reconcile early
+batch 8 work with batches 5-7`), scratch DB mới dựng theo pattern
+`scripts/test-integration.sh` (container `postgres:16-alpine` throwaway
+`sp-review-pg-*`, port random 127.0.0.1, DB `speaker_review` — KHÔNG đụng DB
+production/dev thật):
+
+- Migrate: `npx prisma db migrate --to production` — graph **9 migration**, head
+  `20261008T1130_batch7_cohort_operations`, marker `656449ac…` (khớp
+  `migrations/app/refs/db.json` + `refs/production.json`, invariant
+  `backfill-listing-approved-content-at` thỏa).
+- Fixture: 1 `User` seed qua `tsx` + ORM (file temp xoá ngay, không staged), rồi
+  promote `adminRole=super_admin` qua **đường audited**:
+  `npx tsx scripts/admin-bootstrap.ts promote --email admin@loaviet.vn --role
+  super_admin --apply --confirm-db speaker_review` (audit
+  `admin.bootstrap.promote`, actor null — vì thế cột "Hành động admin gần nhất"
+  là "—": review đọc `AuditEvent.actorId` = user, còn audit promote ghi
+  actor=null theo thiết kế offline command).
+- Lệnh review: `npx tsx scripts/admin-access-review.ts` (transport ORM,
+  `DATABASE_URL` trong env thật — pattern D4; item 18 corrections). Exit 0.
+
+```text
+── ĐÍCH: 127.0.0.1:57227/speaker_review (không in password)
+
+| userId | adminRole | MFA | Mã khôi phục chưa dùng | Session active | Session quá TTL | Hành động admin gần nhất | Tuổi tài khoản (ngày) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 02cee152-000e-44af-9d6b-4a3fb0f14deb | super_admin | CHƯA enroll | 0 | 0 | 0 | — | 0 |
+
+── Findings:
+   · ADMIN_WITHOUT_MFA:02cee152-000e-44af-9d6b-4a3fb0f14deb
+   · LAST_SUPER_ADMIN
+── Paste output này vào docs/operations/admin-access-review.md (mục dated) — sign-off founder-only.
+── Review hoàn tất (findings là tín hiệu cho sign-off, KHÔNG phải lỗi chạy).
+```
+
+Đọc kết quả: cùng tín hiệu fail-closed như lần 2026-10-06 (đúng thiết kế —
+dữ liệu scratch, KHÔNG phải production): 1 `super_admin` chưa enroll MFA →
+`ADMIN_WITHOUT_MFA` (§5.4.2) + `LAST_SUPER_ADMIN` (guard runbook §4). Các
+query (AdminMfa/AdminRecoveryCode/UserSession/AuditEvent join) resolve đúng
+trên schema 48 bảng của graph 9 migration. Scratch container đã dọn sau chạy
+(không còn `sp-review-pg-*`). **Production pre-launch run vẫn là bước của
+operator** (`./scripts/admin-access-review-prod.sh`) — không có gì thay đổi.
 
 ### (mục dated tiếp theo — append tại đây)

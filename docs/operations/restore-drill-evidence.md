@@ -207,3 +207,84 @@ Ghi chú lần chạy này:
 - **Lần chạy `--file` trên server production THẬT** (stack `loaviet-db` thật,
   `DB_PASSWORD` từ env/.env) vẫn là **bước pre-launch của operator** — ghi mục
   dated mới sau khi chạy trên server; các con số RPO/RTO thật lấy từ lần đó.
+
+### 2026-10-08 — scratch (re-run trên cây merge Batch 5–7 — graph 9 migration)
+
+**Bối cảnh (merge fix Wave 0, corrections item 9):** lần drill đầu
+(2026-10-06) được ghi trên cây chỉ có Batch 0–2 — graph `baseline → batch2`,
+34 bảng. Lần này re-run **cùng script, không đổi gì**, trên cây merge Batch 5–7
+(HEAD sau commit `fix(ops): reconcile early batch 8 work with batches 5-7`):
+graph đủ **9 migration** (head
+`20261008T1130_batch7_cohort_operations`, marker
+`656449ac…` khớp `migrations/app/refs/db.json` + `refs/production.json`,
+invariant `backfill-listing-approved-content-at` thỏa) — **48 bảng** trong
+schema public (khớp 48 model contract). **Kết quả: 14 PASS / 0 FAIL —
+DRILL PASS (exit 0).** Scratch stack + dump dọn ở trap EXIT (verify sau chạy:
+không còn container/network/dump/file seed).
+
+```text
+── restore drill (scratch): server=sp-drill-pg-93866 client=sp-drill-client-93866 network=sp-drill-net-93866 port=57166
+── migrate graph → ref 'production' (scratch DB)
+    ✓ migrate xong: 20261003T0448_baseline 20261006T0209_batch2_identity_security 20261006T1420_batch3_trust_safety 20261006T1902_batch4_listing_quality 20261007T1708_batch4_holistic_review_fixes 20261007T2007_batch4_round4_approved_content_backfill 20261007T2208_batch5_search_telemetry 20261008T0237_batch6_chat_deal 20261008T1130_batch7_cohort_operations
+── seed fixture (tsx + ORM)
+seed: User=2 Category=1 Listing=1 Order=1 OrderItem=1 Payment=1 (order=64c82195-… payment=f32a9967-…)
+── backup: backup-db.sh (in-container, pg_dump custom format)
+→ pg_dump custom format → /work/backups/.drill-backup.euFAfD/db-drill-20261008T143825Z.dump
+→ Verify archive (pg_restore --list):
+;
+; Archive created at 2026-10-08 14:38:25 UTC
+;     dbname: speaker_drill
+;     TOC Entries: 402
+;     Compression: gzip
+  … (51 bảng dữ liệu trong archive)
+✓ Backup xong: db-drill-20261008T143825Z.dump (304.0K)
+── restore: restore-db.sh --into drill_restored (in-container, DB mới)
+→ Archive nguồn: database 'speaker_drill' (51 bảng dữ liệu)
+→ CREATE DATABASE drill_restored (mới — không đè gì đang có)
+→ pg_restore vào drill_restored…
+✓ Restore xong: drill_restored — 48 bảng trong schema public
+── verify 1/4: table count parity (schema public)
+    ✓ PASS: table count parity: 48 bảng (public) — source == restored
+── verify 2/4: row counts (fixture tables)
+    ✓ PASS: row count User: 2 == 2
+    ✓ PASS: row count Listing: 1 == 1
+    ✓ PASS: row count Order: 1 == 1
+    ✓ PASS: row count OrderItem: 1 == 1
+    ✓ PASS: row count Payment: 1 == 1
+    ✓ PASS: row count Category: 1 == 1
+── verify 3/4: seeded rows read back equal (toàn bộ dòng từng bảng, source vs restored)
+    ✓ PASS: read back equal: User (2 dòng byte-equal)
+    ✓ PASS: read back equal: Listing (1 dòng byte-equal)
+    ✓ PASS: read back equal: Order (1 dòng byte-equal)
+    ✓ PASS: read back equal: OrderItem (1 dòng byte-equal)
+    ✓ PASS: read back equal: Payment (1 dòng byte-equal)
+    ✓ PASS: read back equal: Category (1 dòng byte-equal)
+── verify 4/4: prisma db verify (marker + schema khớp contract) trên drill_restored
+    ✓ PASS: prisma db verify: marker + schema khớp contract (exit 0)
+
+════ EVIDENCE (REDACT host/IP) ════
+- Ngày (UTC): 2026-10-08T14:38:32Z
+- Host: (redacted — máy dev, docker 27.5.1)
+- Mode: scratch (server=sp-drill-pg-93866 client=sp-drill-client-93866 network=sp-drill-net-93866 — stack throwaway, đã dọn ở trap)
+- Migrate: prisma db migrate --to production — graph 9 migration, head 20261008T1130_batch7_cohort_operations (marker 656449ac… khớp refs)
+- Backup: backup-db.sh in-container — 0s · dump db-drill-20261008T143825Z.dump (304K)
+- Restore: restore-db.sh --into drill_restored (DB mới, không đè) — 2s
+- SCRATCH timings (fixture nhỏ — KHÔNG phải RPO/RTO production): backup 0s · restore 2s · freshness 7s · dump 304K
+- Checks: 14 PASS / 0 FAIL (table parity 48 bảng · row counts · read-back equal · prisma db verify)
+═════════════════════════════════════
+
+PASS: restore drill xong — mọi check PASS. Scratch stack + dump dọn ở trap EXIT.
+```
+
+Ghi chú lần chạy này:
+
+- **So với lần 2026-10-06:** graph 2 → 9 migration; 34 → **48 bảng** public
+  (48 model contract — khớp phân loại ops-alerts: 9 finance-only + 3
+  cascade-affected + 36 non-finance); TOC 269 → 402 entries; dump 192K → 304K.
+  Fixture + checks + script **không đổi** — chỉ cây migrate là khác (chứng minh
+  drill chạy đúng trên graph cuối).
+- Dữ liệu trong output là **fixture giả** trên stack scratch (email
+  `drill-*@example.com`, `passwordHash` giả) — không phải dữ liệu thật;
+  password scratch không bao giờ in ra; uuid cắt ngắn khi paste.
+- **Lần chạy `--file` trên server production THẬT** vẫn là **bước pre-launch
+  của operator** (release checklist Batch 8 Task 9) — không có gì thay đổi.
