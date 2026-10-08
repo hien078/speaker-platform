@@ -10,6 +10,10 @@ import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { auditEvent, auditEventTx } from "@/src/lib/audit-event";
 import { checkListingPublication } from "@/src/lib/listing-publication";
 import { notify } from "@/src/lib/notify";
+import {
+  recordListingRejected,
+  recordSellerFirstListingPublished,
+} from "@/src/lib/telemetry-recorders";
 
 /**
  * Batch 2 Task 10: legacy seller-verification toggle đã XÓA — SellerVerification
@@ -220,6 +224,17 @@ export async function approveListingAction(formData: FormData): Promise<void> {
     return; // no approval
   }
 
+  // ─── Telemetry (Batch 5 Task 8 — S7/S-19) ──────────────────────────────────
+  // seller_first_listing_published: điểm này chỉ tới khi checkListingPublication
+  // PASS + update thành công (S5 — mọi return trước đó đã chặn). S-19 re-fire
+  // guard sống trong recorder (event-existence theo actorPseudonym của seller —
+  // append-only → check chính xác "lần approve ĐẦU"). Actor = seller được kích
+  // hoạt (KHÔNG phải admin duyệt). Fail-open — KHÔNG đổi kết quả action.
+  await recordSellerFirstListingPublished({
+    sellerId: listing.sellerId,
+    listingId,
+  });
+
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin đã được duyệt: ${listing.title.slice(0, 50)}`, "Tin của bạn đang hiển thị trên chợ", `/listings/${listing.slug}`);
   revalidatePath("/admin/listings");
@@ -326,6 +341,16 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
     revalidatePath("/admin/listings");
     return;
   }
+
+  // ─── Telemetry (Batch 5 Task 8 — S7) ──────────────────────────────────────
+  // listing_rejected: sau khi update thành công (điểm này chỉ tới khi claim
+  // không thua). Actor = admin. Lý do từ chối là FREE TEXT — KHÔNG BAO GIỀ vào
+  // telemetry (schema {}). Fail-open — KHÔNG đổi kết quả action.
+  await recordListingRejected({
+    actorId: admin.user.id,
+    sessionId: admin.session.id,
+    listingId,
+  });
 
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin bị từ chối: ${listing.title.slice(0, 50)}`, `Lý do: ${reason} — sửa tin để duyệt lại`, "/sell/my");
