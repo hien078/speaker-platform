@@ -2,6 +2,9 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { rateLimitRequest, checkRateLimit, tooManyRequestsResponse } from "@/src/lib/rate-limit";
 import { assertCanSendMessage, CHAT_SEND_RATE_LIMIT } from "@/src/lib/moderation";
+import { recordBuyerFirstMessage, recordFirstResponse } from "@/src/lib/telemetry-recorders";
+import { captureError } from "@/src/lib/observability";
+import { SqlQueryError } from "@prisma/orm-family-sql/errors";
 
 /**
  * GET /api/chat/[id]?after=<iso>
@@ -109,6 +112,54 @@ export async function POST(
   await db.orm.public.Conversation
     .where({ id })
     .update({ lastMessageAt: new Date().toISOString() });
+
+  // ─── Telemetry (Batch 5 Task 8 — spec §5.8/D4) ─────────────────────────────
+  // MỘT query thêm mỗi tin (beta scale — chấp nhận, plan Task 8 ghi chú): đếm
+  // tin buyer/seller TRƯỚC đó của convo để quyết ĐÚNG MỘT event:
+  //  - buyer gửi + 0 tin buyer trước đó → conversation_buyer_first_message
+  //    (tín hiệu eligibility D4 — seller_response_rate_v1);
+  //  - seller gửi + ≥1 tin buyer trước đó + 0 tin seller trước đó →
+  //    message_first_response (responseMs từ tin buyer ĐẦU — D4 anchor).
+  // Tin thứ hai của mỗi bên → KHÔNG event. Fail-open: lỗi telemetry KHÔNG phá
+  // gửi tin (recorder tự catch; query này được bọc thêm — route vẫn trả 200).
+  try {
+    const convoMessages = await db.orm.public.Message
+      .where({ conversationId: id })
+      .orderBy((m) => m.createdAt.asc())
+      .all();
+    if (user.id === convo.buyerId) {
+      const priorBuyer = convoMessages.filter(
+        (m) => m.senderId === convo.buyerId && m.id !== message.id,
+      );
+      if (priorBuyer.length === 0) {
+        await recordBuyerFirstMessage({
+          convo: { id: convo.id, listingId: convo.listingId },
+          buyerId: convo.buyerId,
+          firstBuyerMessageAt: message.createdAt,
+        });
+      }
+    } else {
+      const priorBuyer = convoMessages.filter((m) => m.senderId === convo.buyerId);
+      const priorSeller = convoMessages.filter(
+        (m) => m.senderId === convo.sellerId && m.id !== message.id,
+      );
+      if (priorBuyer.length > 0 && priorSeller.length === 0) {
+        await recordFirstResponse({
+          convo: { id: convo.id, listingId: convo.listingId },
+          sellerId: convo.sellerId,
+          firstBuyerMessageAt: priorBuyer[0]!.createdAt,
+          sellerRepliedAt: message.createdAt,
+        });
+      }
+    }
+  } catch (telemetryError) {
+    // KHÔNG log error gốc (message db có thể chứa payload) — chỉ sqlState
+    // (correction #17); gửi tin đã thành công, telemetry là best-effort.
+    captureError("telemetry", "TELEMETRY_RECORDER_FAILED", {
+      name: "chat_message_signals",
+      sqlState: SqlQueryError.is(telemetryError) ? telemetryError.sqlState : undefined,
+    });
+  }
 
   // notify người nhận (không phải người gửi) — recipientId tính từ participant check phía trên
   const { notify } = await import("@/src/lib/notify");
