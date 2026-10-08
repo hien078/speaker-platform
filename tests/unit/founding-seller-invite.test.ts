@@ -164,6 +164,12 @@ const dbState = vi.hoisted(() => ({
     tokenCreate?: unknown;
     membershipCreate?: unknown;
     candidateCreate?: unknown;
+    /**
+     * Fail-open funnel sync (fix sau review Task 3): throw khi
+     * FoundingSellerCandidate.first được gọi với filter { userId } — đúng
+     * read post-commit của acceptInviteAction (re-read trong tx dùng { id }).
+     */
+    candidateFirstByUserId?: unknown;
   },
   /** Hook chạy ĐẦU tx — mô phỏng concurrent commit giữa pre-read và tx. */
   beforeTx: null as (() => void) | null,
@@ -315,6 +321,20 @@ vi.mock("@/src/prisma/db.client", () => {
           dbState.calls.push("FoundingSellerCandidate.create");
           if (dbState.fail.candidateCreate !== undefined) throw dbState.fail.candidateCreate;
           return base.create(data);
+        },
+        // Fail-open funnel sync hook: chỉ ném khi filter theo { userId } —
+        // read post-commit của acceptInviteAction (re-read trong tx dùng { id },
+        // contactIsOperator dùng User.first — đều không dính).
+        first: async (filter?: Row) => {
+          if (
+            dbState.fail.candidateFirstByUserId !== undefined &&
+            filter != null &&
+            typeof filter === "object" &&
+            "userId" in filter
+          ) {
+            throw dbState.fail.candidateFirstByUserId;
+          }
+          return base.first(filter);
         },
       };
     })(),
@@ -1685,6 +1705,47 @@ describe("acceptInviteAction — happy path + telemetry + funnel sync", () => {
     // KHÔNG error object trong payload (§4.8 — error.message có thể chứa dữ liệu)
     const payload = JSON.stringify(captureErrorMock.mock.calls[0]![2]);
     expect(payload).not.toContain("mock notify db down");
+  });
+
+  it("(fix fail-open funnel sync) lỗi db transient SAU commit trên read/sync funnel → acceptance VẪN thành công, telemetry + notify KHÔNG bị skip, captureError COHORT_FUNNEL_SYNC_FAILED", async () => {
+    login(INVITEE);
+    const candidate = seedCandidate();
+    const { token, tokenRow } = await issueInvite(candidate.id);
+    setInviteCookie(token);
+    // Transient db lỗi (08006 — connection failure) trên read post-commit
+    // theo { userId } — đúng đường read candidateAfter + syncFoundingSellerFunnel.
+    dbState.fail.candidateFirstByUserId = new SqlQueryError("mock post-commit read failed", {
+      sqlState: "08006",
+    });
+
+    // KHÔNG thành error page: acceptance đã commit — redirect /sell như thường.
+    await expect(acceptInviteAction({}, fd({}))).rejects.toThrow("NEXT_REDIRECT:/sell");
+
+    // tx đã commit NGUYÊN VẸN: membership + candidate link + token burn
+    expect(dbState.memberships).toHaveLength(1);
+    expect((dbState.memberships[0] as Row).status).toBe("active");
+    expect(dbState.candidates[0]!.userId).toBe(INVITEE.id);
+    expect(dbState.candidates[0]!.status).toBe("registered");
+    expect(tokenRow.consumedAt).not.toBeNull();
+
+    // fail-open: captureError MÃ CHUỖI (KHÔNG error object — §4.8), candidateAfter = null
+    expect(captureErrorMock).toHaveBeenCalledWith("cohort", "COHORT_FUNNEL_SYNC_FAILED", {
+      sqlState: "08006",
+    });
+    const syncPayload = JSON.stringify(captureErrorMock.mock.calls[0]![2]);
+    expect(syncPayload).not.toContain("mock post-commit read failed");
+
+    // telemetry KHÔNG bị skip — provinceCode null (candidateAfter treated null)
+    const registeredCalls = emitSpy.mock.calls.filter((c) => c[0].name === "seller_registered");
+    expect(registeredCalls).toHaveLength(1);
+    expect(registeredCalls[0]![0].actorId).toBe(INVITEE.id);
+    expect(registeredCalls[0]![0].provinceCode).toBeNull();
+    expect(dbState.events.filter((r) => r.name === "seller_registered")).toHaveLength(1);
+    expect(dbState.events.filter((r) => r.name === "beta_membership_activated")).toHaveLength(1);
+
+    // notify welcome KHÔNG bị skip
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(dbState.notifications).toHaveLength(1);
   });
 });
 

@@ -607,11 +607,27 @@ export async function acceptInviteAction(
 
   // Funnel sync — CHỈ với global db sau tx commit (corrections #22); bắt kịp
   // verification/listing diễn ra TRƯỜC acceptance; idempotent, chỉ tiến.
-  const candidateAfter = await db.orm.public.FoundingSellerCandidate.first({
-    userId: user.id,
-  });
-  if (candidateAfter !== null) {
-    await syncFoundingSellerFunnel(user.id);
+  // FAIL-OPEN (fix sau review Task 3): acceptance ĐÃ commit — một lỗi db
+  // transient trên read/sync post-commit KHÔNG được biến thành error page
+  // (retry lúc đó INVITE_INVALID vì token đã burn — user có membership mà
+  // tưởng là fail). captureError MÃ CHUỖI (KHÔNG error object — §4.8),
+  // candidateAfter = null (provinceCode emission = null), telemetry + notify
+  // + redirect tiếp tục. syncCandidateFunnelAction (Task 4) là đường catch-up
+  // cho operator.
+  let candidateAfter: { targetCommunity: string } | null = null;
+  try {
+    const candidateRow = await db.orm.public.FoundingSellerCandidate.first({
+      userId: user.id,
+    });
+    if (candidateRow !== null) {
+      await syncFoundingSellerFunnel(user.id);
+      candidateAfter = candidateRow;
+    }
+  } catch (e) {
+    captureError("cohort", "COHORT_FUNNEL_SYNC_FAILED", {
+      sqlState: SqlQueryError.is(e) ? e.sqlState : undefined,
+    });
+    candidateAfter = null;
   }
 
   // Telemetry (T5/S7 — corrections #26): sessionId THÔ — emit core tự HMAC.
