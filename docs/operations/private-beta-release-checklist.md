@@ -19,7 +19,11 @@
 >
 > **Status** đúng một trong `PASS` / `PENDING` / `FOUNDER`. **Sign-off là
 > founder-only** (spec §4.11 — implementer/agent KHÔNG bao giờ điền; một commit
-> implementer tự ký là vi phạm hợp đồng). **Gate ĐỎ là kết quả ĐÚNG** khi policy
+> implementer tự ký là vi phạm hợp đồng). Ô Sign-off/Decision bị gate từ chối
+> chỉ khi là **placeholder nguyên ô** — trống, bắt đầu `—`/`-` (gồm
+> `— (chờ founder)`), hoặc đúng `PENDING`/`TBD`/`chờ` (case-insensitive) —
+> quyết định **thật** chứa các từ đó (vd "Chờ provider OTP (FD-R1) — chấp
+> nhận") vẫn hợp lệ (chi tiết §3). **Gate ĐỎ là kết quả ĐÚNG** khi policy
 > còn `DRAFT-NOT-REVIEWED` và hàng founder blocking chưa ký (FD-3 fail-closed)
 > — KHÔNG yếu hoá check nào để cho qua; founder duyệt policy + quyết register
 > item + ký checklist là việc làm gate xanh.
@@ -131,9 +135,12 @@
 
 - `scripts/release-gate.sh` → gate `release-checklist`: **zero PENDING** ở cả
   hai bảng (bảng chính: cột Status; mirror: cột Decision); hàng **FOUNDER**
-  chỉ qua với Sign-off không trống (ô placeholder `—`/`-`/`— (chờ founder)`/
-  `chờ`/`pending` KHÔNG tính là đã ký); **mọi hàng mirror cần Decision ≠
-  PENDING + Date không trống**.
+  chỉ qua với Sign-off không trống — **placeholder NGUYÊN Ô** mới bị từ chối
+  (trống; bắt đầu `—`/`-` — gồm `— (chờ founder)`; hoặc **đúng**
+  `PENDING`/`TBD`/`chờ`, case-insensitive sau khi trim); chữ ký/quyết định
+  **thật** chứa các từ đó (vd "Chờ provider OTP (FD-R1) — chấp nhận trì
+  hoãn launch") vẫn tính là đã điền — gate KHÔNG match substring; **mọi hàng
+  mirror cần Decision ≠ PENDING + Date không trống**.
 - Gate pin **tập hàng founder/user-run bắt buộc** (các hàng Evidence type
   `founder`/`user-run`: §12-12/§12-13/§12-15, §12.1-02..06/08, §9-08/§9-10,
   SEC-01, OPS-01..14): hàng bị **xoá** hay **flip sang PASS** (không chữ ký)

@@ -24,8 +24,10 @@
  *  - hàng Evidence type founder/user-run → bắt buộc Status FOUNDER + Sign-off
  *    thật (review fix 2026-10-10 finding 2: flip sang PASS không thay được
  *    chữ ký);
- *  - ô placeholder (`—`, `-`, `— (chờ founder)`, chờ/pending/tbd) KHÔNG tính là
- *    đã điền (review fix 2026-10-10 finding 5);
+ *  - ô placeholder NGUYÊN Ô (`—`, `-`, `— (chờ founder)`, đúng `PENDING`/`TBD`/
+ *    `chờ` case-insensitive sau trim) KHÔNG tính là đã điền (review fix
+ *    2026-10-10 finding 5; vòng 2 finding 5: whole-cell — KHÔNG substring,
+ *    decision/sign-off thật chứa "chờ"/"pending"/"tbd" vẫn tính là đã điền);
  *  - mirror: Decision không trống + ≠ PENDING + Date không trống;
  *  - blocking set derive MECHANICALLY từ register (counts không bao giờ
  *    hardcode — dòng "Register size:" của register phải khớp số derive).
@@ -41,6 +43,12 @@
  * PASS / bị xoá (finding 2), ô Reviewer placeholder (finding 5), row duyệt
  * v1 PENDING giữ làm history (finding 6). Gate fail-closed — chỉ xanh bằng
  * chữ ký founder/user thật.
+ *
+ * Review 2026-10-10 vòng 2: finding 5 — placeholder NGUYÊN Ô (whole-cell,
+ * không substring: decision thật chứa "chờ"/"pending" vẫn qua); finding 6 —
+ * env override fixture bị guard đầu script TỪ CHỐI chạy thật (exit 1 khi
+ * bị set mà không ở source mode của test — override không thể force gate
+ * xanh trong một lần chạy thật).
  */
 import { describe, expect, it, afterAll } from "vitest";
 import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -71,14 +79,17 @@ function parseTableRows(markdown: string): string[][] {
 }
 
 /**
- * Ô đã điền: không rỗng, không "—"/"-", không placeholder (review fix 2026-10-10
- * finding 5 — mirror filled() của gate bash: "— (chờ founder)" không là chữ ký).
+ * Ô đã điền: không rỗng, không "—"/"-", không placeholder NGUYÊN Ô (review fix
+ * 2026-10-10 finding 5 + vòng 2 finding 5 — mirror filled() của gate bash:
+ * "— (chờ founder)" không là chữ ký; KHÔNG match substring — decision thật
+ * chứa "chờ"/"pending" (vd "Chờ provider OTP (FD-R1) — chấp nhận") vẫn tính
+ * là đã điền; chỉ đúng "PENDING"/"TBD"/"chờ" (case-insensitive, sau trim)
+ * bị từ chối).
  */
 function isFilled(cell: string): boolean {
-  if (cell === "" || cell === "—" || cell === "-") return false;
-  if (cell.startsWith("—") || cell.startsWith("-")) return false;
-  if (/chờ|pending|tbd/i.test(cell)) return false;
-  return true;
+  const s = cell.trim();
+  if (s === "" || s.startsWith("—") || s.startsWith("-")) return false;
+  return !/^(pending|tbd|chờ)$/i.test(s);
 }
 
 type ChecklistRow = {
@@ -455,6 +466,7 @@ describe("gate bash — gate_release_checklist: pin hàng founder/user-run (find
   /** Fixture checklist nhỏ: 2 hàng user-run bắt buộc + 1 hàng mirror đã quyết. */
   function checklistFixture(
     mutate: (rows: string[]) => string[] = (rows) => rows,
+    mirrorDecision = "Đã quyết",
   ): string {
     const rows = mutate([
       "| OPS-01 | drill production | user-run | restore-drill --file | FOUNDER | Founder — 2026-10-10 |",
@@ -464,7 +476,7 @@ describe("gate bash — gate_release_checklist: pin hàng founder/user-run (find
       "| Ref | Criterion | Evidence type | Evidence | Status | Sign-off |",
       "|---|---|---|---|---|---|",
       ...rows,
-      "| FD-R1 | mirror item | Đã quyết | 2026-10-10 |",
+      `| FD-R1 | mirror item | ${mirrorDecision} | 2026-10-10 |`,
     ].join("\n");
   }
 
@@ -521,17 +533,65 @@ describe("gate bash — gate_release_checklist: pin hàng founder/user-run (find
     expect(r.status, "sign-off placeholder không là chữ ký").toBe(1);
     expect(r.stderr).toContain("OPS-01");
   });
+
+  // ── Review 2026-10-10 vòng 2 (finding 5): mirror Decision whole-cell ──────
+
+  it("FD-mirror Decision thật chứa 'chờ' + Date → hàng qua (whole-cell, không substring)", () => {
+    const f = fixtureFile(
+      "cl-mirror-real-decision.md",
+      checklistFixture(
+        (rows) => rows,
+        "Chờ provider OTP (FD-R1) — chấp nhận trì hoãn launch",
+      ),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(
+      r.status,
+      "decision thật chứa từ 'chờ' + date phải qua — FD-R69 'đợi provider (FD-R1)' là quyết định thật",
+    ).toBe(0);
+  });
+
+  it("FD-mirror Decision 'PENDING' → gate FAIL (chưa quyết)", () => {
+    const f = fixtureFile(
+      "cl-mirror-pending.md",
+      checklistFixture((rows) => rows, "PENDING"),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "PENDING nguyên ô phải bị từ chối").toBe(1);
+    expect(r.stderr).toContain("FD-R1");
+    expect(r.stderr).toContain("chưa quyết");
+  });
+
+  it("FD-mirror Decision '— (chờ founder)' → gate FAIL (placeholder không là quyết)", () => {
+    const f = fixtureFile(
+      "cl-mirror-placeholder.md",
+      checklistFixture((rows) => rows, "— (chờ founder)"),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "placeholder dash phải bị từ chối").toBe(1);
+    expect(r.stderr).toContain("FD-R1");
+    expect(r.stderr).toContain("chưa quyết");
+  });
 });
 
-// ── 5c. Finding 5 — filled() từ chối placeholder ────────────────────────────
+// ── 5c. Finding 5 — filled() từ chối placeholder NGUYÊN Ô (whole-cell) ───────
 
-describe("gate bash — filled(): placeholder không là đã điền (finding 5)", () => {
+describe("gate bash — filled(): placeholder nguyên ô không là đã điền (finding 5 + vòng 2)", () => {
+  // Review 2026-10-10 vòng 2 (finding 5): placeholder NGUYÊN Ô, KHÔNG substring
+  // — "chờ founder" trần (không dash) không còn bị từ chối (không phải
+  // placeholder ship nào — placeholder ship là "— (chờ founder)", dash rule
+  // bắt); decision/sign-off THẬT chứa "chờ"/"pending"/"tbd" phải qua.
   const PLACEHOLDER_CELLS = [
     "— (chờ founder)", // placeholder ship của policy-review-record.md:23-28
     "—",
     "-",
     "PENDING",
-    "chờ founder",
+    "pending",
+    "TBD",
+    "tbd",
+    "chờ",
+    "Chờ",
+    " PENDING ", // trim hai đầu → đúng "PENDING" → vẫn bị từ chối
   ];
   for (const cell of PLACEHOLDER_CELLS) {
     it(`filled('${cell}') → CHƯA điền (exit ≠ 0)`, () => {
@@ -542,6 +602,16 @@ describe("gate bash — filled(): placeholder không là đã điền (finding 5
 
   it("filled(tên founder thật) → đã điền (exit 0)", () => {
     const r = bashGate(`filled 'Founder A'`);
+    expect(r.status).toBe(0);
+  });
+
+  it("filled(decision thật chứa 'chờ') → đã điền (exit 0 — không substring)", () => {
+    const r = bashGate(`filled 'Chờ provider OTP (FD-R1) — chấp nhận trì hoãn launch'`);
+    expect(r.status, "decision thật chứa từ 'chờ' phải tính là đã điền (FD-R69: đợi provider)").toBe(0);
+  });
+
+  it("filled('Accept; pending provider') → đã điền (exit 0 — không substring)", () => {
+    const r = bashGate(`filled 'Accept; pending provider'`);
     expect(r.status).toBe(0);
   });
 });
@@ -655,5 +725,48 @@ describe("gate bash — RELEASE_GATE_REQUIRED_FOUNDER_REFS khớp checklist th�
       [...gateRefs].sort(),
       "tập Ref bắt buộc của gate phải == tập hàng founder/user-run của checklist (thêm/bớt hàng mà quên update = FAIL)",
     ).toEqual([...founderRefs].sort());
+  });
+});
+
+// ── 5g. Vòng 2 finding 6 — env override fixture bị từ chối NGOÀI test mode ──
+
+describe("gate bash — fixture override env ngoài test mode → gate từ chối chạy (vòng 2 finding 6)", () => {
+  /** Env sạch (không kế thừa bất kỳ RELEASE_GATE_* nào của process) + override. */
+  function cleanEnvWith(override: Record<string, string>): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    for (const k of Object.keys(env)) {
+      if (k.startsWith("RELEASE_GATE_")) delete env[k];
+    }
+    return { ...env, ...override };
+  }
+
+  const OVERRIDES = [
+    "RELEASE_GATE_POLICY_RECORD",
+    "RELEASE_GATE_POLICY_HASH_CMD",
+    "RELEASE_GATE_CHECKLIST_DOC",
+    "RELEASE_GATE_REQUIRED_FOUNDER_REFS",
+  ];
+  for (const v of OVERRIDES) {
+    it(`${v} bị set (chạy thật, không source mode) → exit 1 NGAY, không gate nào chạy`, () => {
+      const res = spawnSync("bash", [`${root}/${GATE_SCRIPT}`], {
+        cwd: root,
+        encoding: "utf8",
+        env: cleanEnvWith({ [v]: "/tmp/fixture-override-phai-bi-tu-choi.md" }),
+      });
+      expect(res.error, `bash không chạy được: ${res.error ?? ""}`).toBeUndefined();
+      expect(res.status, `${v} set ngoài test mode → gate phải từ chối chạy (fail-closed)`).toBe(1);
+      expect(res.stderr).toContain(v);
+      expect(res.stderr).toContain("chỉ dành cho fixture test");
+      // Guard ở đầu script — KHÔNG gate nào được chạy (không có dòng GATE: nào).
+      expect(res.stdout).not.toContain("GATE:");
+    });
+  }
+
+  it("RELEASE_GATE_SOURCED=1 (source mode của fixture test) → override vẫn được phép", () => {
+    const r = bashGate(`printf '%s\\n' "$RELEASE_GATE_POLICY_RECORD"`, {
+      RELEASE_GATE_POLICY_RECORD: "/tmp/fixture-ok-trong-test-mode.md",
+    });
+    expect(r.status, "source mode (test) vẫn cho phép override — fixture test hoạt động").toBe(0);
+    expect(r.stdout).toContain("/tmp/fixture-ok-trong-test-mode.md");
   });
 });

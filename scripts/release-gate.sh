@@ -69,6 +69,17 @@ set -Euo pipefail
 # tuyệt đối của fixture override qua env).
 if [[ "${RELEASE_GATE_SOURCED:-0}" != "1" ]]; then
   cd "$(dirname "$0")/.."
+  # Review 2026-10-10 vòng 2 (finding 6): env override fixture CHỈ được phép
+  # khi script được SOURCE bởi test (RELEASE_GATE_SOURCED=1). Chạy thật mà có
+  # biến override nào được set → gate TỪ CHỐI chạy luôn (fail-closed) — không
+  # có đường nào force gate xanh qua env fixture (stub hash / record giả /
+  # checklist fixture) trong một lần chạy thật.
+  for v in RELEASE_GATE_POLICY_RECORD RELEASE_GATE_POLICY_HASH_CMD RELEASE_GATE_CHECKLIST_DOC RELEASE_GATE_REQUIRED_FOUNDER_REFS; do
+    if [[ -n "${!v:-}" ]]; then
+      echo "✘ $v chỉ dành cho fixture test (RELEASE_GATE_SOURCED=1) — unset trước khi chạy gate thật" >&2
+      exit 1
+    fi
+  done
 fi
 
 declare -a FAILED=()
@@ -96,6 +107,10 @@ gate() { # gate <tên> <lệnh...>
 # Env override CHỈ cho fixture test (mặc định = path/config thật):
 #   RELEASE_GATE_POLICY_RECORD, RELEASE_GATE_POLICY_HASH_CMD,
 #   RELEASE_GATE_CHECKLIST_DOC, RELEASE_GATE_REQUIRED_FOUNDER_REFS.
+# Review 2026-10-10 vòng 2 (finding 6): guard đầu script TỪ CHỐI chạy gate
+# (exit 1) khi MỘT trong các biến này được set mà KHÔNG ở chế độ source của
+# test (RELEASE_GATE_SOURCED≠1) — override không bao giờ được honour trong
+# lần chạy thật.
 
 # Review fix 2: tập Ref founder/user-run BẮT BUỘC phải có trong checklist.
 # Mặc định = mọi hàng Evidence type founder/user-run của checklist thật —
@@ -106,20 +121,28 @@ gate() { # gate <tên> <lệnh...>
 # nginx, CSP flip, secrets, backup, migrate, seed, backfill, uploads, grant).
 RELEASE_GATE_REQUIRED_FOUNDER_REFS="${RELEASE_GATE_REQUIRED_FOUNDER_REFS:-§12-12 §12-13 §12-15 §12.1-02 §12.1-03 §12.1-04 §12.1-05 §12.1-06 §12.1-08 §9-08 §9-10 SEC-01 OPS-01 OPS-02 OPS-03 OPS-04 OPS-05 OPS-06 OPS-07 OPS-08 OPS-09 OPS-10 OPS-11 OPS-12 OPS-13 OPS-14}"
 
-# Ô đã điền: không rỗng; KHÔNG placeholder (—, -, "— (chờ founder)",
-# chờ/pending/TBD) — review fix 5: ô Reviewer ship là "— (chờ founder)"
-# (policy-review-record.md:23-28) và KHÔNG được tính là đã điền — gate
-# yêu cầu TÊN founder reviewer, không phải ô đợi founder.
+# Ô đã điền: không rỗng; KHÔNG placeholder NGUYÊN Ô (—, -, "— (chờ founder)",
+# đúng "PENDING"/"TBD"/"chờ" case-insensitive sau trim) — review fix 5: ô
+# Reviewer ship là "— (chờ founder)" (policy-review-record.md:23-28) và
+# KHÔNG được tính là đã điền — gate yêu cầu TÊN founder reviewer, không
+# phải ô đợi founder. Review 2026-10-10 vòng 2 (finding 5): KHÔNG match
+# substring — decision/sign-off THẬT chứa từ "chờ"/"pending"/"tbd" (vd
+# "Chờ provider OTP (FD-R1) — chấp nhận trì hoãn launch", "Accept; pending
+# provider") vẫn tính là đã điền; chỉ placeholder NGUYÊN Ô bị từ chối.
 filled() {
-  local s="$1"
+  local s="$1" low
+  # trim hai đầu (caller đã trim — giữ hàm tự chứa: "exactly … after trimming")
+  s="${s#"${s%%[![:space:]]*}"}"
+  s="${s%"${s##*[![:space:]]}"}"
   [[ -n "$s" ]] || return 1
   case "$s" in
     "—"*) return 1 ;; # bắt đầu bằng em dash (—, "— (chờ founder)")
     "-"*) return 1 ;; # bắt đầu bằng hyphen/dash
   esac
-  if printf '%s' "$s" | grep -Eiq 'chờ|pending|tbd'; then
-    return 1
-  fi
+  low="$(printf '%s' "$s" | tr '[:upper:]' '[:lower:]')"
+  case "$low" in
+    pending|tbd|chờ) return 1 ;; # đúng NGUYÊN Ô (không substring)
+  esac
   return 0
 }
 
@@ -150,7 +173,8 @@ gate_policy_reviews() {
   # script read-only này). Strip biến đó; capture 2>&1 một lần; CHỈ dòng parse
   # được dạng `<key> <version> <sha256> <status>` được tính — dòng lạ/warning
   # không vào vòng lặp, và thiếu dòng hợp lệ thì fail-closed.
-  # (RELEASE_GATE_POLICY_HASH_CMD override chỉ dành cho fixture test.)
+  # (RELEASE_GATE_POLICY_HASH_CMD override chỉ dành cho fixture test — guard
+  # đầu script từ chối chạy thật khi biến này bị set ngoài source mode.)
   local hash_cmd="${RELEASE_GATE_POLICY_HASH_CMD:-env -u npm_config_allow_scripts npx tsx scripts/policy-hash.ts --check}"
   if ! out="$($hash_cmd 2>&1)"; then
     echo "✘ scripts/policy-hash.ts --check chạy thất bại (content module không import được?):" >&2
@@ -298,12 +322,16 @@ gate_release_checklist() {
   fi
   awk -v req="$RELEASE_GATE_REQUIRED_FOUNDER_REFS" '
     function trim(s) { gsub(/^[ \t]+|[ \t]+$/, "", s); return s }
-    # Ô đã điền (review fix 2/5): không rỗng, không placeholder (—, -,
-    # "— (chờ founder)", chờ/pending/tbd) — sign-off placeholder không là chữ ký.
+    # Ô đã điền (review fix 2/5 + review 2026-10-10 vòng 2 finding 5): không
+    # rỗng, không placeholder NGUYÊN Ô (—, -, "— (chờ founder)", đúng
+    # "PENDING"/"TBD"/"chờ" case-insensitive — ô đã trim ở split trên) —
+    # sign-off placeholder không là chữ ký; decision THẬT chứa từ
+    # "chờ"/"pending" (vd "Chờ provider OTP (FD-R1) — chấp nhận") vẫn tính
+    # là đã điền (KHÔNG match substring).
     function filled(s) {
       if (s == "" || s == "—" || s == "-") return 0
       if (index(s, "—") == 1 || index(s, "-") == 1) return 0
-      if (tolower(s) ~ /chờ|pending|tbd/) return 0
+      if (tolower(s) ~ /^(pending|tbd|chờ)$/) return 0
       return 1
     }
     BEGIN {
