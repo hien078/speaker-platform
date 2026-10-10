@@ -441,7 +441,13 @@ marker `656449ac…`). **Identical Batch 7 — KHÔNG có migration Batch 8**
 2. **OPS-12 — Backup production TRƯỚC migrate đầu tiên:**
    `./scripts/db-ops.sh backup` (container-on-network, không host pg tools)
    — lệnh `up` chạy service `migrate` tự động nên không backup tươi =
-   migration chạy vào DB chưa backup; file này dùng lại cho OPS-01.
+   migration chạy vào DB chưa backup. **Lần deploy đầu trên server mới:**
+   chưa có container `loaviet-db`/dữ liệu cũ → `db-ops.sh` từ chối ("Container
+   loaviet-db không chạy") và không có gì để backup — hoặc `docker compose -f
+   docker-compose.prod.yml up -d db` rồi backup, hoặc ghi chú "N/A lần đầu"
+   + ngày trong Sign-off (Status vẫn FOUNDER). Backup này là snapshot
+   pre-migrate — KHÔNG dùng lại cho OPS-01 (drill ở đó cần backup MỚI sau
+   migrate/seed/backfill).
 3. **OPS-06 — Migrate qua service `migrate`:** `docker compose -f
    docker-compose.prod.yml up -d --build` (migrate tự chạy tới ref
    `production` trước app start); chạy tay khi cần `docker compose -f
@@ -464,10 +470,14 @@ marker `656449ac…`). **Identical Batch 7 — KHÔNG có migration Batch 8**
 
 **Sign-off vận hành (paste output dated + redacted vào evidence doc rồi ký):**
 
-7. **OPS-01 — Production restore drill `--file`:** `bash
-   scripts/restore-drill.sh --file backups/db-loaviet-<ts>.dump` TRÊN SERVER;
-   paste vào `docs/operations/restore-drill-evidence.md` — RPO/RTO thật từ lần
-   này (FD-R36).
+7. **OPS-01 — Production restore drill `--file`:** SAU migrate/seed/backfill
+   (bước 3–5), lấy **backup MỚI** `./scripts/db-ops.sh backup` rồi **ngay sau
+   đó** `bash scripts/restore-drill.sh --file backups/db-loaviet-<ts-mới>.dump`
+   TRÊN SERVER — không có ghi nào vào DB giữa backup và drill (drill so sánh
+   DB live với dump: table parity + row counts + read-back equal + `prisma db
+   verify` — dump cũ/pre-migrate luôn lệch); paste vào
+   `docs/operations/restore-drill-evidence.md` — RPO/RTO thật từ lần này
+   (FD-R36).
 8. **OPS-02 — Production admin access review:** `scripts/admin-access-review-prod.sh`
    (image migrate trên compose network); paste dated vào
    `docs/operations/admin-access-review.md` + ký §4 (mọi admin không có MFA
