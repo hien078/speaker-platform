@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { formatVND, cn } from "@/src/lib/utils";
 import { CONDITION_LABELS, LISTING_STATUS_BADGE, LISTING_STATUS_LABELS } from "@/src/lib/constants";
 import { Handshake } from "lucide-react";

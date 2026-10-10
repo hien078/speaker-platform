@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { ListingForm } from "@/src/components/listing-form";
 import { CITIES, CONDITION_LABELS } from "@/src/lib/constants";
@@ -59,7 +59,7 @@ export default async function EditListingPage({
 
       <div className="card mt-8 p-6">
         <ListingForm
-          categories={categories.map((c) => ({ id: c.id, name: c.name, commissionRate: c.commissionRate }))}
+          categories={categories.map((c) => ({ id: c.id, name: c.name }))}
           brands={brands.map((b) => ({ id: b.id, name: b.name }))}
           cities={CITIES}
           models={models.map((m) => ({ id: m.id, name: m.name, brandId: m.brandId }))}

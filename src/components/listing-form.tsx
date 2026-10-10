@@ -10,8 +10,6 @@ import { ImagePicker } from "@/src/components/image-picker";
 import { formatVND } from "@/src/lib/utils";
 import { LoaderCircle, Banknote } from "lucide-react";
 
-type Condition = "new" | "open_box" | "like_new" | "excellent" | "good" | "fair" | "refurbished" | "for_parts";
-
 export function ListingForm({
   categories,
   brands,
@@ -20,7 +18,7 @@ export function ListingForm({
   models,
   edit,
 }: {
-  categories: { id: string; name: string; commissionRate: number }[];
+  categories: { id: string; name: string }[];
   brands: { id: string; name: string }[];
   cities: string[];
   conditions: { value: string; label: string }[];
@@ -46,9 +44,6 @@ export function ListingForm({
   );
   const [categoryId, setCategoryId] = useState(edit?.categoryId ?? categories[0]?.id ?? "");
   const [price, setPrice] = useState(edit?.price ?? 0);
-
-  const category = categories.find((c) => c.id === categoryId);
-  const commission = category ? Math.round((price * category.commissionRate) / 100) : 0;
 
   return (
     <form action={formAction} className="space-y-5">
@@ -140,11 +135,7 @@ export function ListingForm({
           />
           {price > 0 && (
             <p className="mt-1.5 text-xs text-[var(--muted)]">
-              {formatVND(price)} · bạn nhận ≈{" "}
-              <b className="text-[var(--green)]">
-                {formatVND(price - commission)}
-              </b>{" "}
-              sau hoa hồng {category?.commissionRate ?? 5}%
+              {formatVND(price)} — giá niêm yết trên tin đăng
             </p>
           )}
         </div>
@@ -208,11 +199,11 @@ export function ListingForm({
       <div className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
         <p className="flex items-center gap-1.5 font-semibold text-[var(--ink-2)]">
           <Banknote className="size-3.5 text-[var(--accent)]" />
-          Hoa hồng {category?.commissionRate ?? 5}% chỉ thu khi giao dịch hoàn tất
+          Đăng tin miễn phí trong private beta
         </p>
         <p className="mt-1">
-          Ví dụ: bán {formatVND(price || 0)} → bạn nhận {formatVND((price || 0) - commission)}.
-          Đăng tin hoàn toàn miễn phí.
+          LoaViet không giữ tiền và không tham gia thanh toán — giá và cách giao
+          dịch do bạn và người mua tự thỏa thuận ngoài nền tảng.
         </p>
       </div>
 

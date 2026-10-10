@@ -1,6 +1,7 @@
-import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { notFound, redirect } from "next/navigation";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { financialFeaturesEnabled } from "@/src/lib/financial-features";
 import { OfferCard, type OfferWithListing } from "@/src/components/offer-card";
 import { HandCoins } from "lucide-react";
 
@@ -25,6 +26,11 @@ async function fetchOffers(where: { listingId?: string; buyerId?: string }) {
 export default async function OffersPage({
   searchParams,
 }: PageProps<"/offers">) {
+  // Private beta (Batch 0–1): tài chính tắt mặc định — finance-only page không còn
+  // reachable. Kiểm tra ranh giới TRƯỚC mọi read/mutation; code bên dưới giữ
+  // nguyên dormant (không xóa code/dữ liệu lịch sử).
+  if (!financialFeaturesEnabled()) notFound();
+
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 

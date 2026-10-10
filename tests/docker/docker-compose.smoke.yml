@@ -1,0 +1,73 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Compose SMOKE — stack production cô lập cho scripts/docker-smoke.sh.
+#
+# KHÔNG dùng cho production (docker-compose.prod.yml mới là stack thật).
+# Khác biệt cố ý:
+# - project name riêng (sp-smoke-<ts>) → volume/network cô lập, down -v an toàn
+# - app bind port cấu hình SMOKE_PORT (mặc định 3999) thay vì 3000 — không đụng
+#   app đang chạy trên máy
+# - env là giá trị test sinh random bởi script — không credential thật
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_USER: loaviet
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?docker-smoke.sh set}
+      POSTGRES_DB: loaviet
+    volumes:
+      - pgdata_smoke:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U loaviet"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      # context tuyệt đối do script export (REPO_ROOT) — compose file nằm trong tests/docker/
+      context: ${REPO_ROOT:?docker-smoke.sh set}
+      target: migrate
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+
+  app:
+    build:
+      context: ${REPO_ROOT:?docker-smoke.sh set}
+    restart: "no"
+    ports:
+      # KHÔNG expose ra ngoài — chỉ loopback, port smoke riêng
+      - "127.0.0.1:${SMOKE_PORT:-3999}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+      AUTH_SECRET: ${AUTH_SECRET:?docker-smoke.sh set}
+      CRON_SECRET: ${CRON_SECRET:?docker-smoke.sh set}
+      # Batch 2 (Task 8): bắt buộc ở production (env.ts REQUIRED_KEYS →
+      # instrumentation fail-fast) — docker-smoke.sh sinh random, base64 thuần
+      # của đúng 32 byte (validate strict trong admin-mfa-key.ts).
+      ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?docker-smoke.sh set}
+      NEXT_PUBLIC_APP_URL: https://smoke.invalid
+      # Private beta (spec §4.1/§5.1): tài chính TẮT rõ ràng trong stack smoke —
+      # mọi finance entry point phải deny typed (scripts/docker-smoke.sh assert).
+      FINANCIAL_FEATURES_ENABLED: "false"
+      ESCROW_AUTO_RELEASE_DAYS: "7"
+      TRUST_PROXY_HEADERS: "true"
+      # MoMo trống cả 3 — stack smoke không cần cổng thật
+      MOMO_PARTNER_CODE: ""
+      MOMO_ACCESS_KEY: ""
+      MOMO_SECRET_KEY: ""
+      MOMO_ENDPOINT: ""
+
+volumes:
+  pgdata_smoke:

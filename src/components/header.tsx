@@ -1,22 +1,16 @@
 import Link from "next/link";
 import { getCurrentUser } from "@/src/lib/auth";
-import { db } from "@/src/prisma/db";
-import { Search, ShoppingCart, LogIn, MessageCircle, Bell } from "lucide-react";
+import { db } from "@/src/prisma/db.client";
+import { Search, LogIn, MessageCircle, Bell } from "lucide-react";
 import { HeaderUserMenu } from "@/src/components/header-user-menu";
 import { unreadCount } from "@/src/lib/notify";
 
 export async function Header() {
   const user = await getCurrentUser();
 
-  let cartCount = 0;
   let unreadChat = 0;
   let unreadNoti = 0;
   if (user) {
-    const cart = await db.orm.public.Cart.first({ userId: user.id });
-    if (cart) {
-      const items = await db.orm.public.CartItem.where({ cartId: cart.id }).all();
-      cartCount = items.length;
-    }
     // chỉ đếm tin chưa đọc trong hội thoại CỦA user (buyer hoặc seller)
     const asBuyer = await db.orm.public.Conversation
       .where({ buyerId: user.id })
@@ -66,9 +60,6 @@ export async function Header() {
           <Link href="/listings" className="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--paper-deep)] hover:text-[var(--ink)]">
             Chợ loa
           </Link>
-          <Link href="/listings?exchange=1" className="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--paper-deep)] hover:text-[var(--ink)]">
-            Trao đổi
-          </Link>
           <Link href="/sell/new" className="rounded-md px-2.5 py-1.5 text-[13px] font-medium text-[var(--ink-2)] transition-colors hover:bg-[var(--paper-deep)] hover:text-[var(--ink)]">
             Đăng bán
           </Link>
@@ -98,18 +89,6 @@ export async function Header() {
                 <MessageCircle className="size-[18px]" strokeWidth={2} />
                 {unreadChat > 0 && (
                   <span className="absolute right-1 top-1 size-2 rounded-full bg-[var(--accent)]" />
-                )}
-              </Link>
-              <Link
-                href="/cart"
-                className="relative grid size-9 place-items-center rounded-md text-[var(--ink-2)] transition-colors hover:bg-[var(--paper-deep)]"
-                title="Giỏ hàng"
-              >
-                <ShoppingCart className="size-[18px]" strokeWidth={2} />
-                {cartCount > 0 && (
-                  <span className="absolute right-0.5 top-0.5 grid min-w-4 place-items-center rounded-full bg-[var(--ink)] px-0.5 text-[9px] font-bold text-white">
-                    {cartCount}
-                  </span>
                 )}
               </Link>
               <HeaderUserMenu user={user} />

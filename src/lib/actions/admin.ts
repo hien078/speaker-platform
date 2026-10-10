@@ -1,27 +1,72 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
-import { requireAdmin } from "@/src/lib/auth";
+import { db } from "@/src/prisma/db.client";
+import { requireCapability, requireAdminUser } from "@/src/lib/rbac";
 import { audit, recordStatusChange } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, escrowRelease, escrowRefund } from "@/src/lib/ledger";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
+import { auditEvent } from "@/src/lib/audit-event";
+import { checkSellerPublicationRequirements } from "@/src/lib/seller-verification-policy";
 import { notify } from "@/src/lib/notify";
 
-
+/**
+ * Batch 2 Task 10: legacy seller-verification toggle đã XÓA — SellerVerification
+ * workflow (src/lib/actions/seller-verification.ts) là canonical (spec §8.2);
+ * legacy User.isVerifiedSeller chỉ còn hiển thị (badge "legacy" ở
+ * /admin/users). approveListingAction được nối vào publication gate
+ * (defense-in-depth — spec §7.3: admin duyệt cũng bị chặn khi seller mất
+ * verification/membership) + auditEvent("listing.approved"|"listing.rejected"|
+ * "listing.approve_blocked") theo registry Task 5 (song song legacy audit()).
+ */
 
 /** Duyệt tin đăng */
 export async function approveListingAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const listingId = String(formData.get("listingId") ?? "");
 
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.status !== "pending") return;
 
-  await db.orm.public.Listing
-    .where({ id: listingId })
-    .update({ status: "approved", rejectionReason: null });
+  // ─── Publication gate (Task 10 — spec §4.4/§7.3 defense-in-depth) ───
+  // Admin duyệt KHÔNG phải escape hatch: seller mất verification (revoked)
+  // hoặc membership (suspended) → KHÔNG approve. Đọc FRESH từ DB.
+  const requirements = await checkSellerPublicationRequirements(listing.sellerId);
+  if (!requirements.ok) {
+    // Audit fail-open — block vẫn chặn kể cả khi audit lỗi (spec §4.6/§4.8:
+    // detail chỉ typed requirement keys, KHÔNG PII).
+    try {
+      await auditEvent({
+        actorId: admin.user.id,
+        subjectId: listing.sellerId,
+        action: "listing.approve_blocked",
+        resourceType: "Listing",
+        resourceId: listingId,
+        sessionId: admin.session.id,
+        reason: "publication_requirements_unmet",
+        detail: `missing=${requirements.missing.join(",")}`,
+      });
+    } catch {
+      /* fail-open: audit lỗi không mở đường approve */
+    }
+    return; // no approval
+  }
 
-  await audit(admin.id, "approve_listing", "Listing", listingId, listing.title);
+  // CAS theo status đã đọc — hai admin duyệt song song không double-approve.
+  const claimed = await db.orm.public.Listing
+    .where({ id: listingId, status: "pending" })
+    .updateAll({ status: "approved", rejectionReason: null });
+  if (claimed.length === 0) return;
+
+  await audit(admin.user.id, "approve_listing", "Listing", listingId, listing.title);
+  await auditEvent({
+    actorId: admin.user.id,
+    subjectId: listing.sellerId,
+    action: "listing.approved",
+    resourceType: "Listing",
+    resourceId: listingId,
+    sessionId: admin.session.id,
+  });
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin đã được duyệt: ${listing.title.slice(0, 50)}`, "Tin của bạn đang hiển thị trên chợ", `/listings/${listing.slug}`);
   revalidatePath("/admin/listings");
@@ -30,18 +75,28 @@ export async function approveListingAction(formData: FormData): Promise<void> {
 
 /** Từ chối tin đăng */
 export async function rejectListingAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  const admin = await requireCapability("listing.moderate");
   const listingId = String(formData.get("listingId") ?? "");
   const reason = String(formData.get("reason") ?? "").trim() || "Nội dung không rõ ràng, thiếu thông tin";
 
   const listing = await db.orm.public.Listing.first({ id: listingId });
   if (!listing || listing.status !== "pending") return;
 
-  await db.orm.public.Listing
-    .where({ id: listingId })
-    .update({ status: "rejected", rejectionReason: reason });
+  // CAS theo status đã đọc — duyệt/từ chối song song không ghi đè nhau.
+  const claimed = await db.orm.public.Listing
+    .where({ id: listingId, status: "pending" })
+    .updateAll({ status: "rejected", rejectionReason: reason });
+  if (claimed.length === 0) return;
 
-  await audit(admin.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
+  await audit(admin.user.id, "reject_listing", "Listing", listingId, `${listing.title} — lý do: ${reason}`);
+  await auditEvent({
+    actorId: admin.user.id,
+    subjectId: listing.sellerId,
+    action: "listing.rejected",
+    resourceType: "Listing",
+    resourceId: listingId,
+    sessionId: admin.session.id,
+  });
   const { notify } = await import("@/src/lib/notify");
   await notify(listing.sellerId, "listing", `Tin bị từ chối: ${listing.title.slice(0, 50)}`, `Lý do: ${reason} — sửa tin để duyệt lại`, "/sell/my");
   revalidatePath("/admin/listings");
@@ -49,7 +104,8 @@ export async function rejectListingAction(formData: FormData): Promise<void> {
 
 /** Xử lý khiếu nại: nghiêng về buyer (hoàn tiền) hoặc seller (giải ngân) */
 export async function resolveDisputeAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  assertFinancialFeaturesEnabled(); // khiếu nại tài chính = finance mutation — admin không phải escape hatch (spec §4.10)
+  const admin = await requireAdminUser();
   const disputeId = String(formData.get("disputeId") ?? "");
   const resolution = String(formData.get("resolution") ?? "").trim();
   const outcome = String(formData.get("outcome") ?? ""); // resolved_buyer | resolved_seller | closed
@@ -77,7 +133,7 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "refunded" });
-      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — nghiêng buyer: ${resolution}`, admin.id);
+      await recordStatusChange(tx, order.id, "refunded", `Admin xử lý khiếu nại — nghiêng buyer: ${resolution}`, admin.user.id);
       if (isEscrowOrder) {
         // CHỈ escrow mới có tiền trong nền tảng để hoàn
         await recordLedgerTx(tx, "refund", order.id, escrowRefund(order.buyerId, order.totalAmount, `Admin hoàn escrow đơn ${order.code}`));
@@ -104,21 +160,21 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
             status: "released",
           });
         }
-        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân escrow cho seller: ${resolution}`, admin.id);
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — giải ngân escrow cho seller: ${resolution}`, admin.user.id);
         await recordLedgerTx(tx, "payout", order.id, escrowRelease(order.sellerId, order.totalAmount, order.commissionAmount, `Admin giải ngân đơn ${order.code}`));
       } else {
-        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — nghiêng seller (giao dịch trực tiếp): ${resolution}`, admin.id);
+        await recordStatusChange(tx, order.id, "completed", `Admin xử lý khiếu nại — nghiêng seller (giao dịch trực tiếp): ${resolution}`, admin.user.id);
       }
     } else {
       // đóng băng tiếp tục → trả đơn về shipped để chờ tự giải ngân
       await tx.orm.public.Order
         .where({ id: order.id })
         .update({ status: "shipped" });
-      await recordStatusChange(tx, order.id, "shipped", `Admin đóng khiếu nại — đơn tiếp tục chờ xác nhận: ${resolution}`, admin.id);
+      await recordStatusChange(tx, order.id, "shipped", `Admin đóng khiếu nại — đơn tiếp tục chờ xác nhận: ${resolution}`, admin.user.id);
     }
   });
 
-  await audit(admin.id, "resolve_dispute", "Dispute", disputeId, `Đơn ${order.code}: ${resolution}`);
+  await audit(admin.user.id, "resolve_dispute", "Dispute", disputeId, `Đơn ${order.code}: ${resolution}`);
   await notify(order.buyerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
   await notify(order.sellerId, "dispute", `Khiếu nại đơn ${order.code} đã xử lý`, resolution.slice(0, 120), `/orders/${order.id}`);
   revalidatePath("/admin/disputes");
@@ -127,7 +183,8 @@ export async function resolveDisputeAction(formData: FormData): Promise<void> {
 
 /** Cập nhật % hoa hồng danh mục */
 export async function updateCommissionAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  assertFinancialFeaturesEnabled(); // commission mutation — spec §4.1
+  const admin = await requireAdminUser();
   const categoryId = String(formData.get("categoryId") ?? "");
   const commissionRate = Math.min(30, Math.max(0, Number(formData.get("commissionRate") ?? 5)));
 
@@ -138,13 +195,14 @@ export async function updateCommissionAction(formData: FormData): Promise<void> 
     .where({ id: categoryId })
     .update({ commissionRate });
 
-  await audit(admin.id, "update_commission", "Category", categoryId, `${category.name}: ${commissionRate}%`);
+  await audit(admin.user.id, "update_commission", "Category", categoryId, `${category.name}: ${commissionRate}%`);
   revalidatePath("/admin/settings");
 }
 
 /** Cấu hình nền tảng (key-value) */
 export async function updateSettingAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  assertFinancialFeaturesEnabled(); // UI settings hôm nay chỉ còn finance keys (escrow/commission) — spec §4.1
+  const admin = await requireAdminUser();
   const key = String(formData.get("key") ?? "");
   const value = String(formData.get("value") ?? "").trim();
   if (!key) return;
@@ -156,23 +214,14 @@ export async function updateSettingAction(formData: FormData): Promise<void> {
     await db.orm.public.PlatformSetting.create({ key, value });
   }
 
-  await audit(admin.id, "update_setting", "PlatformSetting", key, value);
+  await audit(admin.user.id, "update_setting", "PlatformSetting", key, value);
   revalidatePath("/admin/settings");
 }
 
-/** Xác minh người bán (KYC) */
-export async function toggleSellerVerificationAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
-  const userId = String(formData.get("userId") ?? "");
-
-  const target = await db.orm.public.User.first({ id: userId });
-  if (!target || target.role === "admin") return;
-
-  const next = !target.isVerifiedSeller;
-  await db.orm.public.User
-    .where({ id: userId })
-    .update({ isVerifiedSeller: next });
-
-  await audit(admin.id, "toggle_seller_verification", "User", userId, `${target.name}: ${next ? "đã xác minh" : "bỏ xác minh"}`);
-  revalidatePath("/admin/users");
-}
+/*
+ * Legacy seller-verification TOGGLE — ĐÃ XÓA (Batch 2 Task 10, spec §8.2):
+ * SellerVerification workflow (src/lib/actions/seller-verification.ts) là
+ * canonical; legacy User.isVerifiedSeller KHÔNG còn đường mutate từ admin UI
+ * (chỉ hiển thị badge "legacy" ở /admin/users). Grant/suspend founding_seller
+ * membership: src/lib/actions/beta-cohort.ts (setBetaMembershipAction).
+ */

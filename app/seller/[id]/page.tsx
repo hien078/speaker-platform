@@ -1,9 +1,12 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { ListingCard } from "@/src/components/listing-card";
-import { formatVND, formatDate, formatDateShort, cn } from "@/src/lib/utils";
-import { BadgeCheck, MapPin, Star, Package, ShieldCheck } from "lucide-react";
+import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
+import {
+  SELLER_VERIFIED_BADGE_LABEL,
+  isVerifiedSellerStatus,
+} from "@/src/lib/seller-verification-status";
+import { BadgeCheck, MapPin, Star, Package } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -12,14 +15,16 @@ export default async function SellerProfilePage({
 }: PageProps<"/seller/[id]">) {
   const { id } = await params;
 
+  // Badge "đã xác minh" đọc WORKFLOW (SellerVerification.status — spec §8.2),
+  // không còn boolean legacy isVerifiedSeller (đã đóng băng từ Task 10).
   const seller = await db.orm.public.User
     .where({ id })
-    .select("id", "name", "city", "bio", "createdAt", "isVerifiedSeller", "role")
+    .select("id", "name", "city", "bio", "createdAt", "role")
     .first();
 
   if (!seller || seller.role === "buyer") notFound();
 
-  const [listings, reviewAgg, completedSales, reviews] = await Promise.all([
+  const [listings, reviewAgg, completedSales, reviews, verification] = await Promise.all([
     db.orm.public.Listing
       .where({ sellerId: seller.id, status: "approved" })
       .select(
@@ -44,6 +49,7 @@ export default async function SellerProfilePage({
       .orderBy((r) => r.createdAt.desc())
       .limit(10)
       .all(),
+    db.orm.public.SellerVerification.first({ userId: seller.id }),
   ]);
 
   const initials = seller.name.split(" ").map((w) => w[0]).slice(-2).join("").toUpperCase();
@@ -62,10 +68,10 @@ export default async function SellerProfilePage({
           <div className="min-w-0 flex-1">
             <h1 className="flex flex-wrap items-center gap-2.5 text-2xl font-bold tracking-tight">
               {seller.name}
-              {seller.isVerifiedSeller && (
+              {isVerifiedSellerStatus(verification?.status) && (
                 <span className="badge border-[var(--green)]/35 bg-[var(--green-soft)] text-[var(--green)]">
                   <BadgeCheck className="size-3.5" />
-                  Đã xác minh
+                  {SELLER_VERIFIED_BADGE_LABEL}
                 </span>
               )}
             </h1>
@@ -108,9 +114,10 @@ export default async function SellerProfilePage({
         </div>
 
         <p className="relative mt-6 flex items-start gap-2 rounded-xl border border-[var(--green)]/25 bg-[var(--green-soft)] px-4 py-2.5 text-xs leading-relaxed text-[var(--green)]/90">
-          <ShieldCheck className="mt-0.5 size-4 shrink-0" />
-          Giao dịch với người bán này qua LoaViet để được escrow bảo vệ — nền tảng giữ tiền
-          của bạn cho đến khi nhận hàng và xác nhận.
+          <BadgeCheck className="mt-0.5 size-4 shrink-0" />
+          Đã xác minh thông tin người bán theo yêu cầu hiện tại của LoaViet. Thanh
+          toán và giao nhận hàng do bạn và người bán tự thỏa thuận — LoaViet không giữ tiền
+          và không bảo đảm giao dịch.
         </p>
       </div>
 

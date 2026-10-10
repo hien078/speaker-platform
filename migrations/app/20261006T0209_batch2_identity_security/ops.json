@@ -1,0 +1,1974 @@
+[
+  {
+    "id": "table.AdminMfa",
+    "label": "Create table \"AdminMfa\"",
+    "summary": "Creates table \"AdminMfa\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "AdminMfa"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"AdminMfa\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"AdminMfa\"",
+        "sql": "CREATE TABLE \"public\".\"AdminMfa\" (\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"totpConfirmedAt\" timestamptz,\n  \"totpSecretEnc\" text NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"AdminMfa\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.AdminRecoveryCode",
+    "label": "Create table \"AdminRecoveryCode\"",
+    "summary": "Creates table \"AdminRecoveryCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "AdminRecoveryCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"AdminRecoveryCode\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"AdminRecoveryCode\"",
+        "sql": "CREATE TABLE \"public\".\"AdminRecoveryCode\" (\n  \"codeHash\" text NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"mfaId\" text NOT NULL,\n  \"usedAt\" timestamptz,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"AdminRecoveryCode\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.AuditEvent",
+    "label": "Create table \"AuditEvent\"",
+    "summary": "Creates table \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"AuditEvent\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"AuditEvent\"",
+        "sql": "CREATE TABLE \"public\".\"AuditEvent\" (\n  \"action\" text NOT NULL,\n  \"actorId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"detail\" text,\n  \"id\" text NOT NULL,\n  \"ipHash\" text,\n  \"policyVersion\" text,\n  \"reason\" text,\n  \"resourceId\" text,\n  \"resourceType\" text,\n  \"sessionId\" text,\n  \"subjectId\" text,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"AuditEvent\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.BetaCohortMembership",
+    "label": "Create table \"BetaCohortMembership\"",
+    "summary": "Creates table \"BetaCohortMembership\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "BetaCohortMembership"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"BetaCohortMembership\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"BetaCohortMembership\"",
+        "sql": "CREATE TABLE \"public\".\"BetaCohortMembership\" (\n  \"acceptedAt\" timestamptz,\n  \"cohort\" text NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"expiresAt\" timestamptz,\n  \"id\" text NOT NULL,\n  \"invitedAt\" timestamptz,\n  \"invitedBy\" text,\n  \"notes\" text,\n  \"status\" text DEFAULT 'invited' NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"BetaCohortMembership_cohort_check_008d7f38\" CHECK (\"cohort\" IN ('internal', 'founding_seller', 'private_beta_buyer')),\n  CONSTRAINT \"BetaCohortMembership_status_check_c34e9cfa\" CHECK (\"status\" IN ('invited', 'active', 'suspended', 'exited'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"BetaCohortMembership\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.OtpCode",
+    "label": "Create table \"OtpCode\"",
+    "summary": "Creates table \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"OtpCode\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"OtpCode\"",
+        "sql": "CREATE TABLE \"public\".\"OtpCode\" (\n  \"attempts\" int4 DEFAULT 0 NOT NULL,\n  \"channel\" text NOT NULL,\n  \"codeHash\" text NOT NULL,\n  \"consumedAt\" timestamptz,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"expiresAt\" timestamptz NOT NULL,\n  \"id\" text NOT NULL,\n  \"purpose\" text NOT NULL,\n  \"target\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"OtpCode_channel_check_d360ded9\" CHECK (\"channel\" IN ('email', 'phone')),\n  CONSTRAINT \"OtpCode_purpose_check_e0deb69d\" CHECK (\"purpose\" IN ('email_verification', 'phone_verification', 'password_recovery'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"OtpCode\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.PolicyAcceptance",
+    "label": "Create table \"PolicyAcceptance\"",
+    "summary": "Creates table \"PolicyAcceptance\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "PolicyAcceptance"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"PolicyAcceptance\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"PolicyAcceptance\"",
+        "sql": "CREATE TABLE \"public\".\"PolicyAcceptance\" (\n  \"acceptedAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"policyKey\" text NOT NULL,\n  \"policyVersion\" text NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"PolicyAcceptance\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.SellerVerification",
+    "label": "Create table \"SellerVerification\"",
+    "summary": "Creates table \"SellerVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "SellerVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"SellerVerification\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"SellerVerification\"",
+        "sql": "CREATE TABLE \"public\".\"SellerVerification\" (\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"method\" text DEFAULT 'operations_review' NOT NULL,\n  \"note\" text,\n  \"policyVersion\" text NOT NULL,\n  \"reasonCode\" text,\n  \"reviewedAt\" timestamptz,\n  \"reviewerId\" text,\n  \"status\" text DEFAULT 'pending' NOT NULL,\n  \"submittedAt\" timestamptz,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"SellerVerification_method_check_b1d86172\" CHECK (\"method\" IN ('operations_review')),\n  CONSTRAINT \"SellerVerification_status_check_152ba99e\" CHECK (\"status\" IN ('not_started', 'pending', 'verified', 'rejected', 'needs_review', 'revoked'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"SellerVerification\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.UserSession",
+    "label": "Create table \"UserSession\"",
+    "summary": "Creates table \"UserSession\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"UserSession\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"UserSession\"",
+        "sql": "CREATE TABLE \"public\".\"UserSession\" (\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"expiresAt\" timestamptz NOT NULL,\n  \"id\" text NOT NULL,\n  \"isAdmin\" bool DEFAULT false NOT NULL,\n  \"lastSeenAt\" timestamptz,\n  \"revokedAt\" timestamptz,\n  \"revokedReason\" text,\n  \"steppedUpAt\" timestamptz,\n  \"tokenHash\" text NOT NULL,\n  \"userAgent\" text,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"UserSession\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.User.adminRole",
+    "label": "Add column \"adminRole\" to \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "adminRole",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"adminRole\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "adminRole"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"adminRole\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD COLUMN \"adminRole\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"adminRole\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "adminRole"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.User.emailVerifiedAt",
+    "label": "Add column \"emailVerifiedAt\" to \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "emailVerifiedAt",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"emailVerifiedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "emailVerifiedAt"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"emailVerifiedAt\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD COLUMN \"emailVerifiedAt\" timestamptz"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"emailVerifiedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "emailVerifiedAt"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.User.phoneVerifiedAt",
+    "label": "Add column \"phoneVerifiedAt\" to \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "phoneVerifiedAt",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"phoneVerifiedAt\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "phoneVerifiedAt"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"phoneVerifiedAt\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD COLUMN \"phoneVerifiedAt\" timestamptz"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"phoneVerifiedAt\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "phoneVerifiedAt"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.User.sellerOperatingProvinceCode",
+    "label": "Add column \"sellerOperatingProvinceCode\" to \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "sellerOperatingProvinceCode",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"sellerOperatingProvinceCode\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "sellerOperatingProvinceCode"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"sellerOperatingProvinceCode\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD COLUMN \"sellerOperatingProvinceCode\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"sellerOperatingProvinceCode\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "sellerOperatingProvinceCode"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.User.sellerType",
+    "label": "Add column \"sellerType\" to \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "sellerType",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"sellerType\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "sellerType"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"sellerType\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD COLUMN \"sellerType\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"sellerType\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "User",
+          "sellerType"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.AdminMfa.AdminMfa_userId_key",
+    "label": "Add unique constraint on \"AdminMfa\" (userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "AdminMfa_userId_key",
+        "table": "AdminMfa"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"AdminMfa_userId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminMfa_userId_key",
+          "public",
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"AdminMfa_userId_key\"",
+        "sql": "ALTER TABLE \"public\".\"AdminMfa\" ADD CONSTRAINT \"AdminMfa_userId_key\" UNIQUE (\"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"AdminMfa_userId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminMfa_userId_key",
+          "public",
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.BetaCohortMembership.BetaCohortMembership_userId_cohort_key",
+    "label": "Add unique constraint on \"BetaCohortMembership\" (userId, cohort)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "BetaCohortMembership_userId_cohort_key",
+        "table": "BetaCohortMembership"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"BetaCohortMembership_userId_cohort_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaCohortMembership_userId_cohort_key",
+          "public",
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"BetaCohortMembership_userId_cohort_key\"",
+        "sql": "ALTER TABLE \"public\".\"BetaCohortMembership\" ADD CONSTRAINT \"BetaCohortMembership_userId_cohort_key\" UNIQUE (\"userId\", \"cohort\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"BetaCohortMembership_userId_cohort_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaCohortMembership_userId_cohort_key",
+          "public",
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.PolicyAcceptance.PolicyAcceptance_userId_policyKey_policyVersion_key",
+    "label": "Add unique constraint on \"PolicyAcceptance\" (userId, policyKey, policyVersion)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "PolicyAcceptance_userId_policyKey_policyVersion_key",
+        "table": "PolicyAcceptance"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"PolicyAcceptance_userId_policyKey_policyVersion_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "PolicyAcceptance_userId_policyKey_policyVersion_key",
+          "public",
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"PolicyAcceptance_userId_policyKey_policyVersion_key\"",
+        "sql": "ALTER TABLE \"public\".\"PolicyAcceptance\" ADD CONSTRAINT \"PolicyAcceptance_userId_policyKey_policyVersion_key\" UNIQUE (\"userId\", \"policyKey\", \"policyVersion\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"PolicyAcceptance_userId_policyKey_policyVersion_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "PolicyAcceptance_userId_policyKey_policyVersion_key",
+          "public",
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.SellerVerification.SellerVerification_userId_key",
+    "label": "Add unique constraint on \"SellerVerification\" (userId)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "SellerVerification_userId_key",
+        "table": "SellerVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"SellerVerification_userId_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SellerVerification_userId_key",
+          "public",
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"SellerVerification_userId_key\"",
+        "sql": "ALTER TABLE \"public\".\"SellerVerification\" ADD CONSTRAINT \"SellerVerification_userId_key\" UNIQUE (\"userId\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"SellerVerification_userId_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SellerVerification_userId_key",
+          "public",
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.User.User_adminRole_check_207534e1",
+    "label": "Add check constraint \"User_adminRole_check_207534e1\" on \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "User_adminRole_check_207534e1",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"User_adminRole_check_207534e1\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "User_adminRole_check_207534e1",
+          "public",
+          "\"public\".\"User\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"User_adminRole_check_207534e1\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD CONSTRAINT \"User_adminRole_check_207534e1\" CHECK (\"adminRole\" IN ('super_admin', 'operations_admin', 'moderator', 'support', 'analyst'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"User_adminRole_check_207534e1\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "User_adminRole_check_207534e1",
+          "public",
+          "\"public\".\"User\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.User.User_sellerType_check_acee2066",
+    "label": "Add check constraint \"User_sellerType_check_acee2066\" on \"User\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "User_sellerType_check_acee2066",
+        "table": "User"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"User_sellerType_check_acee2066\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "User_sellerType_check_acee2066",
+          "public",
+          "\"public\".\"User\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"User_sellerType_check_acee2066\"",
+        "sql": "ALTER TABLE \"public\".\"User\" ADD CONSTRAINT \"User_sellerType_check_acee2066\" CHECK (\"sellerType\" IN ('individual', 'business'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"User_sellerType_check_acee2066\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "User_sellerType_check_acee2066",
+          "public",
+          "\"public\".\"User\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.UserSession.UserSession_tokenHash_key",
+    "label": "Add unique constraint on \"UserSession\" (tokenHash)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "UserSession_tokenHash_key",
+        "table": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"UserSession_tokenHash_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSession_tokenHash_key",
+          "public",
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"UserSession_tokenHash_key\"",
+        "sql": "ALTER TABLE \"public\".\"UserSession\" ADD CONSTRAINT \"UserSession_tokenHash_key\" UNIQUE (\"tokenHash\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"UserSession_tokenHash_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSession_tokenHash_key",
+          "public",
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AdminRecoveryCode.AdminRecoveryCode_mfaId_idx_ee734963",
+    "label": "Create index \"AdminRecoveryCode_mfaId_idx_ee734963\" on \"AdminRecoveryCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AdminRecoveryCode_mfaId_idx_ee734963",
+        "table": "AdminRecoveryCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AdminRecoveryCode_mfaId_idx_ee734963\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode_mfaId_idx_ee734963\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AdminRecoveryCode_mfaId_idx_ee734963\"",
+        "sql": "CREATE INDEX \"AdminRecoveryCode_mfaId_idx_ee734963\" ON \"public\".\"AdminRecoveryCode\" (\"mfaId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AdminRecoveryCode_mfaId_idx_ee734963\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode_mfaId_idx_ee734963\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AdminRecoveryCode.AdminRecoveryCode_mfaId_usedAt_idx_80410bb6",
+    "label": "Create index \"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\" on \"AdminRecoveryCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AdminRecoveryCode_mfaId_usedAt_idx_80410bb6",
+        "table": "AdminRecoveryCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\"",
+        "sql": "CREATE INDEX \"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\" ON \"public\".\"AdminRecoveryCode\" (\"mfaId\", \"usedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AdminRecoveryCode_mfaId_usedAt_idx_80410bb6\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AuditEvent.AuditEvent_action_createdAt_idx_a6d20b4b",
+    "label": "Create index \"AuditEvent_action_createdAt_idx_a6d20b4b\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AuditEvent_action_createdAt_idx_a6d20b4b",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AuditEvent_action_createdAt_idx_a6d20b4b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_action_createdAt_idx_a6d20b4b\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AuditEvent_action_createdAt_idx_a6d20b4b\"",
+        "sql": "CREATE INDEX \"AuditEvent_action_createdAt_idx_a6d20b4b\" ON \"public\".\"AuditEvent\" (\"action\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AuditEvent_action_createdAt_idx_a6d20b4b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_action_createdAt_idx_a6d20b4b\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AuditEvent.AuditEvent_actorId_createdAt_idx_0e9f1adf",
+    "label": "Create index \"AuditEvent_actorId_createdAt_idx_0e9f1adf\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AuditEvent_actorId_createdAt_idx_0e9f1adf",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AuditEvent_actorId_createdAt_idx_0e9f1adf\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AuditEvent_actorId_createdAt_idx_0e9f1adf\"",
+        "sql": "CREATE INDEX \"AuditEvent_actorId_createdAt_idx_0e9f1adf\" ON \"public\".\"AuditEvent\" (\"actorId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AuditEvent_actorId_createdAt_idx_0e9f1adf\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_actorId_createdAt_idx_0e9f1adf\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AuditEvent.AuditEvent_actorId_idx_a58f6b4b",
+    "label": "Create index \"AuditEvent_actorId_idx_a58f6b4b\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AuditEvent_actorId_idx_a58f6b4b",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AuditEvent_actorId_idx_a58f6b4b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AuditEvent_actorId_idx_a58f6b4b\"",
+        "sql": "CREATE INDEX \"AuditEvent_actorId_idx_a58f6b4b\" ON \"public\".\"AuditEvent\" (\"actorId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AuditEvent_actorId_idx_a58f6b4b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_actorId_idx_a58f6b4b\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AuditEvent.AuditEvent_subjectId_createdAt_idx_7aaee74d",
+    "label": "Create index \"AuditEvent_subjectId_createdAt_idx_7aaee74d\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AuditEvent_subjectId_createdAt_idx_7aaee74d",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AuditEvent_subjectId_createdAt_idx_7aaee74d\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_subjectId_createdAt_idx_7aaee74d\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AuditEvent_subjectId_createdAt_idx_7aaee74d\"",
+        "sql": "CREATE INDEX \"AuditEvent_subjectId_createdAt_idx_7aaee74d\" ON \"public\".\"AuditEvent\" (\"subjectId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AuditEvent_subjectId_createdAt_idx_7aaee74d\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_subjectId_createdAt_idx_7aaee74d\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AuditEvent.AuditEvent_subjectId_idx_84df2a1d",
+    "label": "Create index \"AuditEvent_subjectId_idx_84df2a1d\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AuditEvent_subjectId_idx_84df2a1d",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AuditEvent_subjectId_idx_84df2a1d\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_subjectId_idx_84df2a1d\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AuditEvent_subjectId_idx_84df2a1d\"",
+        "sql": "CREATE INDEX \"AuditEvent_subjectId_idx_84df2a1d\" ON \"public\".\"AuditEvent\" (\"subjectId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AuditEvent_subjectId_idx_84df2a1d\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AuditEvent_subjectId_idx_84df2a1d\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaCohortMembership.BetaCohortMembership_cohort_status_idx_7712340b",
+    "label": "Create index \"BetaCohortMembership_cohort_status_idx_7712340b\" on \"BetaCohortMembership\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "BetaCohortMembership_cohort_status_idx_7712340b",
+        "table": "BetaCohortMembership"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"BetaCohortMembership_cohort_status_idx_7712340b\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership_cohort_status_idx_7712340b\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"BetaCohortMembership_cohort_status_idx_7712340b\"",
+        "sql": "CREATE INDEX \"BetaCohortMembership_cohort_status_idx_7712340b\" ON \"public\".\"BetaCohortMembership\" (\"cohort\", \"status\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"BetaCohortMembership_cohort_status_idx_7712340b\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership_cohort_status_idx_7712340b\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.BetaCohortMembership.BetaCohortMembership_userId_idx_a489d58a",
+    "label": "Create index \"BetaCohortMembership_userId_idx_a489d58a\" on \"BetaCohortMembership\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "BetaCohortMembership_userId_idx_a489d58a",
+        "table": "BetaCohortMembership"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"BetaCohortMembership_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership_userId_idx_a489d58a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"BetaCohortMembership_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"BetaCohortMembership_userId_idx_a489d58a\" ON \"public\".\"BetaCohortMembership\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"BetaCohortMembership_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"BetaCohortMembership_userId_idx_a489d58a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.OtpCode.OtpCode_expiresAt_idx_6b6b8c10",
+    "label": "Create index \"OtpCode_expiresAt_idx_6b6b8c10\" on \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "OtpCode_expiresAt_idx_6b6b8c10",
+        "table": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"OtpCode_expiresAt_idx_6b6b8c10\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"OtpCode_expiresAt_idx_6b6b8c10\"",
+        "sql": "CREATE INDEX \"OtpCode_expiresAt_idx_6b6b8c10\" ON \"public\".\"OtpCode\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"OtpCode_expiresAt_idx_6b6b8c10\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.OtpCode.OtpCode_target_purpose_createdAt_idx_d7415d45",
+    "label": "Create index \"OtpCode_target_purpose_createdAt_idx_d7415d45\" on \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "OtpCode_target_purpose_createdAt_idx_d7415d45",
+        "table": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"OtpCode_target_purpose_createdAt_idx_d7415d45\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_target_purpose_createdAt_idx_d7415d45\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"OtpCode_target_purpose_createdAt_idx_d7415d45\"",
+        "sql": "CREATE INDEX \"OtpCode_target_purpose_createdAt_idx_d7415d45\" ON \"public\".\"OtpCode\" (\"target\", \"purpose\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"OtpCode_target_purpose_createdAt_idx_d7415d45\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_target_purpose_createdAt_idx_d7415d45\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.OtpCode.OtpCode_userId_idx_a489d58a",
+    "label": "Create index \"OtpCode_userId_idx_a489d58a\" on \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "OtpCode_userId_idx_a489d58a",
+        "table": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"OtpCode_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_userId_idx_a489d58a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"OtpCode_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"OtpCode_userId_idx_a489d58a\" ON \"public\".\"OtpCode\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"OtpCode_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_userId_idx_a489d58a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.OtpCode.OtpCode_userId_purpose_createdAt_idx_8932d08c",
+    "label": "Create index \"OtpCode_userId_purpose_createdAt_idx_8932d08c\" on \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "OtpCode_userId_purpose_createdAt_idx_8932d08c",
+        "table": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"OtpCode_userId_purpose_createdAt_idx_8932d08c\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_userId_purpose_createdAt_idx_8932d08c\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"OtpCode_userId_purpose_createdAt_idx_8932d08c\"",
+        "sql": "CREATE INDEX \"OtpCode_userId_purpose_createdAt_idx_8932d08c\" ON \"public\".\"OtpCode\" (\"userId\", \"purpose\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"OtpCode_userId_purpose_createdAt_idx_8932d08c\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"OtpCode_userId_purpose_createdAt_idx_8932d08c\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.PolicyAcceptance.PolicyAcceptance_userId_idx_a489d58a",
+    "label": "Create index \"PolicyAcceptance_userId_idx_a489d58a\" on \"PolicyAcceptance\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "PolicyAcceptance_userId_idx_a489d58a",
+        "table": "PolicyAcceptance"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"PolicyAcceptance_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance_userId_idx_a489d58a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"PolicyAcceptance_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"PolicyAcceptance_userId_idx_a489d58a\" ON \"public\".\"PolicyAcceptance\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"PolicyAcceptance_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance_userId_idx_a489d58a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.PolicyAcceptance.PolicyAcceptance_userId_policyKey_idx_82b249a3",
+    "label": "Create index \"PolicyAcceptance_userId_policyKey_idx_82b249a3\" on \"PolicyAcceptance\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "PolicyAcceptance_userId_policyKey_idx_82b249a3",
+        "table": "PolicyAcceptance"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"PolicyAcceptance_userId_policyKey_idx_82b249a3\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance_userId_policyKey_idx_82b249a3\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"PolicyAcceptance_userId_policyKey_idx_82b249a3\"",
+        "sql": "CREATE INDEX \"PolicyAcceptance_userId_policyKey_idx_82b249a3\" ON \"public\".\"PolicyAcceptance\" (\"userId\", \"policyKey\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"PolicyAcceptance_userId_policyKey_idx_82b249a3\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"PolicyAcceptance_userId_policyKey_idx_82b249a3\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.SellerVerification.SellerVerification_status_updatedAt_idx_29f913bb",
+    "label": "Create index \"SellerVerification_status_updatedAt_idx_29f913bb\" on \"SellerVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "SellerVerification_status_updatedAt_idx_29f913bb",
+        "table": "SellerVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"SellerVerification_status_updatedAt_idx_29f913bb\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SellerVerification_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"SellerVerification_status_updatedAt_idx_29f913bb\"",
+        "sql": "CREATE INDEX \"SellerVerification_status_updatedAt_idx_29f913bb\" ON \"public\".\"SellerVerification\" (\"status\", \"updatedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"SellerVerification_status_updatedAt_idx_29f913bb\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SellerVerification_status_updatedAt_idx_29f913bb\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSession.UserSession_expiresAt_idx_6b6b8c10",
+    "label": "Create index \"UserSession_expiresAt_idx_6b6b8c10\" on \"UserSession\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSession_expiresAt_idx_6b6b8c10",
+        "table": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSession_expiresAt_idx_6b6b8c10\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSession_expiresAt_idx_6b6b8c10\"",
+        "sql": "CREATE INDEX \"UserSession_expiresAt_idx_6b6b8c10\" ON \"public\".\"UserSession\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSession_expiresAt_idx_6b6b8c10\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSession.UserSession_userId_createdAt_idx_f726f04a",
+    "label": "Create index \"UserSession_userId_createdAt_idx_f726f04a\" on \"UserSession\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSession_userId_createdAt_idx_f726f04a",
+        "table": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSession_userId_createdAt_idx_f726f04a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_userId_createdAt_idx_f726f04a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSession_userId_createdAt_idx_f726f04a\"",
+        "sql": "CREATE INDEX \"UserSession_userId_createdAt_idx_f726f04a\" ON \"public\".\"UserSession\" (\"userId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSession_userId_createdAt_idx_f726f04a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_userId_createdAt_idx_f726f04a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.UserSession.UserSession_userId_idx_a489d58a",
+    "label": "Create index \"UserSession_userId_idx_a489d58a\" on \"UserSession\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "UserSession_userId_idx_a489d58a",
+        "table": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"UserSession_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_userId_idx_a489d58a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"UserSession_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"UserSession_userId_idx_a489d58a\" ON \"public\".\"UserSession\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"UserSession_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"UserSession_userId_idx_a489d58a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AdminMfa.AdminMfa_userId_fkey",
+    "label": "Add foreign key \"AdminMfa_userId_fkey\" on \"AdminMfa\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AdminMfa_userId_fkey",
+        "table": "AdminMfa"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AdminMfa_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminMfa_userId_fkey",
+          "public",
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AdminMfa_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AdminMfa\"\nADD CONSTRAINT \"AdminMfa_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AdminMfa_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminMfa_userId_fkey",
+          "public",
+          "\"public\".\"AdminMfa\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AdminRecoveryCode.AdminRecoveryCode_mfaId_fkey",
+    "label": "Add foreign key \"AdminRecoveryCode_mfaId_fkey\" on \"AdminRecoveryCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AdminRecoveryCode_mfaId_fkey",
+        "table": "AdminRecoveryCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AdminRecoveryCode_mfaId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminRecoveryCode_mfaId_fkey",
+          "public",
+          "\"public\".\"AdminRecoveryCode\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AdminRecoveryCode_mfaId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AdminRecoveryCode\"\nADD CONSTRAINT \"AdminRecoveryCode_mfaId_fkey\"\nFOREIGN KEY (\"mfaId\")\nREFERENCES \"public\".\"AdminMfa\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AdminRecoveryCode_mfaId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AdminRecoveryCode_mfaId_fkey",
+          "public",
+          "\"public\".\"AdminRecoveryCode\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AuditEvent.AuditEvent_actorId_fkey",
+    "label": "Add foreign key \"AuditEvent_actorId_fkey\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AuditEvent_actorId_fkey",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AuditEvent_actorId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AuditEvent_actorId_fkey",
+          "public",
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AuditEvent_actorId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AuditEvent\"\nADD CONSTRAINT \"AuditEvent_actorId_fkey\"\nFOREIGN KEY (\"actorId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AuditEvent_actorId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AuditEvent_actorId_fkey",
+          "public",
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AuditEvent.AuditEvent_subjectId_fkey",
+    "label": "Add foreign key \"AuditEvent_subjectId_fkey\" on \"AuditEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AuditEvent_subjectId_fkey",
+        "table": "AuditEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AuditEvent_subjectId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AuditEvent_subjectId_fkey",
+          "public",
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AuditEvent_subjectId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AuditEvent\"\nADD CONSTRAINT \"AuditEvent_subjectId_fkey\"\nFOREIGN KEY (\"subjectId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AuditEvent_subjectId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AuditEvent_subjectId_fkey",
+          "public",
+          "\"public\".\"AuditEvent\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.BetaCohortMembership.BetaCohortMembership_userId_fkey",
+    "label": "Add foreign key \"BetaCohortMembership_userId_fkey\" on \"BetaCohortMembership\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "BetaCohortMembership_userId_fkey",
+        "table": "BetaCohortMembership"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"BetaCohortMembership_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaCohortMembership_userId_fkey",
+          "public",
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"BetaCohortMembership_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"BetaCohortMembership\"\nADD CONSTRAINT \"BetaCohortMembership_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"BetaCohortMembership_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "BetaCohortMembership_userId_fkey",
+          "public",
+          "\"public\".\"BetaCohortMembership\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.OtpCode.OtpCode_userId_fkey",
+    "label": "Add foreign key \"OtpCode_userId_fkey\" on \"OtpCode\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "OtpCode_userId_fkey",
+        "table": "OtpCode"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"OtpCode_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "OtpCode_userId_fkey",
+          "public",
+          "\"public\".\"OtpCode\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"OtpCode_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"OtpCode\"\nADD CONSTRAINT \"OtpCode_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"OtpCode_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "OtpCode_userId_fkey",
+          "public",
+          "\"public\".\"OtpCode\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.PolicyAcceptance.PolicyAcceptance_userId_fkey",
+    "label": "Add foreign key \"PolicyAcceptance_userId_fkey\" on \"PolicyAcceptance\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "PolicyAcceptance_userId_fkey",
+        "table": "PolicyAcceptance"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"PolicyAcceptance_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "PolicyAcceptance_userId_fkey",
+          "public",
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"PolicyAcceptance_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"PolicyAcceptance\"\nADD CONSTRAINT \"PolicyAcceptance_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"PolicyAcceptance_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "PolicyAcceptance_userId_fkey",
+          "public",
+          "\"public\".\"PolicyAcceptance\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.SellerVerification.SellerVerification_userId_fkey",
+    "label": "Add foreign key \"SellerVerification_userId_fkey\" on \"SellerVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "SellerVerification_userId_fkey",
+        "table": "SellerVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"SellerVerification_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SellerVerification_userId_fkey",
+          "public",
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"SellerVerification_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"SellerVerification\"\nADD CONSTRAINT \"SellerVerification_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"SellerVerification_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SellerVerification_userId_fkey",
+          "public",
+          "\"public\".\"SellerVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.UserSession.UserSession_userId_fkey",
+    "label": "Add foreign key \"UserSession_userId_fkey\" on \"UserSession\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "UserSession_userId_fkey",
+        "table": "UserSession"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"UserSession_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSession_userId_fkey",
+          "public",
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"UserSession_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"UserSession\"\nADD CONSTRAINT \"UserSession_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"UserSession_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "UserSession_userId_fkey",
+          "public",
+          "\"public\".\"UserSession\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "data_migration.backfill-admin-role",
+    "label": "Data transform: backfill-admin-role",
+    "operationClass": "data",
+    "target": {
+      "id": "postgres"
+    },
+    "precheck": [
+      {
+        "description": "Check backfill-admin-role has work to do",
+        "sql": "SELECT EXISTS (SELECT \"id\" AS \"id\" FROM \"public\".\"User\" WHERE (\"role\" = $1 AND \"adminRole\" IS NULL) LIMIT 1) AS ok",
+        "params": [
+          "admin"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "Run backfill-admin-role",
+        "sql": "UPDATE \"public\".\"User\" SET \"adminRole\" = $1, \"updatedAt\" = $2 WHERE (\"role\" = $3 AND \"adminRole\" IS NULL)",
+        "params": [
+          "super_admin",
+          "2026-10-06T02:18:06.489Z",
+          "admin"
+        ]
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "Verify backfill-admin-role resolved all violations",
+        "sql": "SELECT NOT EXISTS (SELECT \"id\" AS \"id\" FROM \"public\".\"User\" WHERE (\"role\" = $1 AND \"adminRole\" IS NULL) LIMIT 1) AS ok",
+        "params": [
+          "admin"
+        ]
+      }
+    ]
+  }
+]

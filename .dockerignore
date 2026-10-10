@@ -1,0 +1,52 @@
+# Build context cho Docker — CHỈ loại artifact không cần cho image.
+# Builder cần: package*.json, app/, src/, public/, prisma.config.ts, migrations/,
+# next.config.ts, tsconfig.json, postcss.config.mjs, eslint.config.mjs, next-env.d.ts.
+# Migrate stage cần: package.json, prisma.config.ts, src/prisma/, migrations/.
+# KHÔNG thêm pattern lọc gì mới mà không kiểm tra 2 stage trên còn build được.
+
+# Git (lịch sử không cần trong image)
+.git
+.gitignore
+.gitattributes
+
+# Dependencies — deps stage tự 'npm install' trong image
+node_modules
+
+# Build output local — builder tạo .next mới từ đầu
+.next
+out
+build
+*.tsbuildinfo
+
+# Env & secrets — KHÔNG BAO GIỜ vào build context / image
+# (Dockerfile tự đặt DATABASE_URL/AUTH_SECRET placeholder lúc build)
+.env
+.env.*
+
+# Upload local của dev (production dùng volume riêng; runner tự mkdir)
+public/uploads
+
+# Logs & cache
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.log
+.DS_Store
+coverage
+
+# Agent/skill dirs (không phải build input)
+.agents
+.claude
+.cursor
+.devin
+.worktrees
+
+# Docs & test — không cần trong image
+docs
+tests
+README.md
+prisma-8.md
+CLAUDE.md
+AGENTS.md
+vitest.config.ts

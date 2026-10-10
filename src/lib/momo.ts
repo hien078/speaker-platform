@@ -1,17 +1,19 @@
 import "server-only";
-import { createHmac } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 /**
  * MoMo Payment Gateway v2 (developers.momo.vn)
- * - Dev: dùng credentials test công khai của MoMo (mặc định dưới)
- * - Production: điền MOMO_PARTNER_CODE / MOMO_ACCESS_KEY / MOMO_SECRET_KEY thật
- *   vào .env + đổi MOMO_ENDPOINT sang https://payment.momo.vn
+ * - Credentials đọc từ env (MOMO_PARTNER_CODE / MOMO_ACCESS_KEY / MOMO_SECRET_KEY)
+ *   — KHÔNG có fallback hardcode: thiếu là fail loud (MOMO_NOT_CONFIGURED).
+ * - Dev: credentials test của MoMo từ business.momo.vn, MOMO_ENDPOINT=test-payment.momo.vn
+ * - Production: credentials thật + MOMO_ENDPOINT=https://payment.momo.vn
  */
 
 export function momoConfig() {
-  const partnerCode = process.env.MOMO_PARTNER_CODE ?? "MOMO";
-  const accessKey = process.env.MOMO_ACCESS_KEY ?? "F8BBA842ECF85";
-  const secretKey = process.env.MOMO_SECRET_KEY ?? "K951B6PE1waDMi640xX08PD3vg6EkVlz";
+  const partnerCode = process.env.MOMO_PARTNER_CODE;
+  const accessKey = process.env.MOMO_ACCESS_KEY;
+  const secretKey = process.env.MOMO_SECRET_KEY;
   const endpoint = process.env.MOMO_ENDPOINT ?? "https://test-payment.momo.vn";
   return { partnerCode, accessKey, secretKey, endpoint };
 }
@@ -40,7 +42,17 @@ export type CreatePaymentResult = {
 
 /** Tạo thanh toán MoMo → trả payUrl để redirect người mua */
 export async function createMomoPayment(input: CreatePaymentInput): Promise<CreatePaymentResult> {
+  // Defense-in-depth: route đã guard, nhưng provider request creation là mutation
+  // tài chính reusable — caller tương lai không bypass được (plan Task 3, spec §4.1)
+  assertFinancialFeaturesEnabled();
   const { partnerCode, accessKey, secretKey, endpoint } = momoConfig();
+  if (!partnerCode || !accessKey || !secretKey) {
+    // Fail loud — không bao giờ ký bằng credential fallback: thiếu env là lỗi cấu hình
+    throw new Error(
+      "MOMO_NOT_CONFIGURED: set MOMO_PARTNER_CODE, MOMO_ACCESS_KEY, MOMO_SECRET_KEY " +
+        "(production thêm MOMO_ENDPOINT=https://payment.momo.vn) trong .env",
+    );
+  }
   const requestId = `REQ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const extraData = "";
 
@@ -131,11 +143,15 @@ export function buildCallbackRawSignature(b: MomoCallbackBody, accessKey: string
   );
 }
 
-/** Verify chữ ký callback — chống giả mạo webhook */
+/** Verify chữ ký callback — chống giả mạo webhook.
+ * So sánh timing-safe (HMAC hex 64 bytes) — không rò thông qua thời gian phản hồi. */
 export function verifyMomoCallback(b: MomoCallbackBody): boolean {
   const { accessKey, secretKey } = momoConfig();
-  if (!b.signature) return false;
+  if (!accessKey || !secretKey) return false; // chưa cấu hình → không verify được gì
+  if (!b || typeof b.signature !== "string") return false;
   const raw = buildCallbackRawSignature(b, accessKey);
-  const expected = sign(raw, secretKey);
-  return expected === b.signature;
+  const expected = Buffer.from(sign(raw, secretKey), "hex");
+  const got = Buffer.from(b.signature, "hex");
+  // Buffer.from(hex) với chuỗi rác → buffer rỗng/lệch độ dài → false, không throw
+  return expected.length === got.length && timingSafeEqual(expected, got);
 }

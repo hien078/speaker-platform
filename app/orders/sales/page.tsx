@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { notFound, redirect } from "next/navigation";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { financialFeaturesEnabled } from "@/src/lib/financial-features";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE, PAYMENT_METHOD_LABELS } from "@/src/lib/constants";
 import { sellerConfirmPaymentAction, shipOrderAction } from "@/src/lib/actions/orders";
@@ -11,6 +12,11 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Đơn bán được" };
 
 export default async function SalesPage() {
+  // Private beta (Batch 0–1): tài chính tắt mặc định — finance-only page không còn
+  // reachable. Kiểm tra ranh giới TRƯỚC mọi read/mutation; code bên dưới giữ
+  // nguyên dormant (không xóa code/dữ liệu lịch sử).
+  if (!financialFeaturesEnabled()) notFound();
+
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 

@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
+import { requireCapability } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_BADGE } from "@/src/lib/constants";
-import { processAutoReleases } from "@/src/lib/actions/helpers";
+import { DormantFinanceNotice } from "./dormant-notice";
 import {
   Banknote,
   FileSearch,
@@ -17,16 +18,19 @@ export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Tổng quan" };
 
 export default async function AdminDashboardPage() {
-  // giải ngân tự động các đơn quá hạn (chạy khi admin vào dashboard)
-  const autoReleased = await processAutoReleases();
+  // Guard server-side (spec §4.5) — analytics.read: super/ops/analyst (ma trận §5.4.1).
+  await requireCapability("analytics.read");
+
+  // Escrow auto-release chạy qua cron /api/cron/auto-release (CRON_SECRET) —
+  // KHÔNG chạy theo page load nữa (trước đây: processAutoReleases() ở đây).
 
   const [
     pendingListings,
     openDisputes,
     totalUsers,
-    sellers,
+    _sellers,
     completedAgg,
-    commissionAgg,
+    _commissionAgg,
     escrowHeldAgg,
     gmvAgg,
     recentOrders,
@@ -122,13 +126,11 @@ export default async function AdminDashboardPage() {
     <div>
       <h1 className="text-2xl font-extrabold tracking-tight">Tổng quan nền tảng</h1>
       <p className="mt-1 text-sm text-[var(--muted)]">
-        {autoReleased > 0 && (
-          <span className="mr-2 rounded-full bg-[var(--green-soft)] px-2.5 py-0.5 text-xs font-semibold text-[var(--green)]">
-            ✓ Đã tự giải ngân {autoReleased} đơn quá hạn
-          </span>
-        )}
         Số liệu tính đến {formatDate(new Date())}
       </p>
+
+      {/* View finance lịch sử — chỉ đọc khi tài chính tắt (plan Task 5) */}
+      <DormantFinanceNotice />
 
       {/* Stats */}
       <div className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -218,7 +220,9 @@ export default async function AdminDashboardPage() {
               <p className="py-6 text-center text-sm text-[var(--muted)]">Chưa có đơn hàng nào</p>
             ) : (
               recentOrders.map((o) => (
-                <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center gap-3 rounded-lg p-1.5 transition hover:bg-[var(--paper)]">
+                // Route chi tiết đơn public đã retire (Task 4) — hiển thị mã đơn
+                // dạng text, không link sang finance flow đã tắt.
+                <div key={o.id} className="flex items-center gap-3 rounded-lg p-1.5">
                   <div className="min-w-0 flex-1">
                     <p className="font-mono text-xs font-bold text-[var(--accent)]">{o.code}</p>
                     <p className="text-xs text-[var(--muted)]">
@@ -231,7 +235,7 @@ export default async function AdminDashboardPage() {
                       {ORDER_STATUS_LABELS[o.status]}
                     </span>
                   </div>
-                </Link>
+                </div>
               ))
             )}
           </div>

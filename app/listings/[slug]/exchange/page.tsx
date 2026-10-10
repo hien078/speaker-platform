@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { financialFeaturesEnabled } from "@/src/lib/financial-features";
 import { formatVND } from "@/src/lib/utils";
 import { ExchangeOfferForm } from "@/src/components/exchange-offer-form";
 import { ArrowLeft, Handshake, ShieldCheck } from "lucide-react";
@@ -12,6 +13,11 @@ export const metadata = { title: "Đề nghị trao đổi" };
 export default async function ExchangeOfferPage({
   params,
 }: PageProps<"/listings/[slug]/exchange">) {
+  // Private beta (Batch 0–1): tài chính tắt mặc định — finance-only page không còn
+  // reachable. Kiểm tra ranh giới TRƯỚC mọi read/mutation; code bên dưới giữ
+  // nguyên dormant (không xóa code/dữ liệu lịch sử).
+  if (!financialFeaturesEnabled()) notFound();
+
   const { slug } = await params;
   const user = await getCurrentUser();
   if (!user) redirect("/login");

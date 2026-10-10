@@ -3,16 +3,24 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "next dev",
+    "prebuild": "prisma contract emit",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "vitest run",
+    "test:integration": "bash scripts/test-integration.sh",
+    "preflight": "bash scripts/preflight.sh",
+    "smoke": "bash scripts/smoke.sh",
+    "docker:smoke": "bash scripts/docker-smoke.sh",
     "postinstall": "prisma skills sync || exit 0",
     "contract:emit": "prisma contract emit"
   },
   "dependencies": {
-    "@prisma/client": "^7.10.0",
     "@prisma/orm-postgres": "^8.0.0-rc.13",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
@@ -20,6 +28,7 @@
     "jose": "^6.2.12",
     "lucide-react": "^1.48.0",
     "next": "16.3.7",
+    "otpauth": "9.5.2",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "sharp": "^0.35.5",
@@ -38,6 +47,7 @@
     "prisma": "^8.0.0-rc.19",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

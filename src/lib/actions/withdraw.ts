@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { db } from "@/src/prisma/db";
-import { requireUser, requireAdmin } from "@/src/lib/auth";
+import { db } from "@/src/prisma/db.client";
+import { requireUser } from "@/src/lib/auth";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { getWalletSummary } from "@/src/lib/wallet";
 import { audit } from "@/src/lib/actions/helpers";
 import { recordLedgerTx, withdrawPaid } from "@/src/lib/ledger";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
 
 export type WithdrawFormState = { error?: string };
@@ -20,6 +22,7 @@ export async function createWithdrawRequestAction(
   _prev: WithdrawFormState,
   formData: FormData,
 ): Promise<WithdrawFormState> {
+  assertFinancialFeaturesEnabled(); // rút tiền = wallet mutation — deny trước đọc ví (spec §4.1)
   const user = await requireUser();
 
   const amount = Math.round(Number(formData.get("amount") ?? 0));
@@ -65,7 +68,8 @@ export async function createWithdrawRequestAction(
 
 /** Admin xử lý: chuyển sang processing / paid / rejected */
 export async function processWithdrawAction(formData: FormData): Promise<void> {
-  const admin = await requireAdmin();
+  assertFinancialFeaturesEnabled(); // admin KHÔNG phải escape hatch (spec §4.10) — deny trước claim/ledger
+  const admin = await requireAdminUser();
   const withdrawId = String(formData.get("withdrawId") ?? "");
   const action = String(formData.get("action") ?? "");
   const adminNote = String(formData.get("adminNote") ?? "").trim() || null;
@@ -81,14 +85,18 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
   const next = statusMap[action];
   if (!next) return;
 
-  await db.orm.public.WithdrawRequest
-    .where({ id: withdrawId })
-    .update({
+  // Claim atomic trên đúng trạng thái đã đọc — 2 admin click "paid" đồng thời
+  // chỉ 1 thắng, kẻ thua KHÔNG ghi ledger withdrawPaid lần hai (double debit ví)
+  // (UPDATE ... WHERE id AND status — 1 statement atomic)
+  const claimed = await db.orm.public.WithdrawRequest
+    .where({ id: withdrawId, status: request.status })
+    .updateAll({
       status: next,
       adminNote,
-      processedById: admin.id,
+      processedById: admin.user.id,
       processedAt: new Date().toISOString(),
     });
+  if (claimed.length === 0) return; // request khác đã xử lý
 
   if (next === "paid") {
     // kiểm số dư thật lần cuối — chặn rút tiền seller chưa kiếm được
@@ -110,7 +118,7 @@ export async function processWithdrawAction(formData: FormData): Promise<void> {
     );
   }
   await audit(
-    admin.id,
+    admin.user.id,
     `withdraw_${action}`,
     "WithdrawRequest",
     withdrawId,

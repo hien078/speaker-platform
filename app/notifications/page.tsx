@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
-import { formatDate, timeAgo, cn } from "@/src/lib/utils";
+import { timeAgo, cn } from "@/src/lib/utils";
 import { markAllReadAction } from "@/src/lib/actions/notifications";
 import { Bell, HandCoins, AlertTriangle, MessageCircle, Banknote, CheckCheck } from "lucide-react";
 
@@ -55,7 +55,7 @@ export default async function NotificationsPage() {
           <span className="text-4xl">🔔</span>
           <p className="font-bold">Chưa có thông báo nào</p>
           <p className="text-sm text-[var(--muted)]">
-            Trả giá, đơn hàng, khiếu nại… sẽ hiện tại đây.
+            Thông báo về tin đăng và tài khoản của bạn sẽ hiện tại đây.
           </p>
         </div>
       ) : (

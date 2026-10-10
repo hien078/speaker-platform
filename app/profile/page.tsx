@@ -1,10 +1,16 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { listUserSessions } from "@/src/lib/session";
+import {
+  SELLER_VERIFIED_BADGE_LABEL,
+  isVerifiedSellerStatus,
+} from "@/src/lib/seller-verification-status";
 import { ProfileForm } from "@/src/components/profile-form";
-import { formatDate, formatDateShort, formatVND } from "@/src/lib/utils";
+import { VerificationPanel } from "@/src/components/verification-panel";
+import { formatDateShort } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
-import { UserRound, Package, ShoppingBag, BadgeCheck } from "lucide-react";
+import { UserRound, BadgeCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hồ sơ của tôi" };
@@ -15,6 +21,14 @@ export default async function ProfilePage() {
 
   const user = await db.orm.public.User.first({ id: session.id });
   if (!user) redirect("/login");
+
+  // Badge "đã xác minh" đọc WORKFLOW (SellerVerification.status — spec §8.2),
+  // không còn boolean legacy isVerifiedSeller (đã đóng băng từ Task 10).
+  const verification = await db.orm.public.SellerVerification.first({ userId: user.id });
+
+  // Inventory phiên active của chính mình (Task 9 — spec §5.4.2): user xem và
+  // tự thu hồi MỌI session KHÁC (revokeMyOtherSessionsAction — verification.ts).
+  const sessions = await listUserSessions(user.id);
 
   const [listingCount, completedSales, completedBuys, reviewAgg] = await Promise.all([
     db.orm.public.Listing.where({ sellerId: user.id }).aggregate((a) => ({ c: a.count() })),
@@ -40,10 +54,10 @@ export default async function ProfilePage() {
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 text-lg font-extrabold">
             {user.name}
-            {user.isVerifiedSeller && (
+            {isVerifiedSellerStatus(verification?.status) && (
               <span className="badge bg-[var(--green-soft)] text-[var(--green)]">
                 <BadgeCheck className="size-3" />
-                Đã xác minh
+                {SELLER_VERIFIED_BADGE_LABEL}
               </span>
             )}
           </p>
@@ -86,6 +100,16 @@ export default async function ProfilePage() {
           }}
         />
       </div>
+
+      {/* Xác minh danh tính + bảo mật (Batch 2 Task 6 — spec §5.3/§5.3.1) */}
+      <VerificationPanel
+        email={user.email}
+        emailVerified={user.emailVerifiedAt !== null}
+        phone={user.phone}
+        phoneVerified={user.phoneVerifiedAt !== null}
+        sessions={sessions}
+        currentSessionId={session.sessionId}
+      />
     </main>
   );
 }

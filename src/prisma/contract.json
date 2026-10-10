@@ -8,6 +8,22 @@
       "model": "AdminAuditLog",
       "namespace": "public"
     },
+    "AdminMfa": {
+      "model": "AdminMfa",
+      "namespace": "public"
+    },
+    "AdminRecoveryCode": {
+      "model": "AdminRecoveryCode",
+      "namespace": "public"
+    },
+    "AuditEvent": {
+      "model": "AuditEvent",
+      "namespace": "public"
+    },
+    "BetaCohortMembership": {
+      "model": "BetaCohortMembership",
+      "namespace": "public"
+    },
     "Brand": {
       "model": "Brand",
       "namespace": "public"
@@ -72,6 +88,10 @@
       "model": "OrderStatusHistory",
       "namespace": "public"
     },
+    "OtpCode": {
+      "model": "OtpCode",
+      "namespace": "public"
+    },
     "Payment": {
       "model": "Payment",
       "namespace": "public"
@@ -82,6 +102,10 @@
     },
     "PlatformSetting": {
       "model": "PlatformSetting",
+      "namespace": "public"
+    },
+    "PolicyAcceptance": {
+      "model": "PolicyAcceptance",
       "namespace": "public"
     },
     "PriceHistory": {
@@ -96,8 +120,16 @@
       "model": "Review",
       "namespace": "public"
     },
+    "SellerVerification": {
+      "model": "SellerVerification",
+      "namespace": "public"
+    },
     "User": {
       "model": "User",
+      "namespace": "public"
+    },
+    "UserSession": {
+      "model": "UserSession",
       "namespace": "public"
     },
     "WishlistItem": {
@@ -113,6 +145,69 @@
     "namespaces": {
       "public": {
         "enum": {
+          "admin_role": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "super_admin",
+                "value": "super_admin"
+              },
+              {
+                "name": "operations_admin",
+                "value": "operations_admin"
+              },
+              {
+                "name": "moderator",
+                "value": "moderator"
+              },
+              {
+                "name": "support",
+                "value": "support"
+              },
+              {
+                "name": "analyst",
+                "value": "analyst"
+              }
+            ]
+          },
+          "beta_cohort": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "internal",
+                "value": "internal"
+              },
+              {
+                "name": "founding_seller",
+                "value": "founding_seller"
+              },
+              {
+                "name": "private_beta_buyer",
+                "value": "private_beta_buyer"
+              }
+            ]
+          },
+          "beta_membership_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "invited",
+                "value": "invited"
+              },
+              {
+                "name": "active",
+                "value": "active"
+              },
+              {
+                "name": "suspended",
+                "value": "suspended"
+              },
+              {
+                "name": "exited",
+                "value": "exited"
+              }
+            ]
+          },
           "dispute_status": {
             "codecId": "pg/text@1",
             "members": [
@@ -275,6 +370,36 @@
               }
             ]
           },
+          "otp_channel": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "email",
+                "value": "email"
+              },
+              {
+                "name": "phone",
+                "value": "phone"
+              }
+            ]
+          },
+          "otp_purpose": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "email_verification",
+                "value": "email_verification"
+              },
+              {
+                "name": "phone_verification",
+                "value": "phone_verification"
+              },
+              {
+                "name": "password_recovery",
+                "value": "password_recovery"
+              }
+            ]
+          },
           "payment_method": {
             "codecId": "pg/text@1",
             "members": [
@@ -368,6 +493,57 @@
               {
                 "name": "for_parts",
                 "value": "for_parts"
+              }
+            ]
+          },
+          "seller_type": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "individual",
+                "value": "individual"
+              },
+              {
+                "name": "business",
+                "value": "business"
+              }
+            ]
+          },
+          "seller_verification_method": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "operations_review",
+                "value": "operations_review"
+              }
+            ]
+          },
+          "seller_verification_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "not_started",
+                "value": "not_started"
+              },
+              {
+                "name": "pending",
+                "value": "pending"
+              },
+              {
+                "name": "verified",
+                "value": "verified"
+              },
+              {
+                "name": "rejected",
+                "value": "rejected"
+              },
+              {
+                "name": "needs_review",
+                "value": "needs_review"
+              },
+              {
+                "name": "revoked",
+                "value": "revoked"
               }
             ]
           },
@@ -507,6 +683,501 @@
               },
               "namespaceId": "public",
               "table": "AdminAuditLog"
+            }
+          },
+          "AdminMfa": {
+            "fields": {
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "totpConfirmedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "totpSecretEnc": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "recoveryCodes": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "mfaId"
+                  ]
+                },
+                "to": {
+                  "model": "AdminRecoveryCode",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "totpConfirmedAt": {
+                  "column": "totpConfirmedAt"
+                },
+                "totpSecretEnc": {
+                  "column": "totpSecretEnc"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AdminMfa"
+            }
+          },
+          "AdminRecoveryCode": {
+            "fields": {
+              "codeHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "mfaId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "usedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "mfa": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "mfaId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "AdminMfa",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "codeHash": {
+                  "column": "codeHash"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "mfaId": {
+                  "column": "mfaId"
+                },
+                "usedAt": {
+                  "column": "usedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AdminRecoveryCode"
+            }
+          },
+          "AuditEvent": {
+            "fields": {
+              "action": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "actorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "detail": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "ipHash": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "policyVersion": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reason": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "resourceId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "resourceType": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sessionId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "subjectId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "actor": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "actorId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "subject": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "subjectId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "action": {
+                  "column": "action"
+                },
+                "actorId": {
+                  "column": "actorId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "detail": {
+                  "column": "detail"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "ipHash": {
+                  "column": "ipHash"
+                },
+                "policyVersion": {
+                  "column": "policyVersion"
+                },
+                "reason": {
+                  "column": "reason"
+                },
+                "resourceId": {
+                  "column": "resourceId"
+                },
+                "resourceType": {
+                  "column": "resourceType"
+                },
+                "sessionId": {
+                  "column": "sessionId"
+                },
+                "subjectId": {
+                  "column": "subjectId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AuditEvent"
+            }
+          },
+          "BetaCohortMembership": {
+            "fields": {
+              "acceptedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "cohort": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "beta_cohort",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "invitedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "invitedBy": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "notes": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "beta_membership_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "acceptedAt": {
+                  "column": "acceptedAt"
+                },
+                "cohort": {
+                  "column": "cohort"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "invitedAt": {
+                  "column": "invitedAt"
+                },
+                "invitedBy": {
+                  "column": "invitedBy"
+                },
+                "notes": {
+                  "column": "notes"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "BetaCohortMembership"
             }
           },
           "Brand": {
@@ -2802,6 +3473,146 @@
               "table": "OrderStatusHistory"
             }
           },
+          "OtpCode": {
+            "fields": {
+              "attempts": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "channel": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "otp_channel",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "codeHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "consumedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "purpose": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "otp_purpose",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "target": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "attempts": {
+                  "column": "attempts"
+                },
+                "channel": {
+                  "column": "channel"
+                },
+                "codeHash": {
+                  "column": "codeHash"
+                },
+                "consumedAt": {
+                  "column": "consumedAt"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "purpose": {
+                  "column": "purpose"
+                },
+                "target": {
+                  "column": "target"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "OtpCode"
+            }
+          },
           "Payment": {
             "fields": {
               "amount": {
@@ -3117,6 +3928,84 @@
               },
               "namespaceId": "public",
               "table": "PlatformSetting"
+            }
+          },
+          "PolicyAcceptance": {
+            "fields": {
+              "acceptedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "policyKey": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "policyVersion": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "acceptedAt": {
+                  "column": "acceptedAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "policyKey": {
+                  "column": "policyKey"
+                },
+                "policyVersion": {
+                  "column": "policyVersion"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "PolicyAcceptance"
             }
           },
           "PriceHistory": {
@@ -3553,8 +4442,181 @@
               "table": "Review"
             }
           },
+          "SellerVerification": {
+            "fields": {
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "method": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "seller_verification_method",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "policyVersion": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reasonCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reviewedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "reviewerId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "seller_verification_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "submittedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "method": {
+                  "column": "method"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "policyVersion": {
+                  "column": "policyVersion"
+                },
+                "reasonCode": {
+                  "column": "reasonCode"
+                },
+                "reviewedAt": {
+                  "column": "reviewedAt"
+                },
+                "reviewerId": {
+                  "column": "reviewerId"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "submittedAt": {
+                  "column": "submittedAt"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "SellerVerification"
+            }
+          },
           "User": {
             "fields": {
+              "adminRole": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "admin_role",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
               "avatarUrl": {
                 "nullable": true,
                 "type": {
@@ -3587,6 +4649,13 @@
                 "nullable": false,
                 "type": {
                   "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "emailVerifiedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
                   "kind": "scalar"
                 }
               },
@@ -3625,6 +4694,13 @@
                   "kind": "scalar"
                 }
               },
+              "phoneVerifiedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
               "role": {
                 "nullable": false,
                 "type": {
@@ -3638,6 +4714,26 @@
                   "plane": "domain"
                 }
               },
+              "sellerOperatingProvinceCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sellerType": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "seller_type",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
               "updatedAt": {
                 "nullable": false,
                 "type": {
@@ -3647,6 +4743,52 @@
               }
             },
             "relations": {
+              "adminMfa": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "AdminMfa",
+                  "namespace": "public"
+                }
+              },
+              "auditEventsActor": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "actorId"
+                  ]
+                },
+                "to": {
+                  "model": "AuditEvent",
+                  "namespace": "public"
+                }
+              },
+              "auditEventsSubject": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "subjectId"
+                  ]
+                },
+                "to": {
+                  "model": "AuditEvent",
+                  "namespace": "public"
+                }
+              },
               "auditLogs": {
                 "cardinality": "1:N",
                 "on": {
@@ -3659,6 +4801,21 @@
                 },
                 "to": {
                   "model": "AdminAuditLog",
+                  "namespace": "public"
+                }
+              },
+              "betaMemberships": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "BetaCohortMembership",
                   "namespace": "public"
                 }
               },
@@ -3767,6 +4924,21 @@
                   "namespace": "public"
                 }
               },
+              "otpCodes": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "OtpCode",
+                  "namespace": "public"
+                }
+              },
               "payouts": {
                 "cardinality": "1:N",
                 "on": {
@@ -3779,6 +4951,21 @@
                 },
                 "to": {
                   "model": "Payout",
+                  "namespace": "public"
+                }
+              },
+              "policyAcceptances": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "PolicyAcceptance",
                   "namespace": "public"
                 }
               },
@@ -3857,6 +5044,22 @@
                   "namespace": "public"
                 }
               },
+              "sellerVerification": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "SellerVerification",
+                  "namespace": "public"
+                }
+              },
               "sentMessages": {
                 "cardinality": "1:N",
                 "on": {
@@ -3869,6 +5072,21 @@
                 },
                 "to": {
                   "model": "Message",
+                  "namespace": "public"
+                }
+              },
+              "sessions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "UserSession",
                   "namespace": "public"
                 }
               },
@@ -3905,6 +5123,9 @@
             },
             "storage": {
               "fields": {
+                "adminRole": {
+                  "column": "adminRole"
+                },
                 "avatarUrl": {
                   "column": "avatarUrl"
                 },
@@ -3919,6 +5140,9 @@
                 },
                 "email": {
                   "column": "email"
+                },
+                "emailVerifiedAt": {
+                  "column": "emailVerifiedAt"
                 },
                 "id": {
                   "column": "id"
@@ -3935,8 +5159,17 @@
                 "phone": {
                   "column": "phone"
                 },
+                "phoneVerifiedAt": {
+                  "column": "phoneVerifiedAt"
+                },
                 "role": {
                   "column": "role"
+                },
+                "sellerOperatingProvinceCode": {
+                  "column": "sellerOperatingProvinceCode"
+                },
+                "sellerType": {
+                  "column": "sellerType"
                 },
                 "updatedAt": {
                   "column": "updatedAt"
@@ -3944,6 +5177,144 @@
               },
               "namespaceId": "public",
               "table": "User"
+            }
+          },
+          "UserSession": {
+            "fields": {
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "isAdmin": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "lastSeenAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "revokedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "revokedReason": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "steppedUpAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "tokenHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userAgent": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "isAdmin": {
+                  "column": "isAdmin"
+                },
+                "lastSeenAt": {
+                  "column": "lastSeenAt"
+                },
+                "revokedAt": {
+                  "column": "revokedAt"
+                },
+                "revokedReason": {
+                  "column": "revokedReason"
+                },
+                "steppedUpAt": {
+                  "column": "steppedUpAt"
+                },
+                "tokenHash": {
+                  "column": "tokenHash"
+                },
+                "userAgent": {
+                  "column": "userAgent"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "UserSession"
             }
           },
           "WishlistItem": {
@@ -4294,6 +5665,450 @@
                 ]
               },
               "uniques": []
+            },
+            "AdminMfa": {
+              "columns": {
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "totpConfirmedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "totpSecretEnc": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AdminMfa"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId"
+                  ]
+                }
+              ]
+            },
+            "AdminRecoveryCode": {
+              "columns": {
+                "codeHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "mfaId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "usedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "mfaId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AdminRecoveryCode"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AdminMfa"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "mfaId"
+                  ],
+                  "name": "AdminRecoveryCode_mfaId_idx_ee734963",
+                  "prefix": "AdminRecoveryCode_mfaId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "mfaId",
+                    "usedAt"
+                  ],
+                  "name": "AdminRecoveryCode_mfaId_usedAt_idx_80410bb6",
+                  "prefix": "AdminRecoveryCode_mfaId_usedAt_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "AuditEvent": {
+              "columns": {
+                "action": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "actorId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "detail": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "ipHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "policyVersion": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "reason": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "resourceId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "resourceType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sessionId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "subjectId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "actorId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AuditEvent"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "subjectId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AuditEvent"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "action",
+                    "createdAt"
+                  ],
+                  "name": "AuditEvent_action_createdAt_idx_a6d20b4b",
+                  "prefix": "AuditEvent_action_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "actorId",
+                    "createdAt"
+                  ],
+                  "name": "AuditEvent_actorId_createdAt_idx_0e9f1adf",
+                  "prefix": "AuditEvent_actorId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "actorId"
+                  ],
+                  "name": "AuditEvent_actorId_idx_a58f6b4b",
+                  "prefix": "AuditEvent_actorId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "subjectId",
+                    "createdAt"
+                  ],
+                  "name": "AuditEvent_subjectId_createdAt_idx_7aaee74d",
+                  "prefix": "AuditEvent_subjectId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "subjectId"
+                  ],
+                  "name": "AuditEvent_subjectId_idx_84df2a1d",
+                  "prefix": "AuditEvent_subjectId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "BetaCohortMembership": {
+              "checks": [
+                {
+                  "expression": "\"cohort\" IN ('internal', 'founding_seller', 'private_beta_buyer')",
+                  "name": "BetaCohortMembership_cohort_check_008d7f38",
+                  "prefix": "BetaCohortMembership_cohort_check"
+                },
+                {
+                  "expression": "\"status\" IN ('invited', 'active', 'suspended', 'exited')",
+                  "name": "BetaCohortMembership_status_check_c34e9cfa",
+                  "prefix": "BetaCohortMembership_status_check"
+                }
+              ],
+              "columns": {
+                "acceptedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "cohort": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "beta_cohort",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "invitedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "invitedBy": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "notes": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "invited"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "beta_membership_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "BetaCohortMembership"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "cohort",
+                    "status"
+                  ],
+                  "name": "BetaCohortMembership_cohort_status_idx_7712340b",
+                  "prefix": "BetaCohortMembership_cohort_status_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "BetaCohortMembership_userId_idx_a489d58a",
+                  "prefix": "BetaCohortMembership_userId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId",
+                    "cohort"
+                  ]
+                }
+              ]
             },
             "Brand": {
               "columns": {
@@ -6210,6 +8025,155 @@
               },
               "uniques": []
             },
+            "OtpCode": {
+              "checks": [
+                {
+                  "expression": "\"channel\" IN ('email', 'phone')",
+                  "name": "OtpCode_channel_check_d360ded9",
+                  "prefix": "OtpCode_channel_check"
+                },
+                {
+                  "expression": "\"purpose\" IN ('email_verification', 'phone_verification', 'password_recovery')",
+                  "name": "OtpCode_purpose_check_e0deb69d",
+                  "prefix": "OtpCode_purpose_check"
+                }
+              ],
+              "columns": {
+                "attempts": {
+                  "codecId": "pg/int4@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": 0
+                  },
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "channel": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "otp_channel",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "codeHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "consumedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "purpose": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "otp_purpose",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "target": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "OtpCode"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "expiresAt"
+                  ],
+                  "name": "OtpCode_expiresAt_idx_6b6b8c10",
+                  "prefix": "OtpCode_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "target",
+                    "purpose",
+                    "createdAt"
+                  ],
+                  "name": "OtpCode_target_purpose_createdAt_idx_d7415d45",
+                  "prefix": "OtpCode_target_purpose_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "OtpCode_userId_idx_a489d58a",
+                  "prefix": "OtpCode_userId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "purpose",
+                    "createdAt"
+                  ],
+                  "name": "OtpCode_userId_purpose_createdAt_idx_8932d08c",
+                  "prefix": "OtpCode_userId_purpose_createdAt_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "Payment": {
               "checks": [
                 {
@@ -6508,6 +8472,91 @@
                 ]
               },
               "uniques": []
+            },
+            "PolicyAcceptance": {
+              "columns": {
+                "acceptedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "policyKey": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "policyVersion": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "PolicyAcceptance"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "PolicyAcceptance_userId_idx_a489d58a",
+                  "prefix": "PolicyAcceptance_userId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "policyKey"
+                  ],
+                  "name": "PolicyAcceptance_userId_policyKey_idx_82b249a3",
+                  "prefix": "PolicyAcceptance_userId_policyKey_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId",
+                    "policyKey",
+                    "policyVersion"
+                  ]
+                }
+              ]
             },
             "PriceHistory": {
               "checks": [
@@ -6899,15 +8948,177 @@
                 }
               ]
             },
+            "SellerVerification": {
+              "checks": [
+                {
+                  "expression": "\"method\" IN ('operations_review')",
+                  "name": "SellerVerification_method_check_b1d86172",
+                  "prefix": "SellerVerification_method_check"
+                },
+                {
+                  "expression": "\"status\" IN ('not_started', 'pending', 'verified', 'rejected', 'needs_review', 'revoked')",
+                  "name": "SellerVerification_status_check_152ba99e",
+                  "prefix": "SellerVerification_status_check"
+                }
+              ],
+              "columns": {
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "method": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "operations_review"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "seller_verification_method",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "policyVersion": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "reasonCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "reviewedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "reviewerId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "pending"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "seller_verification_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "submittedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "SellerVerification"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "status",
+                    "updatedAt"
+                  ],
+                  "name": "SellerVerification_status_updatedAt_idx_29f913bb",
+                  "prefix": "SellerVerification_status_updatedAt_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "userId"
+                  ]
+                }
+              ]
+            },
             "User": {
               "checks": [
+                {
+                  "expression": "\"adminRole\" IN ('super_admin', 'operations_admin', 'moderator', 'support', 'analyst')",
+                  "name": "User_adminRole_check_207534e1",
+                  "prefix": "User_adminRole_check"
+                },
                 {
                   "expression": "\"role\" IN ('buyer', 'seller', 'admin')",
                   "name": "User_role_check_d9d3d934",
                   "prefix": "User_role_check"
+                },
+                {
+                  "expression": "\"sellerType\" IN ('individual', 'business')",
+                  "name": "User_sellerType_check_acee2066",
+                  "prefix": "User_sellerType_check"
                 }
               ],
               "columns": {
+                "adminRole": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "admin_role",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
                 "avatarUrl": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
@@ -6936,6 +9147,11 @@
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": false
+                },
+                "emailVerifiedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
                 },
                 "id": {
                   "codecId": "pg/text@1",
@@ -6966,6 +9182,11 @@
                   "nativeType": "text",
                   "nullable": true
                 },
+                "phoneVerifiedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
                 "role": {
                   "codecId": "pg/text@1",
                   "default": {
@@ -6977,6 +9198,22 @@
                   "valueSet": {
                     "entityKind": "valueSet",
                     "entityName": "user_role",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "sellerOperatingProvinceCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sellerType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "seller_type",
                     "namespaceId": "public",
                     "plane": "storage"
                   }
@@ -7007,6 +9244,131 @@
                 {
                   "columns": [
                     "email"
+                  ]
+                }
+              ]
+            },
+            "UserSession": {
+              "columns": {
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "isAdmin": {
+                  "codecId": "pg/bool@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": false
+                  },
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "lastSeenAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "revokedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "revokedReason": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "steppedUpAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "tokenHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "userAgent": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserSession"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "expiresAt"
+                  ],
+                  "name": "UserSession_expiresAt_idx_6b6b8c10",
+                  "prefix": "UserSession_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "createdAt"
+                  ],
+                  "name": "UserSession_userId_createdAt_idx_f726f04a",
+                  "prefix": "UserSession_userId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "UserSession_userId_idx_a489d58a",
+                  "prefix": "UserSession_userId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "tokenHash"
                   ]
                 }
               ]
@@ -7268,6 +9630,33 @@
             }
           },
           "valueSet": {
+            "admin_role": {
+              "kind": "valueSet",
+              "values": [
+                "super_admin",
+                "operations_admin",
+                "moderator",
+                "support",
+                "analyst"
+              ]
+            },
+            "beta_cohort": {
+              "kind": "valueSet",
+              "values": [
+                "internal",
+                "founding_seller",
+                "private_beta_buyer"
+              ]
+            },
+            "beta_membership_status": {
+              "kind": "valueSet",
+              "values": [
+                "invited",
+                "active",
+                "suspended",
+                "exited"
+              ]
+            },
             "dispute_status": {
               "kind": "valueSet",
               "values": [
@@ -7331,6 +9720,21 @@
                 "disputed"
               ]
             },
+            "otp_channel": {
+              "kind": "valueSet",
+              "values": [
+                "email",
+                "phone"
+              ]
+            },
+            "otp_purpose": {
+              "kind": "valueSet",
+              "values": [
+                "email_verification",
+                "phone_verification",
+                "password_recovery"
+              ]
+            },
             "payment_method": {
               "kind": "valueSet",
               "values": [
@@ -7370,6 +9774,30 @@
                 "for_parts"
               ]
             },
+            "seller_type": {
+              "kind": "valueSet",
+              "values": [
+                "individual",
+                "business"
+              ]
+            },
+            "seller_verification_method": {
+              "kind": "valueSet",
+              "values": [
+                "operations_review"
+              ]
+            },
+            "seller_verification_status": {
+              "kind": "valueSet",
+              "values": [
+                "not_started",
+                "pending",
+                "verified",
+                "rejected",
+                "needs_review",
+                "revoked"
+              ]
+            },
             "user_role": {
               "kind": "valueSet",
               "values": [
@@ -7393,10 +9821,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "7a6d2852c760b1265b539fc21c77fe33c6b83827ec12bc79495ecf5281c3cdf4"
+    "storageHash": "0ed42b4563bdd21ef0c4fd0af28cd764edfcf464e419207721dbb15fd12b8e64"
   },
   "execution": {
-    "executionHash": "3cb44ad8de3cdf50e30d02864e96aea9b2ff604457032f24be90408828903fff",
+    "executionHash": "1a2730b3378c4e3c05e3db749d0808aabb404a88facdd6873d56c6b320f24950",
     "mutations": {
       "defaults": [
         {
@@ -7407,6 +9835,80 @@
           "ref": {
             "entry": "AdminAuditLog",
             "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AdminMfa",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AdminMfa",
+            "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AdminRecoveryCode",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AuditEvent",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "BetaCohortMembership",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "BetaCohortMembership",
+            "field": "updatedAt",
             "namespace": "public"
           }
         },
@@ -7637,6 +10139,17 @@
             "kind": "generator"
           },
           "ref": {
+            "entry": "OtpCode",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
             "entry": "Payment",
             "field": "id",
             "namespace": "public"
@@ -7665,6 +10178,17 @@
           "ref": {
             "entry": "PlatformSetting",
             "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "PolicyAcceptance",
+            "field": "id",
             "namespace": "public"
           }
         },
@@ -7722,6 +10246,32 @@
             "kind": "generator"
           },
           "ref": {
+            "entry": "SellerVerification",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "SellerVerification",
+            "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
             "entry": "User",
             "field": "id",
             "namespace": "public"
@@ -7739,6 +10289,17 @@
           "ref": {
             "entry": "User",
             "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "UserSession",
+            "field": "id",
             "namespace": "public"
           }
         },

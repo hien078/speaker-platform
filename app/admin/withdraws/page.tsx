@@ -1,7 +1,8 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
+import { requireAdminUser } from "@/src/lib/rbac";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
-import { processWithdrawAction } from "@/src/lib/actions/withdraw";
-import { Banknote, LoaderCircle } from "lucide-react";
+import { DormantFinanceNotice } from "../dormant-notice";
+import { Banknote } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Rút tiền" };
@@ -21,6 +22,9 @@ const STATUS_BADGE: Record<string, string> = {
 };
 
 export default async function AdminWithdrawsPage() {
+  // Guard server-side (spec §4.5) — view finance lịch sử: bất kỳ adminRole
+  // (read-only historical, Batch 1 posture — plan Task 4).
+  await requireAdminUser();
   const requests = await db.orm.public.WithdrawRequest
     .include("seller", (s) => s.select("name", "email", "phone", "isVerifiedSeller"))
     .orderBy((w) => w.createdAt.desc())
@@ -41,13 +45,18 @@ export default async function AdminWithdrawsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight">
           <Banknote className="size-6 text-[var(--accent)]" />
-          Duyệt rút tiền
+          Rút tiền
         </h1>
         <p className="text-sm text-[var(--muted)]">
           Chờ duyệt: <b className="text-[var(--accent)]">{pendingCount}</b> ·{" "}
           <b className="text-[var(--accent)]">{formatVND(pendingTotal)}</b>
         </p>
       </div>
+
+      {/* Yêu cầu rút tiền lịch sử — chỉ đọc khi tài chính tắt (plan Task 5):
+          control xử lý đã bỏ khỏi UI; action dưới đáy vẫn deny server-side
+          với FINANCIAL_FEATURES_DISABLED (spec §4.10). */}
+      <DormantFinanceNotice />
 
       {requests.length === 0 ? (
         <div className="card mt-8 grid place-items-center gap-2 p-16 text-center">
@@ -106,35 +115,8 @@ export default async function AdminWithdrawsPage() {
                 </p>
               )}
 
-              {["requested", "processing"].includes(r.status) && (
-                <form action={processWithdrawAction} className="mt-4 space-y-2.5 border-t border-[var(--line)] pt-4">
-                  <input type="hidden" name="withdrawId" value={r.id} />
-                  <input
-                    name="adminNote"
-                    className="input text-sm"
-                    placeholder="Ghi chú xử lý (tùy chọn) — vd: đã chuyển khoản lúc 14h"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {r.status === "requested" && (
-                      <button type="submit" name="action" value="processing" className="btn-secondary h-9 flex-1 text-sm">
-                        <LoaderCircle className="size-4" />
-                        Đang chuyển khoản
-                      </button>
-                    )}
-                    <button type="submit" name="action" value="paid" className="btn-primary h-9 flex-1 text-sm">
-                      ✓ Đã chuyển khoản xong
-                    </button>
-                    <button
-                      type="submit"
-                      name="action"
-                      value="reject"
-                      className="btn h-9 flex-1 border border-[var(--red)]/35 bg-[var(--red-soft)] text-sm text-[var(--red)] transition hover:bg-[var(--red-soft)]"
-                    >
-                      Từ chối
-                    </button>
-                  </div>
-                </form>
-              )}
+              {/* Form xử lý đã bỏ (plan Task 5) — bản ghi lịch sử chỉ đọc,
+                  không duyệt/chuyển khoản/từ chối. */}
             </div>
           ))}
         </div>

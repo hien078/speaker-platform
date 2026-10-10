@@ -2,10 +2,10 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "LoaViet — Chợ trung gian mua bán & trao đổi loa",
+    name: "LoaViet — Chợ loa secondhand & mới (beta)",
     short_name: "LoaViet",
     description:
-      "Nền tảng trung gian mua bán, trao đổi loa và thiết bị âm thanh. Escrow bảo vệ người mua, hoa hồng minh bạch cho người bán.",
+      "Nền tảng đăng tin mua bán, trao đổi loa và thiết bị âm thanh. Người mua và người bán tự thỏa thuận qua chat — LoaViet không giữ tiền và không bảo đảm giao dịch.",
     start_url: "/",
     display: "standalone",
     background_color: "#07070e",

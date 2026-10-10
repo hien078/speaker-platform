@@ -1,16 +1,32 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
-import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
+import { db } from "@/src/prisma/db.client";
+import { requireCapability, capabilitiesOf } from "@/src/lib/rbac";
+import { formatDateShort, cn } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
-import { toggleSellerVerificationAction } from "@/src/lib/actions/admin";
-import { Users, BadgeCheck, Search } from "lucide-react";
+import { setBetaMembershipAction } from "@/src/lib/actions/beta-cohort";
+import { revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
+import { Users, BadgeCheck, Search, History } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Quản trị — Người dùng" };
 
+/**
+ * Batch 2 Task 10 (spec §8.2/§2.1/§8.4): cột "Xác minh" giờ là hiển thị
+ * LEGACY (User.isVerifiedSeller — badge "legacy", KHÔNG còn nút mutate; workflow
+ * SellerVerification là canonical). Thao tác trên từng user:
+ *  - founding_seller membership grant/suspend (setBetaMembershipAction —
+ *    beta_cohort.manage; nút lọc theo capability là CONVENIENCE, action tự guard);
+ *  - link sang hàng đợi review /admin/seller-verification?q=<userId>;
+ *  - thu hồi phiên (Task 9).
+ */
 export default async function AdminUsersPage({
   searchParams,
 }: PageProps<"/admin/users">) {
+  // Guard server-side (spec §4.5) — user.view_basic: super/ops (ma trận §5.4.1).
+  const admin = await requireCapability("user.view_basic");
+  // Nút lọc theo capability — CONVENIENCE (spec §4.5); action tự requireCapability.
+  const canRevokeSessions = capabilitiesOf(admin.user.adminRole).includes("session.revoke");
+  const canManageCohort = capabilitiesOf(admin.user.adminRole).includes("beta_cohort.manage");
   const sp = (await searchParams) as { q?: string; role?: string };
   const q = sp.q?.trim() ?? "";
   type UserRole = "buyer" | "seller" | "admin";
@@ -40,17 +56,23 @@ export default async function AdminUsersPage({
     users = [...users, ...byName.filter((u) => !seen.has(u.id))];
   }
 
-  // đếm listing & đơn của từng user (hiển thị nhanh)
+  // đếm listing & đơn + founding_seller membership của từng user (hiển thị nhanh)
   const enriched = await Promise.all(
     users.map(async (u) => {
-      const [listings, orders] = await Promise.all([
+      const [listings, orders, founding] = await Promise.all([
         db.orm.public.Listing.where({ sellerId: u.id }).aggregate((a) => ({ c: a.count() })),
         db.orm.public.Order
           .where({ sellerId: u.id })
           .where({ status: "completed" })
           .aggregate((a) => ({ c: a.count() })),
+        db.orm.public.BetaCohortMembership.first({ userId: u.id, cohort: "founding_seller" }),
       ]);
-      return { ...u, listingCount: listings.c, completedSales: orders.c };
+      return {
+        ...u,
+        listingCount: listings.c,
+        completedSales: orders.c,
+        foundingStatus: founding?.status ?? null,
+      };
     }),
   );
 
@@ -85,7 +107,8 @@ export default async function AdminUsersPage({
               <th>Khu vực</th>
               <th>Tin đăng</th>
               <th>Đã bán</th>
-              <th>Xác minh</th>
+              <th>Xác minh (legacy)</th>
+              <th>founding_seller</th>
               <th>Tham gia</th>
               <th></th>
             </tr>
@@ -93,7 +116,7 @@ export default async function AdminUsersPage({
           <tbody>
             {enriched.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-10 text-center text-[var(--muted)]">Không tìm thấy người dùng</td>
+                <td colSpan={9} className="py-10 text-center text-[var(--muted)]">Không tìm thấy người dùng</td>
               </tr>
             ) : (
               enriched.map((u) => (
@@ -120,29 +143,77 @@ export default async function AdminUsersPage({
                       <span className="badge bg-[var(--green-soft)] text-[var(--green)]">
                         <BadgeCheck className="size-3" />
                         Đã xác minh
+                        <span className="ml-1 rounded bg-black/10 px-1 text-[9px] uppercase">legacy</span>
                       </span>
                     ) : (
                       <span className="badge bg-[var(--paper-deep)] text-[var(--ink-2)]">Chưa</span>
                     )}
                   </td>
+                  <td>
+                    <span className={cn(
+                      "badge",
+                      u.foundingStatus === "active" ? "bg-[var(--green-soft)] text-[var(--green)]" :
+                      u.foundingStatus ? "bg-amber-500/15 text-amber-600" :
+                      "bg-[var(--paper-deep)] text-[var(--ink-2)]",
+                    )}>
+                      {u.foundingStatus ?? "—"}
+                    </span>
+                  </td>
                   <td className="whitespace-nowrap text-xs text-[var(--muted)]">{formatDateShort(u.createdAt)}</td>
                   <td>
-                    {u.role !== "admin" && (
-                      <form action={toggleSellerVerificationAction}>
-                        <input type="hidden" name="userId" value={u.id} />
-                        <button
-                          type="submit"
-                          className={cn(
-                            "btn h-8 px-3 text-xs",
-                            u.isVerifiedSeller
-                              ? "bg-[var(--paper-deep)] text-[var(--ink-2)] hover:bg-zinc-600"
-                              : "bg-[var(--green)] text-white hover:opacity-90",
+                    <div className="flex flex-col gap-1.5">
+                      <Link
+                        href={`/admin/seller-verification?q=${u.id}`}
+                        className="btn-secondary flex h-8 items-center gap-1 px-3 text-xs"
+                        title="Xem hồ sơ SellerVerification của người dùng này"
+                      >
+                        <History className="size-3.5" />
+                        Hồ sơ xác minh
+                      </Link>
+                      {canManageCohort && (
+                        <>
+                          {u.foundingStatus !== "active" ? (
+                            <form action={setBetaMembershipAction}>
+                              <input type="hidden" name="userId" value={u.id} />
+                              <input type="hidden" name="cohort" value="founding_seller" />
+                              <input type="hidden" name="status" value="active" />
+                              <button
+                                type="submit"
+                                className="btn h-8 bg-[var(--green)] px-3 text-xs text-white hover:opacity-90"
+                                title="Cấp founding_seller active — điều kiện publication (spec §2.1)"
+                              >
+                                Cấp founding_seller
+                              </button>
+                            </form>
+                          ) : (
+                            <form action={setBetaMembershipAction}>
+                              <input type="hidden" name="userId" value={u.id} />
+                              <input type="hidden" name="cohort" value="founding_seller" />
+                              <input type="hidden" name="status" value="suspended" />
+                              <button
+                                type="submit"
+                                className="btn h-8 bg-[var(--paper-deep)] px-3 text-xs text-[var(--ink-2)] hover:bg-zinc-600"
+                                title="Tạm dừng founding_seller — chặn publication NGAY (gate đọc FRESH)"
+                              >
+                                Tạm dừng
+                              </button>
+                            </form>
                           )}
-                        >
-                          {u.isVerifiedSeller ? "Bỏ xác minh" : "Xác minh seller"}
-                        </button>
-                      </form>
-                    )}
+                        </>
+                      )}
+                      {canRevokeSessions && (
+                        <form action={revokeAllUserSessionsAction}>
+                          <input type="hidden" name="userId" value={u.id} />
+                          <button
+                            type="submit"
+                            className="btn h-8 bg-[var(--paper-deep)] px-3 text-xs text-[var(--ink-2)] hover:bg-zinc-600"
+                            title="Đăng xuất mọi thiết bị của người dùng này (audit session.revoked_all)"
+                          >
+                            Thu hồi phiên
+                          </button>
+                        </form>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))

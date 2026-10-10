@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
 import { verifyMomoCallback, type MomoCallbackBody } from "@/src/lib/momo";
 import { markEscrowPaid, markExchangeTopupPaid } from "@/src/lib/escrow";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Kết quả thanh toán MoMo" };
@@ -14,6 +14,11 @@ export const metadata = { title: "Kết quả thanh toán MoMo" };
 export default async function MomoReturnPage({
   searchParams,
 }: PageProps<"/payments/momo/return">) {
+  // Ranh giới tài chính TRƯỚC mọi thứ: khi tắt, KHÔNG verify-then-mutate escrow
+  // và KHÔNG redirect vào flow finance sống (spec §4.1, §5.1) — throw mã ổn định
+  // → error boundary = "unavailable", không có trạng thái nào bị đổi.
+  assertFinancialFeaturesEnabled();
+
   const sp = (await searchParams) as Record<string, string>;
 
   const body: MomoCallbackBody = {

@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticRoutes: MetadataRoute.Sitemap = [
     { url: base, changeFrequency: "daily", priority: 1 },
     { url: `${base}/listings`, changeFrequency: "hourly", priority: 0.9 },
-    { url: `${base}/listings?exchange=1`, changeFrequency: "daily", priority: 0.7 },
     { url: `${base}/compare`, changeFrequency: "weekly", priority: 0.5 },
     { url: `${base}/login`, priority: 0.3 },
     { url: `${base}/register`, priority: 0.3 },

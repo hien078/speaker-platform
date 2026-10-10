@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { requireUser } from "@/src/lib/auth";
 import { computeCommission } from "@/src/lib/utils";
 import { recordLedgerTx, escrowIn, escrowRelease } from "@/src/lib/ledger";
+import { assertMockPaymentsAllowed } from "@/src/lib/mock-payment";
+import { assertFinancialFeaturesEnabled } from "@/src/lib/financial-features";
 import { notify } from "@/src/lib/notify";
-
-const AUTO_RELEASE_DAYS = Number(process.env.ESCROW_AUTO_RELEASE_DAYS ?? 7);
 
 export type ExchangeFormState = { error?: string };
 
@@ -21,6 +21,7 @@ export async function createExchangeOfferAction(
   _prev: ExchangeFormState,
   formData: FormData,
 ): Promise<ExchangeFormState> {
+  assertFinancialFeaturesEnabled(); // tiền bù escrow = finance (spec §4.1)
   const user = await requireUser();
 
   const listingId = String(formData.get("listingId") ?? "");
@@ -50,7 +51,7 @@ export async function createExchangeOfferAction(
     return { error: "Tiền bù tối thiểu 50.000₫ (hoặc để 0 nếu không bù tiền)" };
   }
 
-  const offer = await db.orm.public.ExchangeOffer.create({
+  await db.orm.public.ExchangeOffer.create({
     listingId,
     buyerId: user.id,
     myListingId,
@@ -79,6 +80,7 @@ export async function createExchangeOfferAction(
 
 /** Seller chấp nhận / từ chối đề nghị */
 export async function respondExchangeOfferAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // accept mở luồng nạp tiền bù escrow — spec §4.1
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
   const response = String(formData.get("response") ?? "");
@@ -111,6 +113,8 @@ export async function respondExchangeOfferAction(formData: FormData): Promise<vo
 
 /** Buyer nạp tiền bù vào escrow (mock cổng) */
 export async function payExchangeTopupAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // tài chính tắt → deny TRƯỚC mock guard (spec §4.1)
+  assertMockPaymentsAllowed(); // guard server-side — tiền thật không được "mô phỏng"
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 
@@ -143,6 +147,7 @@ export async function payExchangeTopupAction(formData: FormData): Promise<void> 
 
 /** Hoàn tất trao đổi — giải ngân tiền bù cho seller (trừ hoa hồng trên tiền bù) */
 export async function completeExchangeAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // giải ngân + payout + ledger — spec §4.1
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 
@@ -194,6 +199,7 @@ export async function completeExchangeAction(formData: FormData): Promise<void> 
 
 /** Hủy đề nghị (buyer rút trước khi chấp nhận) */
 export async function cancelExchangeOfferAction(formData: FormData): Promise<void> {
+  assertFinancialFeaturesEnabled(); // cùng ranh giới domain trao đổi có tiền bù (spec §4.1)
   const user = await requireUser();
   const offerId = String(formData.get("offerId") ?? "");
 

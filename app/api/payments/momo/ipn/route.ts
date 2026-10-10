@@ -1,6 +1,12 @@
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { verifyMomoCallback, type MomoCallbackBody } from "@/src/lib/momo";
 import { markEscrowPaid, markExchangeTopupPaid } from "@/src/lib/escrow";
+import { rateLimitRequest } from "@/src/lib/rate-limit";
+import { captureError } from "@/src/lib/observability";
+import {
+  FINANCIAL_FEATURES_DISABLED,
+  financialFeaturesEnabled,
+} from "@/src/lib/financial-features";
 
 /**
  * POST /api/payments/momo/ipn — webhook server-to-server từ MoMo.
@@ -8,11 +14,38 @@ import { markEscrowPaid, markExchangeTopupPaid } from "@/src/lib/escrow";
  * MoMo yêu cầu response 204 khi xử lý thành công.
  */
 export async function POST(request: Request) {
-  const body = (await request.json()) as MomoCallbackBody;
+  // Ranh giới tài chính TRƯỚC mọi thứ: khi tắt, KHÔNG parse payload provider
+  // (kể cả hợp lệ) rồi mutate escrow — typed fail closed (spec §4.1, §5.1).
+  // 503 + mã ổn định: provider retry an toàn, không ack công việc chưa làm.
+  if (!financialFeaturesEnabled()) {
+    return Response.json({ error: FINANCIAL_FEATURES_DISABLED }, { status: 503 });
+  }
+
+  // MoMo retry khi lỗi — limit rộng, chỉ chặn flood (fail open theo rateLimitRequest)
+  const limited = await rateLimitRequest(request, "momo:ipn", {
+    limit: 60,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
+
+  let body: MomoCallbackBody;
+  try {
+    body = (await request.json()) as MomoCallbackBody;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return new Response(null, { status: 400 });
+    }
+  } catch {
+    // body không phải JSON — 400 thay vì để throw thành 500 unhandled
+    return new Response(null, { status: 400 });
+  }
 
   // 1. verify chữ ký — chặn webhook giả mạo
   if (!verifyMomoCallback(body)) {
-    console.warn("[momo:ipn] INVALID_SIGNATURE", JSON.stringify(body).slice(0, 300));
+    // KHÔNG log body — callback chưa xác thực là dữ liệu ngoài, có thể nhồi gì cũng được
+    captureError("momo:ipn", new Error("INVALID_SIGNATURE"), {
+      orderId: body.orderId,
+      resultCode: body.resultCode,
+    });
     return new Response(null, { status: 401 });
   }
 
@@ -46,7 +79,7 @@ export async function POST(request: Request) {
       await markExchangeTopupPaid(offerId, providerTxnId, "momo");
     }
   } catch (e) {
-    console.error("[momo:ipn] PROCESS_ERROR", e);
+    captureError("momo:ipn", e, { orderId: momoOrderId });
     return new Response(null, { status: 500 });
   }
 

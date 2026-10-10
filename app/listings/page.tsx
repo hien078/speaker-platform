@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { db } from "@/src/prisma/db";
-import { ListingCard, getListingCards, type ListingSort } from "@/src/components/listing-card";
+import { db } from "@/src/prisma/db.client";
+import { ListingCard, type ListingSort } from "@/src/components/listing-card";
 import { CITIES, CONDITION_LABELS } from "@/src/lib/constants";
 import { websearchToTsquery } from "@prisma/orm-postgres/target/full-text";
 import { Search, SlidersHorizontal, Handshake } from "lucide-react";
@@ -70,8 +70,6 @@ export default async function ListingsPage({
   }
 
   const listings = await listQuery.limit(60).all();
-
-  const hasFilters = q || sp.category || sp.brand || sp.condition || sp.city || sp.min || sp.max || exchangeOnly;
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 lg:px-8">

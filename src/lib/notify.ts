@@ -1,5 +1,5 @@
 import "server-only";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 
 /** Tạo notification in-app (§42) */
 export async function notify(

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { db } from "@/src/prisma/db";
+import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { timeAgo, cn } from "@/src/lib/utils";
 import { MessageCircle, MessagesSquare } from "lucide-react";
@@ -45,7 +45,7 @@ export default async function ChatListPage() {
           <span className="text-5xl">💬</span>
           <p className="text-lg font-bold">Chưa có hội thoại nào</p>
           <p className="text-sm text-[var(--muted)]">
-            Vào trang tin đăng và bấm “Chat với người bán” để bắt đầu trao đổi.
+            Vào trang tin đăng và bấm “Nhắn người bán” để bắt đầu trao đổi.
           </p>
           <Link href="/listings" className="btn-primary mt-2 text-sm">Đi đến chợ loa</Link>
         </div>
