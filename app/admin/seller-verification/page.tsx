@@ -83,9 +83,16 @@ export default async function AdminSellerVerificationPage({
 
   /** Tín hiệu review cho MỘT hồ sơ (spec §5.3.3 checklist). */
   const reviewSignals = async (userId: string) => {
-    const [user, listingCount, priorDecisions, membership] = await Promise.all([
+    // b4-holistic-2 (LOW): "Số tin đăng" KHÔNG đếm draft — Batch 4 cho user
+    // CHƯA verification lưu nháp không qua seller gate (20/h) → applicant
+    // stack draft làm tín hiệu review đọc như hoạt động listing thật. Số
+    // chính = status ≠ draft (row đã qua publication gate/review); draft
+    // đếm RIÊNG ("Tin nháp") — một chồng draft từ applicant LÀ tín hiệu
+    // review hữu ích (recorded decision — chọn second aggregate).
+    const [user, listingCount, draftCount, priorDecisions, membership] = await Promise.all([
       db.orm.public.User.first({ id: userId }),
-      db.orm.public.Listing.where({ sellerId: userId }).aggregate((a) => ({ c: a.count() })),
+      db.orm.public.Listing.where({ sellerId: userId }).where((l) => l.status.neq("draft")).aggregate((a) => ({ c: a.count() })),
+      db.orm.public.Listing.where({ sellerId: userId, status: "draft" }).aggregate((a) => ({ c: a.count() })),
       db.orm.public.AuditEvent
         .where({ subjectId: userId, action: "seller_verification.reviewed" })
         .orderBy((e) => e.createdAt.desc())
@@ -93,7 +100,7 @@ export default async function AdminSellerVerificationPage({
         .all(),
       db.orm.public.BetaCohortMembership.first({ userId, cohort: "founding_seller" }),
     ]);
-    return { user, listingCount: listingCount.c, priorDecisions, membership };
+    return { user, listingCount: listingCount.c, draftCount: draftCount.c, priorDecisions, membership };
   };
 
   const rows = focused ? [focused, ...queue.filter((r) => r.userId !== focused.userId)] : queue;
@@ -173,6 +180,9 @@ export default async function AdminSellerVerificationPage({
                 <p>Loại người bán: <b>{user?.sellerType === "business" ? "Doanh nghiệp" : user?.sellerType === "individual" ? "Cá nhân" : "Chưa khai báo"}</b></p>
                 <p>Khu vực hoạt động: <b>{province && PROVINCE_CODES[province] ? PROVINCE_CODES[province] : "Chưa khai báo"}</b></p>
                 <p className="flex items-center gap-1.5">Số tin đăng: <b>{signals.listingCount}</b></p>
+                {/* b4-holistic-2: draft đếm riêng — reviewer đối chiếu thay vì đọc
+                    tổng bị thổi phồng bởi applicant stack nháp không qua gate. */}
+                <p className="flex items-center gap-1.5">Tin nháp: <b>{signals.draftCount}</b></p>
                 <p className="flex items-center gap-1.5">Email: <VerifiedBadge ok={user?.emailVerifiedAt != null} /></p>
                 <p className="flex items-center gap-1.5">Số điện thoại: <VerifiedBadge ok={user?.phoneVerifiedAt != null} /></p>
                 <p className="flex items-center gap-1.5">

@@ -245,6 +245,15 @@ const LISTING: Fixture = {
   rejectionReason: null,
   city: "TP. Hồ Chí Minh",
   viewCount: 10,
+  // Batch 4 public fields (b4-holistic round-1 MEDIUM — snapshot phải capture)
+  productModelId: "model-1",
+  inventoryContext: "used",
+  includedAccessories: "Sạc, cáp",
+  knownDefects: "Xước nhẹ vỏ",
+  repairHistory: null,
+  fulfillmentMethods: ["shipping"],
+  provinceLevelCode: "79",
+  locationDisplayName: "Quận 7",
   createdAt: "2026-09-10T00:00:00.000Z",
   updatedAt: "2026-09-10T00:00:00.000Z",
 };
@@ -253,7 +262,7 @@ const LISTING: Fixture = {
 const seedListingImages = (): void => {
   dbState.listingImages.push(
     { id: "img-2", listingId: "listing-1", url: "https://cdn.loaviet.test/b.jpg", sortOrder: 2 },
-    { id: "img-1", listingId: "listing-1", url: "https://cdn.loaviet.test/a.jpg", sortOrder: 1 },
+    { id: "img-1", listingId: "listing-1", url: "https://cdn.loaviet.test/a.jpg", sortOrder: 1, checklistSlot: "front" },
     { id: "img-3", listingId: "listing-1", url: "https://cdn.loaviet.test/c.jpg", sortOrder: 3 },
   );
 };
@@ -608,6 +617,25 @@ describe("captureTargetSnapshot — evidence JSON tại thời điểm báo cáo
       "https://cdn.loaviet.test/a.jpg",
       "https://cdn.loaviet.test/b.jpg",
       "https://cdn.loaviet.test/c.jpg",
+    ]);
+    // b4-holistic (round-1 MEDIUM — spec §5.5.1): Batch 4 public free-text
+    // fields PHẢI nằm trong snapshot — các field này render công khai nên là
+    // moderation material; seller edit sau report không xoá được evidence.
+    expect(captured!.snapshot).toMatchObject({
+      productModelId: "model-1",
+      inventoryContext: "used",
+      includedAccessories: "Sạc, cáp",
+      knownDefects: "Xước nhẹ vỏ",
+      repairHistory: null,
+      fulfillmentMethods: ["shipping"],
+      provinceLevelCode: "79",
+      locationDisplayName: "Quận 7",
+    });
+    // ảnh kèm checklistSlot (Batch 4) — null khi ảnh không gán slot
+    expect(captured!.snapshot.images).toEqual([
+      { url: "https://cdn.loaviet.test/a.jpg", checklistSlot: "front" },
+      { url: "https://cdn.loaviet.test/b.jpg", checklistSlot: null },
+      { url: "https://cdn.loaviet.test/c.jpg", checklistSlot: null },
     ]);
     // capturedAt ISO string trong mọi snapshot
     expect(typeof captured!.snapshot.capturedAt).toBe("string");

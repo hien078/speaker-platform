@@ -28,7 +28,19 @@ export async function startConversationAction(formData: FormData): Promise<void>
     .where({ listingId, buyerId: user.id })
     .first();
   if (existing) {
+    // Hội thoại CŨ mở lại BẤT KỂ status (b4-holistic round-3): lịch sử chat
+    // vẫn đọc được — trang /chat/<id> tự redact listing không còn công khai.
     redirect(`/chat/${existing.id}`);
+  }
+
+  // b4-holistic round-3 (LOW — chat leak): hội thoại MỚI chỉ tạo cho listing
+  // APPROVED. Trước fix: buyer có hidden listingId (trang detail load khi
+  // listing còn approved) vẫn mở hội thoại mới sau khi listing chuyển
+  // pending/rejected/removed — seller edit content chưa duyệt rồi buyer thấy
+  // title/ảnh/giá MỚI qua chat (trang detail đã 404). Typed error — KHÔNG
+  // tạo Conversation cho listing không công khai.
+  if (listing.status !== "approved") {
+    throw new Error("LISTING_NOT_AVAILABLE");
   }
 
   const convo = await db.orm.public.Conversation.create({

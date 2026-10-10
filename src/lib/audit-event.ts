@@ -36,6 +36,36 @@ import { clientIpFromHeaders } from "@/src/lib/rate-limit";
  *   ON_ERROR_STOP): admin.mfa_reset_manual — xoá MFA qua psql (lockout toàn
  *   bộ, two-person rule); user.email_verified_manual — đánh dấu kênh email
  *   đã verified qua psql để user tự phục vụ qua /recover (Ambiguity A3).
+ *   (Batch 3): moderation.user_suspended, moderation.user_suspension_lifted,
+ *   moderation.case_assigned, moderation.case_transitioned,
+ *   moderation.listing_taken_down, moderation.evidence_viewed — qua
+ *   auditEvent/auditEventTx như trên (C3 — không trùng tên nào của Batch 2/4).
+ *   (Batch 4 Task 4): listing.draft_created, listing.draft_updated — seller
+ *   lưu/sửa nháp (auditEventTx trong cùng tx với write — spec §4.4 draft
+ *   trước verification, KHÔNG seller gate); listing.submitted — MỌI đường
+ *   vào review (Batch 4 holistic): submit-ngay create (detail via=create),
+ *   edit-resubmit update→pending (detail via=edit_resubmit), draft-submit
+ *   submitListingAction, hidden→pending review backfill của toggle hiện lại
+ *   (b4-holistic-2 — detail via=show_again) — đều auditEventTx trong cùng tx
+ *   với CAS claim, policyVersion = SELLER_RULES_POLICY_VERSION (§4.6);
+ *   listing.submit_blocked — submit/toggle bị gate chặn (reason = typed code:
+ *   SELLER_PUBLICATION_BLOCKED:… hoặc content code từ allowlist, KHÔNG free
+ *   text — §4.8); beta_catalog.seeded — Task 7 seed script (actor null,
+ *   offline script).
+ *   (Batch 4 holistic review): listing.reject_blocked — rejectListingAction
+ *   bị chặn (reason typed: listing_version_missing / listing_changed_during_
+ *   review — KHÔNG free text); listing.approve_blocked thêm reason
+ *   moderator_conflict (recusal S9) + listing_version_missing.
+ *   (b4-holistic round-3): model.approved / model.merged — catalog admin
+ *   (approveModelAction CAS pending→approved; mergeModelAction claim +
+ *   chuyển listing/price history + brandId resync) — auditEventTx trong
+ *   cùng tx với claim (KHÔNG fire-after-commit).
+ *   (b4-holistic round-3 — finance dormant, LATENT): listing.sold —
+ *   completeExchangeAction (detail via=exchange_completion) +
+ *   createOrderAction (detail via=order_created) — claim 'sold' CÓ ĐIỀU KIỆN
+ *   theo approved + audit trong cùng tx; finance TẮT trong beta nên đường
+ *   này hôm nay unreachable (xem docs/operations/private-beta-finance-
+ *   shutdown-verification.md §7 re-enable checklist).
  *
  * QUY TẮC PII (spec §4.8 — enforced bằng review + Task 12 scan):
  * `detail` KHÔNG bao giờ chứa email/phone thô, mã OTP, password, hay

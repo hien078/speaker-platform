@@ -193,6 +193,18 @@ No match required correction (no defect found by the scan).
   (escrow, MoMo, wallet, commission) as-is; historical data was never deleted.
 - **Historical finance maintenance** (spec §5.1.1) stays offline-only: `scripts/backup-db.sh` /
   `restore-db.sh` (restore refuses to overwrite); no HTTP/admin/cron surface exists for it.
+- **Re-enable checklist — status-conditional writes (b4-holistic round-3):** the dormant
+  paths that flip a listing to `sold` now claim **conditionally** (`where status: "approved"`,
+  sentinel out of the tx, audit `listing.sold` in the same tx) instead of unconditional
+  single-row updates: `src/lib/actions/exchange.ts` `completeExchangeAction` (both
+  `offer.listingId` and `offer.myListingId`, plus the offer transition CAS on its own status)
+  and `src/lib/actions/orders.ts` `createOrderAction` (per-item claim before the order rows
+  commit). A concurrent takedown (`removed`) or seller edit (`pending`) between the outer read
+  and the in-tx write now rolls the whole order/offer back instead of clobbering the
+  moderation lock. When finance is re-enabled, verify these claims still hold under load
+  (integration `escrow.test.ts` / `listing-delete-race.test.ts` patterns) — the same
+  `approvedContentAt` review-version mechanism is available if a `sold → approved` restore
+  path (dispute resolution) is ever revived.
 
 ## 8. Fresh-context code review (Task 6)
 

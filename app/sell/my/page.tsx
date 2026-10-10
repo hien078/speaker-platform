@@ -3,9 +3,10 @@ import { redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { formatVND, formatDate, cn } from "@/src/lib/utils";
+import { labelOf, submitErrorText } from "@/src/lib/listing-error-text";
 import { LISTING_STATUS_LABELS, LISTING_STATUS_BADGE } from "@/src/lib/constants";
-import { toggleListingVisibilityAction, deleteListingAction } from "@/src/lib/actions/listings";
-import { Package, Eye, EyeOff, Trash2, Plus, Pencil } from "lucide-react";
+import { toggleListingVisibilityAction, deleteListingAction, submitListingAction } from "@/src/lib/actions/listings";
+import { Package, Eye, EyeOff, Trash2, Plus, Pencil, Send } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Tin đăng của tôi" };
@@ -16,7 +17,13 @@ export default async function MyListingsPage({
   const user = await getCurrentUser();
   if (!user) redirect("/login");
 
-  const sp = (await searchParams) as { created?: string; updated?: string };
+  const sp = (await searchParams) as { created?: string; updated?: string; submitted?: string; error?: string };
+
+  // b4-holistic (LOW form-action-contract): banner ?error= — CHỈ typed code
+  // trong allowlist SUBMIT_ERROR_TEXT (Object.hasOwn qua submitErrorText) —
+  // giá trị lạ/prototype key → generic, KHÔNG phản chiếu query text.
+  const actionError =
+    sp.error != null && sp.error !== "" ? submitErrorText(sp.error) : null;
 
   const listings = await db.orm.public.Listing
     .where({ sellerId: user.id })
@@ -49,6 +56,18 @@ export default async function MyListingsPage({
           ✓ Đã lưu thay đổi. Nếu nội dung chính thay đổi, tin sẽ được duyệt lại.
         </div>
       )}
+      {/* b4-holistic: submit draft→pending THÀNH CÔNG có confirmation (so sánh
+          literal — KHÔNG echo query); ?error= typed code trong allowlist. */}
+      {sp.submitted === "1" && (
+        <div className="mt-5 rounded-xl border border-[var(--green)]/35 bg-[var(--green-soft)] px-4 py-3 text-sm text-[var(--green)]">
+          ✓ Đã gửi duyệt — tin đang chờ duyệt.
+        </div>
+      )}
+      {actionError !== null && (
+        <div className="mt-5 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
+          {actionError}
+        </div>
+      )}
 
       {listings.length === 0 ? (
         <div className="card mt-8 grid place-items-center gap-3 p-16 text-center">
@@ -73,8 +92,9 @@ export default async function MyListingsPage({
 
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className={cn("badge", LISTING_STATUS_BADGE[l.status])}>
-                      {LISTING_STATUS_LABELS[l.status]}
+                    {/* LOW-1: label lookup own-property-safe — key là DB data (status) */}
+                    <span className={cn("badge", labelOf(LISTING_STATUS_BADGE, l.status, ""))}>
+                      {labelOf(LISTING_STATUS_LABELS, l.status, l.status)}
                     </span>
                     {l.acceptExchange && (
                       <span className="badge bg-[#eaf2fb] text-[#2563a8]">Trao đổi</span>
@@ -97,6 +117,21 @@ export default async function MyListingsPage({
                     <Pencil className="size-3.5" />
                     Sửa
                   </Link>
+                  {l.status === "draft" && (
+                    /* Draft → Gửi duyệt (spec §5.6.2): submitListingAction đọc DB row
+                       (formData chỉ mang listingId) — đường draft→pending duy nhất. */
+                    <form action={submitListingAction}>
+                      <input type="hidden" name="listingId" value={l.id} />
+                      <button
+                        type="submit"
+                        className="btn-primary h-9 flex-1 px-3 text-xs"
+                        title="Gửi tin để quản trị duyệt"
+                      >
+                        <Send className="size-3.5" />
+                        Gửi duyệt
+                      </button>
+                    </form>
+                  )}
                   {l.status === "approved" && (
                     <form action={toggleListingVisibilityAction}>
                       <input type="hidden" name="listingId" value={l.id} />

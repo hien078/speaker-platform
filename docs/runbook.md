@@ -56,6 +56,24 @@ git pull --ff-only
 docker compose -f docker-compose.prod.yml up -d --build
 # migrate service tự chạy pending migrations (graph → ref 'production') trước app start
 
+# LẦN ĐẦU sau Batch 4 (bắt buộc): seed beta catalog — category
+# portable_bluetooth_speaker + model chuẩn CHỈ tồn tại qua script này
+# (không có admin action tạo Category; thiếu → /sell/new không có danh mục,
+# mọi seller bị chặn). Dry-run trước (chỉ đọc — KHÔNG cần --allow-production;
+# service migrate set NODE_ENV=production nhưng guard chỉ chặn --apply),
+# rồi --apply --allow-production (script tự từ chối --apply vào DB non-local
+# khi thiếu cờ — guard từ ĐÍCH). Có file model founder → thêm mount
+# -v "$PWD/founder.json:/app/founder.json:ro" + --models /app/founder.json
+# (CÙNG NHAU — thiếu file thì Docker tạo thư mục tại mount → EISDIR):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/seed-beta-catalog.ts
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/seed-beta-catalog.ts --apply --allow-production
+# rồi duyệt model pending trong /admin/catalog (model chỉ hiện trong form
+# đăng tin sau khi approved) — chi tiết: docs/deployment.md §2.
+
 # xác minh sau release
 curl -fsS http://127.0.0.1:3000/api/health          # → {"ok":true,"db":"up",...}
 docker compose -f docker-compose.prod.yml logs -f app  # grep '"level":"error"' / scope

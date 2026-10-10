@@ -425,6 +425,51 @@ describe("startConversationAction — block hai hướng + đình chỉ actor-si
   });
 });
 
+// ─── b4-holistic round-3 — hội thoại MỚI chỉ cho listing APPROVED (chat leak) ──
+
+describe("startConversationAction — status gate hội thoại mới (b4-holistic round-3)", () => {
+  /** Đổi status listing TRONG dbState (seed là COPY của fixture — mutate fixture không ăn). */
+  const setStatus = (listingId: string, status: string): void => {
+    const row = dbState.listings.find((l) => l["id"] === listingId);
+    if (row == null) throw new Error(`listing ${listingId} chưa seed`);
+    row["status"] = status;
+  };
+
+  it("listing PENDING (seller edit in-place) → LISTING_NOT_AVAILABLE, KHÔNG tạo Conversation", async () => {
+    setStatus(LISTING2.id, "pending");
+    await expect(startConversationAction(fd({ listingId: LISTING2.id }))).rejects.toThrow(
+      "LISTING_NOT_AVAILABLE",
+    );
+    expect(dbState.conversations.length).toBe(1); // chỉ convo seed
+  });
+
+  it("listing REMOVED (moderation takedown) → LISTING_NOT_AVAILABLE, KHÔNG tạo Conversation", async () => {
+    setStatus(LISTING2.id, "removed");
+    await expect(startConversationAction(fd({ listingId: LISTING2.id }))).rejects.toThrow(
+      "LISTING_NOT_AVAILABLE",
+    );
+    expect(dbState.conversations.length).toBe(1);
+  });
+
+  it("hội thoại CŨ mở lại BẤT KỂ status (lịch sử chat vẫn đọc được — redirect working)", async () => {
+    // CONVO seed là hội thoại cũ của (listing-1, buyer); listing-1 bị takedown
+    // sau khi buyer đã chat — redirect vào hội thoại cũ vẫn chạy.
+    setStatus(LISTING.id, "removed");
+    await expect(startConversationAction(fd({ listingId: LISTING.id }))).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(dbState.conversations.length).toBe(1); // KHÔNG tạo mới
+  });
+
+  it("approved → tạo Conversation bình thường (gate không over-block)", async () => {
+    setStatus(LISTING2.id, "approved");
+    await expect(startConversationAction(fd({ listingId: LISTING2.id }))).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(dbState.conversations.length).toBe(2);
+  });
+});
+
 // ─── POST /api/chat/[id] — guard tin nhắn (spec §5.5/§7.8) ────────────────────
 
 describe("POST /api/chat/[id] — block hai hướng + đình chỉ sender-side", () => {

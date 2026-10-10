@@ -72,6 +72,10 @@
       "model": "ListingImage",
       "namespace": "public"
     },
+    "ListingImageUpload": {
+      "model": "ListingImageUpload",
+      "namespace": "public"
+    },
     "Message": {
       "model": "Message",
       "namespace": "public"
@@ -299,6 +303,23 @@
               }
             ]
           },
+          "inventory_context": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "new",
+                "value": "new"
+              },
+              {
+                "name": "open_box",
+                "value": "open_box"
+              },
+              {
+                "name": "used",
+                "value": "used"
+              }
+            ]
+          },
           "listing_status": {
             "codecId": "pg/text@1",
             "members": [
@@ -329,6 +350,10 @@
               {
                 "name": "removed",
                 "value": "removed"
+              },
+              {
+                "name": "archived",
+                "value": "archived"
               }
             ]
           },
@@ -2550,6 +2575,13 @@
                   "kind": "scalar"
                 }
               },
+              "approvedContentAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
               "brandId": {
                 "nullable": true,
                 "type": {
@@ -2566,6 +2598,13 @@
               },
               "city": {
                 "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "communeLevelCode": {
+                "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
                   "kind": "scalar"
@@ -2598,8 +2637,49 @@
                   "kind": "scalar"
                 }
               },
+              "fulfillmentMethods": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/json@1",
+                  "kind": "scalar"
+                }
+              },
               "id": {
                 "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "includedAccessories": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "inventoryContext": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "inventory_context",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "knownDefects": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "locationDisplayName": {
+                "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
                   "kind": "scalar"
@@ -2626,7 +2706,21 @@
                   "kind": "scalar"
                 }
               },
+              "provinceLevelCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "rejectionReason": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "repairHistory": {
                 "nullable": true,
                 "type": {
                   "codecId": "pg/text@1",
@@ -2873,6 +2967,9 @@
                 "acceptExchange": {
                   "column": "acceptExchange"
                 },
+                "approvedContentAt": {
+                  "column": "approvedContentAt"
+                },
                 "brandId": {
                   "column": "brandId"
                 },
@@ -2881,6 +2978,9 @@
                 },
                 "city": {
                   "column": "city"
+                },
+                "communeLevelCode": {
+                  "column": "communeLevelCode"
                 },
                 "condition": {
                   "column": "condition"
@@ -2891,8 +2991,23 @@
                 "description": {
                   "column": "description"
                 },
+                "fulfillmentMethods": {
+                  "column": "fulfillmentMethods"
+                },
                 "id": {
                   "column": "id"
+                },
+                "includedAccessories": {
+                  "column": "includedAccessories"
+                },
+                "inventoryContext": {
+                  "column": "inventoryContext"
+                },
+                "knownDefects": {
+                  "column": "knownDefects"
+                },
+                "locationDisplayName": {
+                  "column": "locationDisplayName"
                 },
                 "negotiable": {
                   "column": "negotiable"
@@ -2903,8 +3018,14 @@
                 "productModelId": {
                   "column": "productModelId"
                 },
+                "provinceLevelCode": {
+                  "column": "provinceLevelCode"
+                },
                 "rejectionReason": {
                   "column": "rejectionReason"
+                },
+                "repairHistory": {
+                  "column": "repairHistory"
                 },
                 "sellerId": {
                   "column": "sellerId"
@@ -2931,6 +3052,13 @@
           },
           "ListingImage": {
             "fields": {
+              "checklistSlot": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
               "id": {
                 "nullable": false,
                 "type": {
@@ -2980,6 +3108,9 @@
             },
             "storage": {
               "fields": {
+                "checklistSlot": {
+                  "column": "checklistSlot"
+                },
                 "id": {
                   "column": "id"
                 },
@@ -2995,6 +3126,104 @@
               },
               "namespaceId": "public",
               "table": "ListingImage"
+            }
+          },
+          "ListingImageUpload": {
+            "fields": {
+              "bytes": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "height": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "ownerUserId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "storageKey": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "width": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "owner": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "ownerUserId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "bytes": {
+                  "column": "bytes"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "height": {
+                  "column": "height"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "ownerUserId": {
+                  "column": "ownerUserId"
+                },
+                "storageKey": {
+                  "column": "storageKey"
+                },
+                "width": {
+                  "column": "width"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ListingImageUpload"
             }
           },
           "Message": {
@@ -5888,6 +6117,21 @@
                   "namespace": "public"
                 }
               },
+              "imageUploads": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "ownerUserId"
+                  ]
+                },
+                "to": {
+                  "model": "ListingImageUpload",
+                  "namespace": "public"
+                }
+              },
               "listings": {
                 "cardinality": "1:N",
                 "on": {
@@ -8540,8 +8784,13 @@
                   "prefix": "Listing_condition_check"
                 },
                 {
-                  "expression": "\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed')",
-                  "name": "Listing_status_check_505de324",
+                  "expression": "\"inventoryContext\" IN ('new', 'open_box', 'used')",
+                  "name": "Listing_inventoryContext_check_cbe03ac9",
+                  "prefix": "Listing_inventoryContext_check"
+                },
+                {
+                  "expression": "\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed', 'archived')",
+                  "name": "Listing_status_check_f81f49ae",
                   "prefix": "Listing_status_check"
                 }
               ],
@@ -8554,6 +8803,11 @@
                   },
                   "nativeType": "bool",
                   "nullable": false
+                },
+                "approvedContentAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
                 },
                 "brandId": {
                   "codecId": "pg/text@1",
@@ -8569,6 +8823,11 @@
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": false
+                },
+                "communeLevelCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
                 },
                 "condition": {
                   "codecId": "pg/text@1",
@@ -8595,10 +8854,41 @@
                   "nativeType": "text",
                   "nullable": false
                 },
+                "fulfillmentMethods": {
+                  "codecId": "pg/json@1",
+                  "nativeType": "json",
+                  "nullable": true
+                },
                 "id": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": false
+                },
+                "includedAccessories": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "inventoryContext": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "inventory_context",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "knownDefects": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "locationDisplayName": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
                 },
                 "negotiable": {
                   "codecId": "pg/bool@1",
@@ -8619,7 +8909,17 @@
                   "nativeType": "text",
                   "nullable": true
                 },
+                "provinceLevelCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
                 "rejectionReason": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "repairHistory": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": true
@@ -8816,6 +9116,11 @@
             },
             "ListingImage": {
               "columns": {
+                "checklistSlot": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
                 "id": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
@@ -8876,6 +9181,99 @@
                 ]
               },
               "uniques": []
+            },
+            "ListingImageUpload": {
+              "columns": {
+                "bytes": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "height": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "ownerUserId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "storageKey": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "width": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "ownerUserId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ListingImageUpload"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "ownerUserId",
+                    "createdAt"
+                  ],
+                  "name": "ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67",
+                  "prefix": "ListingImageUpload_ownerUserId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "ownerUserId"
+                  ],
+                  "name": "ListingImageUpload_ownerUserId_idx_f93ae154",
+                  "prefix": "ListingImageUpload_ownerUserId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "storageKey"
+                  ]
+                }
+              ]
             },
             "Message": {
               "columns": {
@@ -12045,6 +12443,14 @@
                 "cancelled"
               ]
             },
+            "inventory_context": {
+              "kind": "valueSet",
+              "values": [
+                "new",
+                "open_box",
+                "used"
+              ]
+            },
             "listing_status": {
               "kind": "valueSet",
               "values": [
@@ -12054,7 +12460,8 @@
                 "rejected",
                 "hidden",
                 "sold",
-                "removed"
+                "removed",
+                "archived"
               ]
             },
             "model_status": {
@@ -12239,10 +12646,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "dbd12d36f72ca512419a7f4c170d8d798cdc03cb9b9919f4ff35119134814df1"
+    "storageHash": "66d2193a8ecdd3a6c4dd8c53d30e7a883b4818f443d88e9f7be76a1cd1139717"
   },
   "execution": {
-    "executionHash": "41683733e7eacfb5133cbac63b3966a85e02ef0472e6f0ea3869dbc1c8280133",
+    "executionHash": "bd380c983cd9d1c3c573dbc1d28825f74638a85637f20e1a5d99db6e24ef4dc5",
     "mutations": {
       "defaults": [
         {
@@ -12503,6 +12910,17 @@
           },
           "ref": {
             "entry": "ListingImage",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ListingImageUpload",
             "field": "id",
             "namespace": "public"
           }

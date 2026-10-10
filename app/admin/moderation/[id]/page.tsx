@@ -299,10 +299,35 @@ export default async function AdminModerationCasePage({
                   {kind === "listing" && (
                     <div className="mt-2 space-y-0.5 text-sm">
                       <p className="font-semibold">{String(snap["title"] ?? "—")}</p>
-                      <p className="text-xs text-[var(--muted)]">{String(snap["description"] ?? "")}</p>
+                      <p className="whitespace-pre-wrap break-words text-xs text-[var(--muted)]">{String(snap["description"] ?? "")}</p>
                       <p className="text-xs">
                         Giá: {String(snap["price"] ?? "—")}₫ · Tình trạng: {String(snap["condition"] ?? "—")} · Khu vực: {String(snap["city"] ?? "—")}
                       </p>
+                      {/* b4-holistic (round-1 MEDIUM + round-3): Batch 4 public
+                          free-text — moderator PHẢI thấy nội dung bị báo cáo
+                          (snapshot bất biến sống qua edit của nguồn). Missing
+                          key = rỗng (snapshot cũ không có field). React text
+                          node + pre-wrap — KHÔNG html injection nào. */}
+                      {(["includedAccessories", "knownDefects", "repairHistory"] as const)
+                        .filter((k) => String(snap[k] ?? "") !== "")
+                        .map((k) => (
+                          <p key={k} className="whitespace-pre-wrap break-words text-xs">
+                            <span className="text-[var(--muted)]">
+                              {k === "includedAccessories"
+                                ? "Phụ kiện:"
+                                : k === "knownDefects"
+                                  ? "Vết lỗi đã biết:"
+                                  : "Lịch sử sửa chữa:"}
+                            </span>{" "}
+                            {String(snap[k] ?? "")}
+                          </p>
+                        ))}
+                      {String(snap["locationDisplayName"] ?? "") !== "" && (
+                        <p className="text-xs">
+                          <span className="text-[var(--muted)]">Khu vực hiển thị:</span>{" "}
+                          {String(snap["locationDisplayName"] ?? "")}
+                        </p>
+                      )}
                     </div>
                   )}
                   {kind === "user" && (

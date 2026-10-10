@@ -274,6 +274,98 @@ d("report evidence trên DB thật (spec §5.5.1)", () => {
     expect(after!.relevantSnapshot).toEqual(captured);
   });
 
+  it("b4-holistic — snapshot chứa Batch 4 public free-text; edit sau report KHÔNG xoá evidence (spec §5.5.1)", async () => {
+    const seller = await mkUser("seller");
+    const reporter = await mkUser("buyer");
+    // Listing BETA với đầy đủ field công khai Batch 4 — các field này render
+    // công khai trên /listings/<slug> nên là moderation material: thiếu chúng
+    // trong snapshot, seller edit field sau khi bị báo cáo thì nội dung vi phạm
+    // (PIC/spam) không còn ở DB LẪN evidence.
+    const cat = await db.orm.public.Category.create({
+      name: `Danh mục ${uid()}`,
+      slug: `cat-${uid()}`,
+    });
+    created.categories.push(cat.id);
+    const listingRow = await db.orm.public.Listing.create({
+      sellerId: seller,
+      categoryId: cat.id,
+      title: `Loa beta ${uid()}`,
+      slug: `loa-beta-${uid()}`,
+      description: "integration test beta listing",
+      condition: "good",
+      price: 2_000_000,
+      status: "approved",
+      city: "Hà Nội",
+      inventoryContext: "used",
+      includedAccessories: "Sạc, cáp, hộp",
+      knownDefects: "Vết xước mặt bên, loa bass rè nhẹ",
+      repairHistory: "Đã thay pin tại cửa hàng X",
+      fulfillmentMethods: ["shipping", "cod"],
+      provinceLevelCode: "01",
+      locationDisplayName: "Gần chợ Bến Thành",
+    });
+    const listing = listingRow.id;
+    created.listings.push(listing);
+    const img = await db.orm.public.ListingImage.create({
+      listingId: listing,
+      url: "/uploads/00000000-0000-0000-0000-00000000000a.webp",
+      sortOrder: 0,
+      checklistSlot: "front",
+    });
+    void img; // cascade theo listing khi dọn — không cần track
+
+    const reporterTok = await loginAs(reporter);
+    setSession(reporterTok);
+    const res = await submit({
+      targetType: "listing",
+      targetId: listing,
+      reasonCode: "suspected_scam",
+      note: "nghi lừa đảo — số điện thoại trong phần lỗi",
+    });
+    expect(res.success).toBeTruthy();
+
+    const evidence = await db.orm.public.ModerationEvidence
+      .where({ sourceResourceId: listing })
+      .first();
+    expect(evidence).not.toBeNull();
+    const snap = evidence!.relevantSnapshot as Record<string, unknown>;
+
+    // snapshot chứa ĐÚNG các field Batch 4 tại report time
+    expect(snap).toMatchObject({
+      inventoryContext: "used",
+      includedAccessories: "Sạc, cáp, hộp",
+      knownDefects: "Vết xước mặt bên, loa bass rè nhẹ",
+      repairHistory: "Đã thay pin tại cửa hàng X",
+      fulfillmentMethods: ["shipping", "cod"],
+      provinceLevelCode: "01",
+      locationDisplayName: "Gần chợ Bến Thành",
+    });
+    // ảnh kèm checklistSlot (Batch 4) — imageUrls giữ cho row cũ
+    expect(snap.images).toMatchObject([
+      { url: "/uploads/00000000-0000-0000-0000-00000000000a.webp", checklistSlot: "front" },
+    ]);
+    expect(snap.imageUrls).toEqual(["/uploads/00000000-0000-0000-0000-00000000000a.webp"]);
+
+    // seller edit các field này (xóa nội dung vi phạm) — evidence PHẢI giữ nguyên
+    await db.orm.public.Listing.where({ id: listing }).update({
+      knownDefects: null,
+      repairHistory: null,
+      includedAccessories: null,
+      locationDisplayName: null,
+    });
+    const edited = await db.orm.public.Listing.first({ id: listing });
+    expect(edited!.knownDefects).toBeNull();
+
+    const after = await db.orm.public.ModerationEvidence
+      .where({ sourceResourceId: listing })
+      .first();
+    expect(after!.relevantSnapshot).toEqual(snap);
+    // moderator vẫn thấy nội dung gốc qua snapshot (case page render —
+    // missing key = rỗng cho snapshot cũ, field có giá trị thì hiển thị)
+    const afterSnap = after!.relevantSnapshot as Record<string, unknown>;
+    expect(afterSnap.knownDefects).toBe("Vết xước mặt bên, loa bass rè nhẹ");
+  });
+
   it("report → delete source → evidence sống, case + report vẫn đọc được (không cascade)", async () => {
     const seller = await mkUser("seller");
     const reporter = await mkUser("buyer");

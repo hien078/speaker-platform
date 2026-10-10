@@ -4,7 +4,10 @@
 # service 'migrate' trước khi app start (app depends_on migrate completed).
 # Chạy tay khi cần:  docker compose -f docker-compose.prod.yml run --rm migrate
 # KHÔNG dùng 'prisma db update' trên DB production — không để lại lịch sử migration.
-# Seed (chỉ dev/test): seed từ chối chạy ở production (NODE_ENV=production).
+# Seed beta catalog (BẮT BUỘC sau deploy Batch 4 — category portable_bluetooth_
+# speaker không có trong migration): chạy qua service migrate + mount repo —
+# xem docs/deployment.md §2 (dry-run trước, --apply --allow-production sau;
+# script tự từ chối --apply vào DB non-local khi thiếu --allow-production).
 
 services:
   db:
@@ -12,6 +15,11 @@ services:
     # Tên cố định cho ops deterministic (backup cron: docker exec loaviet-db ...)
     container_name: loaviet-db
     restart: unless-stopped
+    # M1 (Batch 4 Task 3 review): bound bộ nhớ db — host 1-2GB chung app, không
+    # để query lớn (evidence snapshots, full-text) kéo cả host; OOM-kill land vào
+    # container (restart: unless-stopped tự lên lại) thay vì host. Postgres 16
+    # mặc định shared_buffers 128MB — 512M đủ cho beta single-instance.
+    mem_limit: 512m
     environment:
       POSTGRES_USER: loaviet
       POSTGRES_PASSWORD: ${DB_PASSWORD:?đặt DB_PASSWORD trong .env}
@@ -43,16 +51,46 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://loaviet:${DB_PASSWORD}@db:5432/loaviet
+      # b4-holistic round-3: migrate stage không set NODE_ENV (chỉ runner stage)
+      # nên guard NODE_ENV của seed script không bao giờ cháy đúng nơi nó chạy —
+      # set tường minh để belt-and-braces guard hoạt động (seed vẫn cần
+      # --allow-production vì guard quyết từ ĐÍCH: host db ≠ local).
+      NODE_ENV: production
       # Task 11 runbook §0: admin bootstrap (tsx trong container migrate) cần
       # key mã hóa TOTP secret + AUTH_SECRET (hash mã khôi phục derive HKDF).
       # Compose nội suy từ .env — operator KHÔNG phải `set -a; source .env`.
       ADMIN_MFA_ENCRYPTION_KEY: ${ADMIN_MFA_ENCRYPTION_KEY:?đặt ADMIN_MFA_ENCRYPTION_KEY trong .env (openssl rand -base64 32)}
       AUTH_SECRET: ${AUTH_SECRET:?đặt AUTH_SECRET trong .env}
+    volumes:
+      # b4-holistic round-4 (LOW deploy-risk): volume uploads cho script dọn
+      # ảnh mồ côi (scripts/cleanup-uploads.ts --apply) — TRƯỚC fix doc chỉ
+      # mount scripts/+src/ → /app/data/uploads TRỐNG trong container → mọi
+      # unlink ENOENT bị nuốt → row ownership xoá xong, file THẬT trên volume
+      # app mồ côi vĩnh viễn. Script giờ fail-closed khi dir thiếu, nhưng
+      # service này phải mount ĐÚNG volume (compose tự resolve tên project-
+      # prefixed) để lệnh trong docs/deployment.md chạy được nguyên văn.
+      - uploads:/app/data/uploads
 
   app:
     build: .
     container_name: loaviet-app
     restart: unless-stopped
+    # M1 (Batch 4 Task 3 review + fix 2): bound bộ nhớ app — sharp re-encode
+    # decode theo định dạng (PNG interlaced/16-bit ~200-400MB/lần nếu không
+    # bound). Trong app đã có semaphore 1-re-encode-đồng-thời + HÀNG CHỜ
+    # BOUNDED (REENCODE_MAX_QUEUE=2 — đầy reject ngay) + 1 upload in-flight/user
+    # + uploadBodiesInFlight process-wide (b4-holistic round-3: N user đồng thời
+    # không cùng pass pre-check rồi buffer hết body — budget giờ tính theo body
+    # ĐANG GIỮ, không chỉ queue waiter) + sharp.cache(false) +
+    # sharp.concurrency(1) (src/lib/image-process.ts, app/api/upload/route.ts)
+    # nên worst-case process ≈ baseline Next ~250MB + 1 decode 50MP JPEG
+    # progressive + EXIF rotate ~300MB transient + ~15MB body buffer của tối đa
+    # 3 request đồng thời ≈ 550-600MB. 768m chặn OOM lan sang db/host; OOM-kill
+    # land vào container (restart tự lên lại). Budget chi tiết + khuyến nghị RAM
+    # host (2GB TỐI THIỂU cho production — b4-holistic round-3: xóa khuyến nghị
+    # 1GB/512m: 512m app + 512m db đã vượt RAM host trước nginx + OS):
+    # docs/deployment.md §1.
+    mem_limit: 768m
     ports:
       # CHỈ bind loopback — nginx (cùng host) proxy sang đây; KHÔNG expose
       # app trực tiếp ra internet (rate limit đọc proxy header chỉ khi
@@ -89,7 +127,13 @@ services:
       MOMO_SECRET_KEY: ${MOMO_SECRET_KEY:-}
       MOMO_ENDPOINT: ${MOMO_ENDPOINT:-https://payment.momo.vn}
     volumes:
-      - uploads:/app/public/uploads
+      # b4-holistic round-3 HIGH: uploads NGOÀI public/ — Next production chỉ
+      # serve file public/ TỒN TẠI KHI START (scan 1 lần lúc boot) → file upload
+      # sau boot 404 mãi. Serving qua route handler app/uploads/[key] (đọc đĩa
+      # MỌI request) từ /app/data/uploads; volume sống qua redeploy. Volume
+      # này TRƯỚC đây mount tại /app/public/uploads — file cũ trong volume vẫn
+      # ở đó, chỉ đổi đường dẫn mount (không cần di chuyển dữ liệu).
+      - uploads:/app/data/uploads
 
 volumes:
   pgdata:

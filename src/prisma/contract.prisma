@@ -25,6 +25,7 @@ enum listing_status {
   // Trong enum HIỆN CÓ — THÊM MỘT value (R2: Batch 3 là first writer của
   // `removed`; Batch 4 Task 1 chỉ thêm `archived`, KHÔNG đụng `removed` — additive-only):
   removed  = "removed"  // moderation takedown (R4) — KHÔNG dùng cho seller self-hide
+  archived = "archived" // §5.6.2 lifecycle — reserved, chưa có transition nào trong P0 (Batch 4 thêm)
 }
 
 enum product_condition {
@@ -197,6 +198,15 @@ enum appeal_state {
   closed    = "closed"
 }
 
+// ─── Enums (Batch 4 — listing quality, spec §5.6) ───
+
+enum inventory_context {
+  @@type("pg/text@1")
+  new      = "new"       // mới / nguyên seal
+  open_box = "open_box"  // mở hộp chưa dùng
+  used     = "used"      // đã qua sử dụng
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -257,6 +267,8 @@ model User {
   suspensionsActedBy   UserSuspension[]     @relation("user_suspension_actor")
   suspensionsLiftedBy  UserSuspension[]     @relation("user_suspension_lifter")
   appealsFiled         Appeal[]             @relation("appeal_appellant")
+  // ─── Batch 4 — upload ownership relation (additive — spec §5.6.4) ───
+  imageUploads         ListingImageUpload[] @relation("listing_image_upload_owner")
 
   @@index([role])
 }
@@ -324,6 +336,24 @@ model Listing {
   productModelId String?
   productModel   ProductModel? @relation(fields: [productModelId], references: [id])
 
+  // ─── Batch 4 — structured portable-speaker listing (spec §5.6) ───
+  inventoryContext     inventory_context? // NULL = legacy "not captured" (spec §8.3)
+  includedAccessories  String?           // ≤2000 ký tự (schema)
+  knownDefects         String?           // ≤2000 ký tự (schema)
+  repairHistory        String?           // ≤2000 ký tự (schema)
+  fulfillmentMethods   Json?              // ("meetup"|"seller_delivery"|"carrier"|"other")[] — zod-validated tại boundary
+  provinceLevelCode    String?           // slug code tỉnh/thành — 34 đơn vị, src/lib/provinces.ts (FD-1: NQ 202/2025/QH15)
+  communeLevelCode      String?           // reserved — Batch 5 location model populate
+  locationDisplayName  String?           // hiển thị thô — KHÔNG phải địa chỉ nhà riêng (spec §5.6)
+
+  // ─── Batch 4 holistic (round 2) — review version của content ───
+  // Ngày-giờ admin duyệt content HIỆN TẠI (ghi trong tx của approveListingAction;
+  // hide/show KHÔNG đụng). toggleListingVisibilityAction hidden→show đọc cột:
+  // SET ⇒ content đã được duyệt (Batch 4 mọi content-change trên hidden → pending)
+  // → hiện lại approved; NULL ⇒ row pre-Batch-4 edit-while-hidden / chưa bao giờ
+  // approved → hiện lại PENDING (admin duyệt lại một lần — fail-closed).
+  approvedContentAt     TimestamptzString?
+
   @@index([status, createdAt])
   @@index([categoryId])
   @@index([brandId])
@@ -339,6 +369,7 @@ model ListingImage {
   listing   Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
   url       String
   sortOrder Int @default(0)
+  checklistSlot String? // §5.6.3: front|back|control_panel|ports|damage|accessories|box|label_serial — NULL = legacy/không gán slot
 
   @@index([listingId])
 }
@@ -455,6 +486,14 @@ model ExchangeOffer {
   buyerId            String
   buyer              User    @relation("exchange_buyer", fields: [buyerId], references: [id])
   myListingId        String? // tin đăng của buyer đưa ra đổi (nếu có)
+  // Batch 4 holistic (round 2) — RECORDED DEFERRAL: onDelete: SetNull cho FK
+  // exchange_mine là "complete fix" cho race offer-xen-giữa-check-và-DELETE,
+  // nhưng planner từ chối FK onDelete change (MIGRATION.PLANNING_FAILED —
+  // phải migration new tay) VÀ race unreachable hôm nay (offer MỚI bị
+  // assertFinancialFeaturesEnabled chặn — finance flag off; chỉ dữ liệu
+  // TỒN TẠI pre-Batch-4). deleteListingAction pre-check myListingId (ẩn/
+  // LISTING_HAS_ORDERS) là fix chính; SetNull đăng ký follow-up khi finance
+  // bật lại (lúc đó offer mới có thể xen giữa check và DELETE).
   myListing          Listing? @relation("exchange_mine", fields: [myListingId], references: [id])
   myItemDescription String? // mô tả sản phẩm đưa ra đổi nếu không có tin đăng
   cashTopup          Int @default(0) // tiền bù (VND)
@@ -1033,4 +1072,24 @@ model Appeal {
   updatedAt   temporal.updatedAtString()
 
   @@index([appellantId])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 4 — Listing Quality (spec §5.6/§5.6.2/§5.6.4/§9 Batch 4)
+// Additive-only: không drop/rename/repurpose model/cột/enum value nào đang có.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Upload ownership (Batch 4 — spec §5.6.4 "ownership authorization") ───
+
+model ListingImageUpload {
+  id          String            @id @default(uuid())
+  ownerUserId String
+  owner       User              @relation("listing_image_upload_owner", fields: [ownerUserId], references: [id], onDelete: Cascade)
+  storageKey  String            @unique // "<uuid>.webp" — khóa ngẫu nhiên, KHÔNG dùng tên file của client
+  bytes       Int
+  width       Int
+  height      Int
+  createdAt   TimestamptzString @default(now())
+
+  @@index([ownerUserId, createdAt])
 }

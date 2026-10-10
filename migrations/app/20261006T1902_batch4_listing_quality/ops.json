@@ -1,0 +1,707 @@
+[
+  {
+    "id": "dropCheckConstraint.Listing.Listing_status_check_505de324",
+    "label": "Drop check constraint \"Listing_status_check_505de324\" on \"Listing\"",
+    "operationClass": "destructive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_status_check_505de324",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_status_check_505de324\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_505de324",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "drop check constraint \"Listing_status_check_505de324\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" DROP CONSTRAINT \"Listing_status_check_505de324\""
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_status_check_505de324\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_505de324",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.ListingImageUpload",
+    "label": "Create table \"ListingImageUpload\"",
+    "summary": "Creates table \"ListingImageUpload\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ListingImageUpload"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ListingImageUpload\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ListingImageUpload\"",
+        "sql": "CREATE TABLE \"public\".\"ListingImageUpload\" (\n  \"bytes\" int4 NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"height\" int4 NOT NULL,\n  \"id\" text NOT NULL,\n  \"ownerUserId\" text NOT NULL,\n  \"storageKey\" text NOT NULL,\n  \"width\" int4 NOT NULL,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ListingImageUpload\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.communeLevelCode",
+    "label": "Add column \"communeLevelCode\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "communeLevelCode",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"communeLevelCode\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "communeLevelCode"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"communeLevelCode\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"communeLevelCode\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"communeLevelCode\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "communeLevelCode"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.fulfillmentMethods",
+    "label": "Add column \"fulfillmentMethods\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "fulfillmentMethods",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"fulfillmentMethods\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "fulfillmentMethods"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"fulfillmentMethods\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"fulfillmentMethods\" json"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"fulfillmentMethods\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "fulfillmentMethods"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.includedAccessories",
+    "label": "Add column \"includedAccessories\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "includedAccessories",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"includedAccessories\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "includedAccessories"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"includedAccessories\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"includedAccessories\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"includedAccessories\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "includedAccessories"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.inventoryContext",
+    "label": "Add column \"inventoryContext\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "inventoryContext",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"inventoryContext\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "inventoryContext"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"inventoryContext\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"inventoryContext\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"inventoryContext\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "inventoryContext"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.knownDefects",
+    "label": "Add column \"knownDefects\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "knownDefects",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"knownDefects\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "knownDefects"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"knownDefects\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"knownDefects\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"knownDefects\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "knownDefects"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.locationDisplayName",
+    "label": "Add column \"locationDisplayName\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "locationDisplayName",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"locationDisplayName\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "locationDisplayName"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"locationDisplayName\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"locationDisplayName\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"locationDisplayName\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "locationDisplayName"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.provinceLevelCode",
+    "label": "Add column \"provinceLevelCode\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "provinceLevelCode",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"provinceLevelCode\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "provinceLevelCode"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"provinceLevelCode\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"provinceLevelCode\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"provinceLevelCode\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "provinceLevelCode"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.repairHistory",
+    "label": "Add column \"repairHistory\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "repairHistory",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"repairHistory\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "repairHistory"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"repairHistory\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"repairHistory\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"repairHistory\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "repairHistory"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.ListingImage.checklistSlot",
+    "label": "Add column \"checklistSlot\" to \"ListingImage\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "checklistSlot",
+        "table": "ListingImage"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"checklistSlot\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "ListingImage",
+          "checklistSlot"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"checklistSlot\"",
+        "sql": "ALTER TABLE \"public\".\"ListingImage\" ADD COLUMN \"checklistSlot\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"checklistSlot\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "ListingImage",
+          "checklistSlot"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.Listing.Listing_inventoryContext_check_cbe03ac9",
+    "label": "Add check constraint \"Listing_inventoryContext_check_cbe03ac9\" on \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_inventoryContext_check_cbe03ac9",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_inventoryContext_check_cbe03ac9\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_inventoryContext_check_cbe03ac9",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"Listing_inventoryContext_check_cbe03ac9\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD CONSTRAINT \"Listing_inventoryContext_check_cbe03ac9\" CHECK (\"inventoryContext\" IN ('new', 'open_box', 'used'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_inventoryContext_check_cbe03ac9\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_inventoryContext_check_cbe03ac9",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.Listing.Listing_status_check_f81f49ae",
+    "label": "Add check constraint \"Listing_status_check_f81f49ae\" on \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_status_check_f81f49ae",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_status_check_f81f49ae\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_f81f49ae",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"Listing_status_check_f81f49ae\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD CONSTRAINT \"Listing_status_check_f81f49ae\" CHECK (\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed', 'archived'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_status_check_f81f49ae\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_status_check_f81f49ae",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.ListingImageUpload.ListingImageUpload_storageKey_key",
+    "label": "Add unique constraint on \"ListingImageUpload\" (storageKey)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "ListingImageUpload_storageKey_key",
+        "table": "ListingImageUpload"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"ListingImageUpload_storageKey_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ListingImageUpload_storageKey_key",
+          "public",
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"ListingImageUpload_storageKey_key\"",
+        "sql": "ALTER TABLE \"public\".\"ListingImageUpload\" ADD CONSTRAINT \"ListingImageUpload_storageKey_key\" UNIQUE (\"storageKey\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"ListingImageUpload_storageKey_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ListingImageUpload_storageKey_key",
+          "public",
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ListingImageUpload.ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67",
+    "label": "Create index \"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\" on \"ListingImageUpload\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67",
+        "table": "ListingImageUpload"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\"",
+        "sql": "CREATE INDEX \"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\" ON \"public\".\"ListingImageUpload\" (\"ownerUserId\", \"createdAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload_ownerUserId_createdAt_idx_6e1bdf67\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ListingImageUpload.ListingImageUpload_ownerUserId_idx_f93ae154",
+    "label": "Create index \"ListingImageUpload_ownerUserId_idx_f93ae154\" on \"ListingImageUpload\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ListingImageUpload_ownerUserId_idx_f93ae154",
+        "table": "ListingImageUpload"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ListingImageUpload_ownerUserId_idx_f93ae154\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload_ownerUserId_idx_f93ae154\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ListingImageUpload_ownerUserId_idx_f93ae154\"",
+        "sql": "CREATE INDEX \"ListingImageUpload_ownerUserId_idx_f93ae154\" ON \"public\".\"ListingImageUpload\" (\"ownerUserId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ListingImageUpload_ownerUserId_idx_f93ae154\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ListingImageUpload_ownerUserId_idx_f93ae154\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ListingImageUpload.ListingImageUpload_ownerUserId_fkey",
+    "label": "Add foreign key \"ListingImageUpload_ownerUserId_fkey\" on \"ListingImageUpload\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ListingImageUpload_ownerUserId_fkey",
+        "table": "ListingImageUpload"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ListingImageUpload_ownerUserId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ListingImageUpload_ownerUserId_fkey",
+          "public",
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ListingImageUpload_ownerUserId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ListingImageUpload\"\nADD CONSTRAINT \"ListingImageUpload_ownerUserId_fkey\"\nFOREIGN KEY (\"ownerUserId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ListingImageUpload_ownerUserId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ListingImageUpload_ownerUserId_fkey",
+          "public",
+          "\"public\".\"ListingImageUpload\""
+        ]
+      }
+    ]
+  }
+]

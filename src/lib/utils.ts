@@ -58,6 +58,23 @@ export function slugify(text: string): string {
     .slice(0, 80);
 }
 
+/**
+ * Slug listing — KHÔNG BAO GIỜ rỗng (b4-holistic round-3 LOW — validation).
+ *
+ * Title chỉ chứa ký tự slugify strip (CJK/emoji/dấu câu/zero-width — vd
+ * "!!!!!!!!" hay "蓝牙音箱") → slugify('') → slug '' → MỌI link
+ * (/listings/${slug} trong sell/my, sitemap, card) trỏ vào /listings/ =
+ * trang index, trang chi tiết của tin KHÔNG BAO GIỜ mở được (kể cả sau khi
+ * duyệt). Fallback: uuid ngắn 8 ký tự (crypto.randomUUID — Web Crypto, có
+ * sẵn Node 22 + browser; KHÔNG import node:crypto vào module dùng chung
+ * client). Hai đường create (createListingAction + saveListingDraftAction)
+ * cùng dùng helper này để không drift.
+ */
+export function listingSlug(title: string): string {
+  const slug = slugify(title);
+  return slug !== "" ? slug : `tin-${crypto.randomUUID().slice(0, 8)}`;
+}
+
 /** Mã đơn hàng: SP-240930-0001 */
 export function generateOrderCode(): string {
   const now = new Date();

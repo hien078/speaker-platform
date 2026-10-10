@@ -67,6 +67,18 @@ import { createSession } from "../../src/lib/session";
 import { resetRateLimits } from "../../src/lib/rate-limit";
 import { deleteListingAction } from "../../src/lib/actions/listings";
 
+/** Action kết thúc bằng redirect() → throw NEXT_REDIRECT — coi là THÀNH CÔNG, trả URL. */
+const expectRedirect = async (fn: () => Promise<unknown>): Promise<string> => {
+  try {
+    await fn();
+  } catch (e) {
+    const msg = (e as Error).message;
+    if (msg.startsWith("NEXT_REDIRECT:")) return msg.slice("NEXT_REDIRECT:".length);
+    throw e;
+  }
+  return "";
+};
+
 const hasDb = Boolean(process.env.DATABASE_URL);
 const d = hasDb ? describe : describe.skip;
 
@@ -212,8 +224,11 @@ d("deleteListingAction vs takedown — REAL-DB race (item 1 HIGH)", () => {
     commitT2();
 
     // deleteAll re-evaluate WHERE sau khi lock thả → status đã removed →
-    // 0 rows → typed error (old .delete() sẽ DELETE WHERE id — row MẤT).
-    await expect(flow).rejects.toThrowError(/LISTING_MODERATION_LOCKED/);
+    // 0 rows → typed redirect (old .delete() sẽ DELETE WHERE id — row MẤT).
+    // b4-holistic round-3: CAS 0-rows → redirect CONCURRENT_CHANGE (code trung
+    // thực — row đổi tay giữa read và write), KHÔNG throw ra error boundary.
+    const url = await expectRedirect(() => flow);
+    expect(url).toBe("/sell/my?error=CONCURRENT_CHANGE");
     await t2;
 
     // Listing SỐNG SÓT với status removed — nguồn moderation record nguyên vẹn
@@ -237,7 +252,8 @@ d("deleteListingAction vs takedown — REAL-DB race (item 1 HIGH)", () => {
       .updateAll({ status: "pending" });
     await login(sellerId);
 
-    await deleteListingAction(fd({ listingId }));
+    // b4-holistic round-4: delete thành công redirect /sell/my URL sạch
+    await expectRedirect(() => deleteListingAction(fd({ listingId })));
 
     const listing = await db.orm.public.Listing.first({ id: listingId });
     expect(listing).toBeNull(); // row gone

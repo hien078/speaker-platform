@@ -53,8 +53,11 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # (migration chạy từ stage 'migrate' — app runtime không cần Prisma CLI / src/prisma)
 
-# thư mục upload ghi được
-RUN mkdir -p /app/public/uploads && chown -R nextjs:nodejs /app/public/uploads
+# thư mục upload ghi được — NGOÀI public/ (b4-holistic round-3 HIGH: Next
+# production chỉ serve file public/ tồn tại khi start; uploads serve qua
+# route handler app/uploads/[key] đọc đĩa mỗi request từ UPLOADS_DIR
+# mặc định /app/data/uploads — compose mount volume `uploads` tại đây)
+RUN mkdir -p /app/data/uploads && chown -R nextjs:nodejs /app/data/uploads
 
 USER nextjs
 EXPOSE 3000

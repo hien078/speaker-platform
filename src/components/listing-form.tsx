@@ -45,6 +45,12 @@ export function ListingForm({
   const [categoryId, setCategoryId] = useState(edit?.categoryId ?? categories[0]?.id ?? "");
   const [price, setPrice] = useState(edit?.price ?? 0);
 
+  // Item 11 (Batch 4 Task 5): stored city NGOÀI CITIES (listing legacy free-text —
+  // vd "Bình Dương" pre-merger) → render option RIÊNG, chọn được, hiển thị đúng
+  // giá trị đang lưu — KHÔNG rewrite im lặng về option đầu khi edit.
+  const storedCity = edit?.city ?? null;
+  const extraCity = storedCity !== null && !cities.includes(storedCity) ? storedCity : null;
+
   return (
     <form action={formAction} className="space-y-5">
       {edit && <input type="hidden" name="listingId" value={edit.listingId} />}
@@ -157,7 +163,8 @@ export function ListingForm({
       {/* Khu vực */}
       <div>
         <label className="label" htmlFor="city">Khu vực</label>
-        <select id="city" name="city" className="input" defaultValue={edit?.city ?? cities[0]}>
+        <select id="city" name="city" className="input" defaultValue={storedCity ?? cities[0]}>
+          {extraCity !== null && <option value={extraCity}>{extraCity}</option>}
           {cities.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
