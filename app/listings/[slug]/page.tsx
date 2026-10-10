@@ -19,6 +19,7 @@ import {
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
 import { assertListingSellerInteractable } from "@/src/lib/deal";
+import { isActiveBetaParticipant } from "@/src/lib/beta-access";
 import { DealCreateForm } from "@/src/components/deal-create-form";
 import {
   recordListingView,
@@ -179,6 +180,17 @@ export default async function ListingDetailPage({
           .where({ listingId: listing.id, buyerId: user.id })
           .first()
       : null;
+
+  // ─── B7 Task 6 (corrections #18 — spec §2.1 buyer beta access): non-member
+  // buyer KHÔNG thấy CTA chết — action vẫn enforce (§4.5), đây chỉ là UX.
+  // Chỉ đọc membership khi nhánh CTA có thể render (approved + non-owner +
+  // seller eligible) VÀ user đã đăng nhập mà CHƯA có hội thoại (redirect
+  // branch ungated — §2.1 chỉ chặn CREATION); anonymous giữ CTA
+  // (requireUser gửi vào login — corrections #16 của Batch 6).
+  let buyerBetaEligible = true;
+  if (user !== null && ctaVisible && sellerEligible && buyerConvo === null) {
+    buyerBetaEligible = await isActiveBetaParticipant(user.id);
+  }
 
   // Product Model link (§5) — specs + giá tham chiếu
   const model = listing.productModelId
@@ -414,13 +426,24 @@ export default async function ListingDetailPage({
                 <>
                   {sellerEligible ? (
                     <>
-                      <form action={startChat}>
-                        <input type="hidden" name="listingId" value={listing.id} />
-                        <button type="submit" className="btn-primary w-full">
-                          <MessageCircle className="size-4" />
-                          Nhắn người bán
-                        </button>
-                      </form>
+                      {buyerBetaEligible ? (
+                        <form action={startChat}>
+                          <input type="hidden" name="listingId" value={listing.id} />
+                          <button type="submit" className="btn-primary w-full">
+                            <MessageCircle className="size-4" />
+                            Nhắn người bán
+                          </button>
+                        </form>
+                      ) : (
+                        /* B7 Task 6 (corrections #18 — PROVISIONAL copy): buyer
+                           đã đăng nhập nhưng chưa là active beta participant
+                           (§2.1) → copy trung tính THAY CTA chết (action vẫn
+                           enforce; đường cấp membership: /admin/users →
+                           setBetaMembershipAction Batch 2). D12 <p> pattern. */
+                        <p className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">
+                          Tính năng nhắn tin đang giới hạn cho thành viên beta
+                        </p>
+                      )}
                       {user && buyerConvo !== null && (
                         <DealCreateForm listingId={listing.id} variant="compact" />
                       )}

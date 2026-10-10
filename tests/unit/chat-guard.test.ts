@@ -34,7 +34,9 @@
  * db.client in-memory (User/Listing/Conversation/Message(include sender)/
  * UserBlock/UserSuspension/SellerVerification/BetaCohortMembership/
  * Notification — hai model cuối là fixture migration B1 của Batch 6 Task 3:
- * guard §7.8 seller-side đọc chúng FRESH mỗi call). `@/src/lib/moderation` và
+ * guard §7.8 seller-side đọc chúng FRESH mỗi call; BetaCohortMembership thêm
+ * nữa row buyer private_beta_buyer active — fixture migration B7 Task 6 của
+ * guard §2.1 buyer-side). `@/src/lib/moderation` và
  * `@/src/lib/rate-limit` GIỮ BẢN THẬT — guard chạy đúng code production đọc
  * store mock; resetRateLimits() mỗi test.
  */
@@ -340,6 +342,27 @@ const SELLER_MEMBERSHIP: Fixture = {
   updatedAt: "2026-10-01T00:00:00.000Z",
 };
 
+/**
+ * Membership private_beta_buyer active của BUYER — B7 Task 6 fixture migration
+ * (corrections #17, Batch 6 B1 pattern): create branch của
+ * startConversationAction giờ thêm guard buyer-side (assertBuyerBetaChatAccess
+ * — §2.1) sau guard D2; mọi fixture tạo hội thoại qua action cần buyer là
+ * active beta participant. KHÔNG assertion nào đổi.
+ */
+const BUYER_MEMBERSHIP: Fixture = {
+  id: "bcm-buyer",
+  userId: BUYER.id,
+  cohort: "private_beta_buyer",
+  status: "active",
+  invitedBy: null,
+  invitedAt: null,
+  acceptedAt: null,
+  expiresAt: null,
+  notes: null,
+  createdAt: "2026-10-01T00:00:00.000Z",
+  updatedAt: "2026-10-01T00:00:00.000Z",
+};
+
 const block = (blockerId: string, blockedId: string): Row => ({
   id: `blk-${blockerId}-${blockedId}`,
   blockerId,
@@ -405,6 +428,9 @@ const seedBase = (): void => {
   // path/create branch của startConversationAction đi qua guard D2.
   dbState.verifications.push({ ...SELLER_VERIFICATION });
   dbState.memberships.push({ ...SELLER_MEMBERSHIP });
+  // B7 Task 6 fixture migration (corrections #17): buyer ĐỦ §2.1 mặc định —
+  // create branch đi qua guard buyer-side (sau SELLER_MEMBERSHIP).
+  dbState.memberships.push({ ...BUYER_MEMBERSHIP });
 };
 
 beforeEach(() => {

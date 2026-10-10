@@ -107,6 +107,20 @@ async function seedSellerEligibility(sellerId: string): Promise<void> {
   });
 }
 
+/**
+ * Buyer là active beta participant (B7 Task 6 fixture migration — corrections
+ * #17): create branch của startConversationAction giờ thêm guard buyer-side
+ * (assertBuyerBetaChatAccess — §2.1) SAU guard D2. Membership cascade theo
+ * user nên cleanup afterEach (delete user) dọn cả row này.
+ */
+async function seedBuyerMembership(buyerId: string): Promise<void> {
+  await db.orm.public.BetaCohortMembership.create({
+    userId: buyerId,
+    cohort: "private_beta_buyer",
+    status: "active",
+  });
+}
+
 async function mkListing(sellerId: string): Promise<string> {
   const cat = await db.orm.public.Category.create({
     name: `Danh mục ${uid()}`,
@@ -242,6 +256,8 @@ d("chat hardening trên DB thật (Batch 6 Task 3 — D1/D2/§7.1/S3/S4)", () =>
     const buyer2 = await mkUser("buyer"); // chưa có hội thoại — path "tạo mới"
     const seller = await mkUser("seller");
     await seedSellerEligibility(seller);
+    await seedBuyerMembership(buyer); // B7 Task 6 migration — guard §2.1 buyer-side
+    await seedBuyerMembership(buyer2); // B7 Task 6 migration — guard §2.1 buyer-side
     const listing = await mkListing(seller); // approved
     const buyerTok = await loginAs(buyer);
     const buyer2Tok = await loginAs(buyer2);

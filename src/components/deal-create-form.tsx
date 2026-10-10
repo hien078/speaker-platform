@@ -51,6 +51,10 @@ const DEAL_CREATE_ERROR_TEXT: Record<string, string> = {
   SELLER_SUSPENDED: "Người bán hiện không nhận tin nhắn mới",
   SELLER_NOT_VERIFIED: "Người bán hiện không nhận tin nhắn mới",
   SELLER_MEMBERSHIP_INACTIVE: "Người bán hiện không nhận tin nhắn mới",
+  // B7 Task 6 (corrections #11 — PROVISIONAL copy, mechanics only §4.2):
+  // buyer chưa là active beta participant (§2.1) — đường cấp membership:
+  // /admin/users → setBetaMembershipAction (Batch 2, audited).
+  BETA_MEMBERSHIP_REQUIRED: "Bạn cần là thành viên beta để tạo thỏa thuận mới",
   DEAL_CONVERSATION_REQUIRED: "Hãy nhắn người bán trước khi tạo thỏa thuận",
   DEAL_ALREADY_OPEN: "Đã có thỏa thuận đang mở với tin này",
 };

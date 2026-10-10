@@ -32,6 +32,27 @@ const nextConfig: NextConfig = {
           { key: "Content-Security-Policy", value: "default-src 'none'; sandbox" },
         ],
       },
+      // Batch 7 Task 3 (spec §4.8 — invite token secrecy; corrections #8):
+      // Referrer-Policy no-referrer CHỈ trên response URL token — trang
+      // /invite/<token> là nơi token thô xuất hiện (một GET duy nhất trước
+      // khi cookie HttpOnly thay thế). KHÔNG dùng "/invite/:path*" — pattern
+      // đó match cả /invite, và với no-referrer browser gửi Origin: null trên
+      // action POST cùng origin → Next CSRF check reject ("Invalid Server
+      // Actions request"). Route handler app/invite/[token]/route.ts set
+      // cùng header trên response redirect (belt-and-braces).
+      {
+        source: "/invite/:token",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex" },
+        ],
+      },
+      // /invite (tokenless) — KHÔNG Referrer-Policy (action POST cần Origin
+      // same-origin), chỉ chặn index (URL mời không được index).
+      {
+        source: "/invite",
+        headers: [{ key: "X-Robots-Tag", value: "noindex" }],
+      },
     ];
   },
 };

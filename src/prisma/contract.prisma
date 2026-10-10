@@ -240,6 +240,28 @@ enum deal_fulfillment_method {
   other           = "other"             // khác
 }
 
+// ─── Enums (Batch 7 — cohort operations, spec §5.10) ───
+
+enum founding_seller_candidate_status {
+  @@type("pg/text@1")
+  prospect               = "prospect"                // ứng viên chưa mời (spec §5.10)
+  invited                = "invited"                 // đã gửi lời mời
+  registered             = "registered"              // đã nhận lời mời / có tài khoản
+  verification_pending   = "verification_pending"   // đã gửi xác minh (sync từ SellerVerification)
+  verified               = "verified"                // xác minh thành công (sync)
+  concierge_onboarding   = "concierge_onboarding"   // CS đang hỗ trợ trực tiếp (ops state)
+  first_listing          = "first_listing"           // tin đầu tiên đã publish (sync)
+  active_founding_seller = "active_founding_seller" // ops đánh dấu sau chất-sample (§12.1)
+  inactive               = "inactive"                // ops state
+  exited                 = "exited"                  // terminal
+}
+
+enum beta_invite_channel {
+  @@type("pg/text@1")
+  email = "email"
+  phone = "phone"
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -306,6 +328,10 @@ model User {
   dealsAsBuyer        Deal[]              @relation("deal_buyer")
   dealsAsSeller       Deal[]              @relation("deal_seller")
   dealHistoryActions  DealStatusHistory[] @relation("deal_history_actor")
+  // ─── Batch 7 — cohort operations relations (additive — KHÔNG cột mới trên User, spec §5.10) ───
+  foundingSellerCandidate     FoundingSellerCandidate?  @relation("founding_seller_candidate_user")
+  betaInvitesIssuedBy         BetaInviteToken[]         @relation("beta_invite_issued_by")
+  foundingCandidatesAssigned  FoundingSellerCandidate[] @relation("founding_seller_candidate_operator")
 
   @@index([role])
 }
@@ -1262,4 +1288,71 @@ model DealStatusHistory {
 
   @@index([dealId, createdAt])
   @@index([actorId, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 7 — Private Beta Cohort and Founding Seller Operations
+// (spec §5.10/§5.10.1/§9 Batch 7)
+// Additive-only: không drop/rename/repurpose model/cột/enum value nào đang có.
+// BetaCohortMembership + beta_cohort + beta_membership_status là của Batch 2 —
+// Batch 7 KHÔNG đụng (T3 schema/enum ownership). KHÔNG bảng nào đụng finance.
+// KHÔNG auto-membership (§8.4): không seed/backfill/transform nào tạo membership.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Founding seller operations (Batch 7 — spec §5.10/§5.10.1) ───
+
+model FoundingSellerCandidate {
+  id                  String   @id @default(uuid())
+  userId              String?  @unique // liên kết SAU khi nhận lời mời; null = prospect chưa có tài khoản (FoundingSellerCandidate_userId_key)
+  user                User?    @relation("founding_seller_candidate_user", fields: [userId], references: [id], onDelete: SetNull)
+  contactReference    String? // email/phone ĐÃ CHUẨN HÓA — chỉ để bind invite; render console luôn MASK (§4.8/§7.6)
+  contactChannel      beta_invite_channel?
+  source              String  // kênh tuyển nguồn — ops free text, render React text only
+  targetCommunity     String  // slug code tỉnh canonical (src/lib/provinces.ts — Batch 2 Task 10, FD-1) — KHÔNG bao giờ free text
+  status              founding_seller_candidate_status @default(prospect)
+  assignedOperatorId  String?
+  assignedOperator    User?   @relation("founding_seller_candidate_operator", fields: [assignedOperatorId], references: [id], onDelete: SetNull)
+  invitedAt           TimestamptzString?
+  registeredAt        TimestamptzString?
+  verifiedAt          TimestamptzString?
+  firstListingAt      TimestamptzString?
+  qualityListingCount Int     @default(0) // §12.2 — KHÔNG auto-compute (A3); ops cập nhật thủ công sau sample §12.1
+  lastContactAt       TimestamptzString?
+  notes               String? // ops free text — redactDetail trước khi lưu; KHÔNG PII thô
+  createdAt           TimestamptzString @default(now())
+  updatedAt           temporal.updatedAtString()
+
+  inviteTokens BetaInviteToken[]
+
+  @@index([status, updatedAt])
+  @@index([assignedOperatorId])
+  @@index([targetCommunity])
+}
+
+// ─── Invitation tokens (Batch 7 — spec §9 Batch 7 "invitation flow"; §2.1 invited/acceptedAt) ───
+// Token thô 256-bit KHÔNG bao giờ lưu — chỉ HMAC keyed (hkdfKey("beta-invite-hash"),
+// cùng pattern OtpCode.codeHash của Batch 2). Single-use qua atomic consumedAt claim;
+// revoke = flag; KHÔNG delete (audit trail sống qua revocation/consumption).
+
+model BetaInviteToken {
+  id           String   @id @default(uuid())
+  candidateId  String
+  candidate    FoundingSellerCandidate @relation(fields: [candidateId], references: [id], onDelete: Restrict) // explicit Restrict: token row không bao giờ bị product flow xóa — candidate không xóa được khi còn token (corrections item 32)
+  channel      beta_invite_channel
+  target       String   // email/phone đã chuẩn hóa (normalizeEmail/normalizePhone của Batch 2) — bind kênh
+  tokenHash    String   @unique // HMAC-SHA256(token, hkdfKey("beta-invite-hash")) hex (BetaInviteToken_tokenHash_key)
+  issuedById   String?  // nullable + SetNull: row sống qua admin deletion (Batch 3 UserSuspension precedent)
+  issuedBy     User?    @relation("beta_invite_issued_by", fields: [issuedById], references: [id], onDelete: SetNull)
+  expiresAt    TimestamptzString
+  consumedAt   TimestamptzString?
+  revokedAt    TimestamptzString?
+  createdAt     TimestamptzString @default(now())
+
+  @@index([candidateId, createdAt])
+  @@index([expiresAt])
+  // MỘT token active (chưa consume, chưa revoke) duy nhất per candidate — đóng race
+  // re-invite; token đã consume/revoke được GIỮ làm audit trail. where: là SQL string
+  // (Batch 6 Deal precedent) — cột camelCase PHẢI trong quote (corrections item 5:
+  // unquoted consumedAt folds thành consumedat trong Postgres → index chết im).
+  @@index([candidateId], where: "(\"consumedAt\" IS NULL AND \"revokedAt\" IS NULL)", unique: true, name: "beta_invite_one_active")
 }

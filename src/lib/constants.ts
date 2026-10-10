@@ -281,3 +281,27 @@ export const DEAL_OUTCOME_LABELS: Record<DealOutcome, string> = {
   no_deal: "Không đạt thỏa thuận",
   cancelled: "Đã hủy thỏa thuận",
 };
+
+// ─── Founding seller (Batch 7 Task 4 — spec §5.10) ────────────────────────────
+
+/**
+ * Badge Tailwind cho trạng thái ứng viên founding seller — console (Task 5).
+ *
+ * Nhãn tiếng Việt sống ở src/lib/founding-seller-vocab.ts
+ * (FOUNDING_SELLER_STATUS_LABELS — client-safe, PROVISIONAL FD-3); map này
+ * CHỈ là màu badge theo pattern LISTING_STATUS_BADGE (T4 file order —
+ * append only, không đụng map hiện có). PROVISIONAL (FD-3): màu là cơ học,
+ * founder đổi additive được trước beta (Batch 8 register).
+ */
+export const FOUNDING_SELLER_STATUS_BADGE: Record<string, string> = {
+  prospect: "bg-zinc-700/60 text-zinc-300",
+  invited: "bg-amber-500/15 text-amber-400",
+  registered: "bg-sky-500/15 text-sky-400",
+  verification_pending: "bg-amber-500/15 text-amber-400",
+  verified: "bg-emerald-500/15 text-emerald-400",
+  concierge_onboarding: "bg-violet-500/15 text-violet-400",
+  first_listing: "bg-emerald-500/15 text-emerald-400",
+  active_founding_seller: "bg-emerald-500/15 text-emerald-400",
+  inactive: "bg-zinc-700/60 text-zinc-300",
+  exited: "bg-red-500/15 text-red-400",
+};
