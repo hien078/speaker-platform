@@ -11,10 +11,11 @@
 > **Gate chạy trên workstation/CI tại release commit** (corrections item 8):
 > host production docker-only KHÔNG có Node (`scripts/ops-alerts-cron.sh:5-8`)
 > — MỌI bước server-side (drill `--file` production, access review production,
-> crontab install, nginx HSTS/`limit_req`, CSP flip, migrate/seed/backfill,
-> uploads volume, grant membership) là **hàng FOUNDER người deploy (user) chạy
-> + ký**; gate chỉ kiểm tra DOCS + suite local. Output server-side paste vào
-> evidence doc tương ứng (dated, redacted) rồi mới ký.
+> crontab install, nginx HSTS/`limit_req`, CSP flip, secrets dedicated, backup
+> pre-migrate, migrate/seed/backfill, uploads volume, grant membership) là
+> **hàng FOUNDER người deploy (user) chạy + ký**; gate chỉ kiểm tra DOCS +
+> suite local. Output server-side paste vào evidence doc tương ứng (dated,
+> redacted) rồi mới ký.
 >
 > **Status** đúng một trong `PASS` / `PENDING` / `FOUNDER`. **Sign-off là
 > founder-only** (spec §4.11 — implementer/agent KHÔNG bao giờ điền; một commit
@@ -24,6 +25,10 @@
 > item + ký checklist là việc làm gate xanh.
 
 ## 1. Bảng chính — §12 readiness + §12.1 supply + §9 Batch 8 gate + hàng vận hành
+
+> Các hàng OPS liệt kê theo **thứ tự deploy** (secrets → backup → migrate →
+> seed → backfills → verify/ops); **Ref là ID cố định, không phải thứ tự** —
+> thứ tự chạy đọc theo chữ (TRƯỚC/SAU) trong mỗi hàng.
 
 | Ref | Criterion | Evidence type | Evidence | Status | Sign-off |
 |---|---|---|---|---|---|
@@ -71,9 +76,13 @@
 | OPS-03 | Crontab installs (ops-alerts + backup) | user-run | `scripts/ops-alerts-cron.sh` (dòng crontab :12-13) + `docs/backup-restore.md` §1 (backup cron); KHÔNG install auto-release cron (xem OPS-04) | FOUNDER | — |
 | OPS-04 | Auto-release cron KHÔNG được install trong private beta | user-run | `app/api/cron/auto-release/route.ts` trả 503 khi finance off — cron sẽ log fail mỗi giờ (corrections item 19); KHÔNG cài crontab finance `docs/runbook.md` §5 cho tới khi finance bật lại (plan riêng) | FOUNDER | — |
 | OPS-05 | nginx HSTS + `limit_req` cấu hình | user-run | `Strict-Transport-Security` + `limit_req` ở nginx edge (`docs/deployment.md` §3 hiện CHƯA có — corrections item 24); app-level HSTS (`next.config.ts`) là HSTS duy nhất tới khi user cấu hình nginx | FOUNDER | — |
-| OPS-06 | Migrations + backfills chạy ở deploy production | user-run | `docker compose -f docker-compose.prod.yml run --rm migrate` (graph 9 migration, head `20261008T1130_batch7_cohort_operations`, marker `656449ac…`, invariant `backfill-listing-approved-content-at`); KHÔNG `migration ref set` (wipes invariant) | FOUNDER | — |
-| OPS-07 | Seed KHÔNG BAO GIỜ chạy vào production (B2 R15) | user-run | `scripts/seed-beta-catalog.ts` / `scripts/seed-search-aliases.ts` chỉ chạy khi founder cung cấp danh sách (FD-R16) và ký — attestation của người deploy | FOUNDER | — |
-| OPS-08 | Uploads volume mount tại `/app/data/uploads` | user-run | `docker-compose.prod.yml` mount `./data/uploads:/app/data/uploads` (parity smoke `UPLOADS_DIR` = cwd/data/uploads); user xác nhận mount + GET `/uploads/<key>` 200 sau deploy | FOUNDER | — |
+| OPS-11 | Secrets dedicated trong `.env` TRƯỚC lần `up -d --build` đầu tiên | user-run | `ADMIN_MFA_ENCRYPTION_KEY` + `PRODUCT_EVENT_PSEUDONYM_KEY` = `openssl rand -base64 32` mỗi key (base64 của ĐÚNG 32 byte, key DÀNH RIÊNG — KHÔNG derive từ `AUTH_SECRET`; thiếu key → compose từ chối start, `docker-compose.prod.yml:62,111,116`); ghi vào `.env` (`chmod 600`), KHÔNG bao giờ in giá trị thật ra terminal/log/evidence; `AUTH_SECRET`/`DB_PASSWORD`/`CRON_SECRET` theo `docs/deployment.md` §2 bước 2 | FOUNDER | — |
+| OPS-12 | Backup production TRƯỚC migrate đầu tiên | user-run | `./scripts/db-ops.sh backup` (container-on-network, KHÔNG host pg tools — `docs/backup-restore.md` §1) TRƯỚC `docker compose -f docker-compose.prod.yml up -d --build`: lệnh up chạy service `migrate` TỰ ĐỘNG (app `depends_on` migrate — `docker-compose.prod.yml:3-5,99-103`) nên KHÔNG có backup tươi thì migration đầu tiên chạy vào DB chưa backup; file backup này dùng lại cho OPS-01 (drill `--file`) | FOUNDER | — |
+| OPS-06 | Migrate production qua service `migrate` (graph) | user-run | `docker compose -f docker-compose.prod.yml up -d --build` chạy service `migrate` TỰ ĐỘNG tới ref `production` TRƯỚC khi app start; chạy tay khi cần: `docker compose -f docker-compose.prod.yml run --rm migrate` (idempotent — chạy lại không áp lại); graph 9 migration, head `20261008T1130_batch7_cohort_operations`, marker `656449ac…`, invariant `backfill-listing-approved-content-at`; KHÔNG `migration ref set` (wipes invariant); SAU OPS-12 (backup tươi) + OPS-11 (secrets) | FOUNDER | — |
+| OPS-13 | Seed beta catalog BẮT BUỘC sau migrate (category `portable_bluetooth_speaker`) | user-run | dry-run: `docker compose -f docker-compose.prod.yml run --rm -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" migrate npx tsx scripts/seed-beta-catalog.ts`; apply: cùng lệnh + `--apply --allow-production` (KHÔNG `--models` — `docs/deployment.md` §2 bước 5: category `portable_bluetooth_speaker` CHỈ được tạo qua script này, không admin action nào tạo Category; không seed → `/sell/new` không có danh mục, mọi seller bị chặn đăng tin); `--models /app/founder.json` CHỈ khi founder cung cấp file (FD-R16); SAU bước này chạy OPS-14 | FOUNDER | — |
+| OPS-14 | Backfills location + search-text (BẮT BUỘC sau migrate/seed) | user-run | `backfill-listing-location.ts`: dry-run rồi `--apply --allow-production`; `backfill-listing-search-text.ts`: dry-run rồi `--apply --allow-production`; SAU MỌI lần seed (OPS-13) chạy thêm `backfill-listing-search-text.ts --apply --recompute-all --allow-production` (searchTextNormalized nhúng tên brand/model — trôi sau seed/rename/merge model); exact commands `docs/deployment.md` §2 bước 5b/5c (qua service migrate + mount `scripts/`+`src/`); không backfill → listing legacy `unresolved` + KHÔNG tìm được qua ô từ khóa | FOUNDER | — |
+| OPS-07 | Demo seed `src/prisma/seed.ts` KHÔNG BAO GIỜ chạy vào production (B2 R15) | user-run | attestation của người deploy: seed dữ liệu MẪU (tài khoản demo `isVerifiedSeller`) KHÔNG chạy ở production (script tự từ chối `NODE_ENV=production` — `docs/deployment.md` §2 note); seed beta catalog (OPS-13) là BẮT BUỘC và KHÔNG phải demo seed; `seed-beta-catalog.ts --models` + `seed-search-aliases.ts --aliases` CHỈ chạy khi founder cung cấp danh sách + duyệt (FD-R16) | FOUNDER | — |
+| OPS-08 | Uploads named volume `uploads` mount `/app/data/uploads` | user-run | `docker-compose.prod.yml` dùng NAMED VOLUME `uploads` (compose project-prefixed — `docker-compose.prod.yml:72,141,145`) mount `/app/data/uploads` trên CẢ app + migrate (app đọc qua `UPLOADS_DIR` default = cwd/data/uploads, `src/lib/uploads-storage.ts` — cwd=/app), KHÔNG phải bind mount `./data/uploads`; verify: `docker compose -f docker-compose.prod.yml config` (volume named) / `docker volume inspect <project>_uploads` + GET `/uploads/<key>` trả 200 sau deploy; KHÔNG "sửa" compose sang bind mount — mọi upload cũ trong named volume sẽ 404 | FOUNDER | — |
 | OPS-09 | Grant `private_beta_buyer` memberships | user-run | `/admin/users?u=<id>` forms `setBetaMembershipAction` (self-grant forbidden; staff cần `internal` hoặc `private_beta_buyer` do admin KHÁC cấp — FD-R33); broader buyer invitations chỉ SAU §12.1 + FD-R30 | FOUNDER | — |
 | OPS-10 | One-time re-login (B2 R1 — session cutover) | user-run | cutover JWT → DB sessions đăng xuất mọi user MỘT LẦN (RR-6, đã qua — Batch 2 verification doc); user xác nhận đã thông báo re-login cho người dùng beta | FOUNDER | — |
 
@@ -122,13 +131,23 @@
 
 - `scripts/release-gate.sh` → gate `release-checklist`: **zero PENDING** ở cả
   hai bảng (bảng chính: cột Status; mirror: cột Decision); hàng **FOUNDER**
-  chỉ qua với Sign-off không trống; **mọi hàng mirror cần Decision ≠ PENDING +
-  Date không trống**.
+  chỉ qua với Sign-off không trống (ô placeholder `—`/`-`/`— (chờ founder)`/
+  `chờ`/`pending` KHÔNG tính là đã ký); **mọi hàng mirror cần Decision ≠
+  PENDING + Date không trống**.
+- Gate pin **tập hàng founder/user-run bắt buộc** (các hàng Evidence type
+  `founder`/`user-run`: §12-12/§12-13/§12-15, §12.1-02..06/08, §9-08/§9-10,
+  SEC-01, OPS-01..14): hàng bị **xoá** hay **flip sang PASS** (không chữ ký)
+  đều FAIL — không có đường nào làm gate xanh mà thiếu một chữ ký
+  founder/user thật.
 - Gate `policy-reviews` đối chiếu `scripts/policy-hash.ts --check` với
   `docs/operations/policy-review-record.md` (Decision == APPROVED + hash khớp
-  + registry status REVIEWED).
+  + registry status REVIEWED) — chọn **row khớp key + version + hash mới
+  nhất** (version bump = row MỚI, `policy-review-record.md` bước 5), ô
+  Reviewer/Reviewed-at phải đã điền thật (placeholder `— (chờ founder)`
+  không qua).
 - Gate `evidence-files` yêu cầu mọi doc evidence tồn tại + findings register
-  của security review không có hàng CRITICAL+OPEN.
+  của security review không có hàng CRITICAL+OPEN (parse **theo cột**
+  `| Severity | Status | … |` — không regex liền hàng).
 - Gate `finance-off` re-check `FINANCIAL_FEATURES_ENABLED="false"` ×3 file.
 - Gate chạy ĐẦY ĐỦ rồi tổng hợp (pattern `scripts/preflight.sh`) — exit ≠ 0
   khi có gate đỏ. **FAIL hiện tại là ĐÚNG** (policy DRAFT-NOT-REVIEWED + 28
