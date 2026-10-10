@@ -185,7 +185,7 @@ verify đúng tên. **Kết quả: 14 PASS / 0 FAIL / 0 CANNOT RUN — PASS (exi
 ════ EVIDENCE — paste vào docs/operations/restore-drill-evidence.md (REDACT host/IP) ════
 - Ngày (UTC): 2026-10-06T15:21:04Z
 - Host: (redacted — máy dev, docker 27.5.1)
-- Mode: --file (backup thật, stack loaviet-db/loaviet — TEST RIG throwaway, không phải server production)
+- Mode: --file (backup thật, stack production loaviet-db/loaviet)
 - File: …/backups/db-loaviet-20261006T152047Z.dump (140K) · backup freshness (RPO đo được): 5s
 - Verify duration (restore vào DB mới + checks): 2s (mẫu RTO đo được)
 - Checks: 14 PASS / 0 FAIL / 0 CANNOT RUN (table parity · row counts · read-back equal · prisma db verify)
@@ -204,6 +204,11 @@ Ghi chú lần chạy này:
 
 - Rig tear-down đầy đủ sau test (container + network + dump đã xoá, không còn
   `loaviet-*`).
+- Dòng `Mode` trong block in nguyên văn `stack production loaviet-db/loaviet`
+  vì rig đặt tên container theo cấu hình production mặc định của `db-ops.sh`
+  (`scripts/restore-drill.sh:346`) — **TEST RIG throwaway, không phải server
+  production** (bối cảnh đầu mục); block này không có nhãn verbatim riêng,
+  các redaction khai báo: host/IP (dòng Host) + đường dẫn dump (tiền tố `…`).
 - **Lần chạy `--file` trên server production THẬT** (stack `loaviet-db` thật,
   `DB_PASSWORD` từ env/.env) vẫn là **bước pre-launch của operator** — ghi mục
   dated mới sau khi chạy trên server; các con số RPO/RTO thật lấy từ lần đó.
@@ -360,7 +365,7 @@ Kiểm tra thêm bằng tay nếu muốn, rồi dọn khi sẵn sàng (KHÔNG in
 ════ EVIDENCE — paste vào docs/operations/restore-drill-evidence.md (REDACT host/IP) ════
 - Ngày (UTC): 2026-10-08T15:59:48Z
 - Host: (redacted — máy dev, docker 27.5.1)
-- Mode: --file (backup thật, stack loaviet-db/loaviet — TEST RIG throwaway, không phải server production)
+- Mode: --file (backup thật, stack production loaviet-db/loaviet)
 - File: …/backups/db-loaviet-20261008T155928Z.dump (304K) · backup freshness (RPO đo được): 10s
 - Verify duration (restore vào DB mới + checks): 2s (mẫu RTO đo được)
 - Checks: 14 PASS / 0 FAIL / 0 CANNOT RUN (table parity · row counts · read-back equal · prisma db verify)
@@ -375,6 +380,13 @@ Ghi chú lần chạy này:
 - Output là **verbatim** của lần chạy (redact host/IP + đường dẫn tuyệt đối;
   rig không có dữ liệu thật — fixture giả như scratch; password không bao giờ
   in ra).
+- Dòng `Mode` in nguyên văn `stack production loaviet-db/loaviet` vì rig đặt
+  tên container theo cấu hình production mặc định của `db-ops.sh`
+  (`scripts/restore-drill.sh:346` với default `:194-196`) — **TEST RIG
+  throwaway, không phải server production, không phải gate evidence
+  production**: lần chạy này chứng minh script + ĐẦY ĐỦ 4 nhóm check chạy
+  đúng; gate evidence production là lần `--file` trên server thật (hàng
+  OPS-01 của checklist).
 - **Lần chạy `--file` trên server production THẬT** vẫn là **bước pre-launch
   của operator** (release checklist Batch 8 Task 9) — fix này chỉ đổi **nơi
   prisma CLI chạy** (image migrate của repo thay vì node container), không

@@ -39,9 +39,16 @@
    tự xác minh được, và `/recover` KHÔNG BAO GIỜ gửi được mã cho tới khi
    FD-R1 (provider) land** — đánh dấu kênh verified thủ công (§4) KHÔNG làm
    luồng này chạy được. Người dùng vẫn nhận thông báo trung tính (§1.2) nhưng
-   mã không bao giờ tới (throw được `captureError` trong `after()` — response
-   không đổi, `src/lib/actions/recovery.ts:217-247`). Tự phục vụ đặt lại mật
-   khẩu trong production là **BẤT KHẢ THI** cho tới FD-R1 — xem §4.
+   mã không bao giờ tới: `requestOtp` TỰ BẮT throw của adapter — xoá row
+   `OtpCode` vừa tạo rồi trả typed `{ok:false, code:"OTP_DELIVERY_UNAVAILABLE"}`
+   (`src/lib/otp.ts:166-170`) — và callback `after()` ghi `AuditEvent`
+   `user.recovery_requested` với reason `OTP_DELIVERY_UNAVAILABLE`
+   (`src/lib/actions/recovery.ts:217-245`, reason tại `:234`). **Operator tra
+   đúng reason đó trong `/admin/audit`** (capability `audit.read`) để xác nhận
+   lần gửi bị chặn; `captureError("recovery")` (`:238`,`:243`) CHỈ chạy khi có
+   throw NGOÀI dự kiến (ghi audit fail / db fail) — KHÔNG phải khi delivery OTP
+   bị chặn. Response không đổi (callback chạy sau response). Tự phục vụ đặt lại
+   mật khẩu trong production là **BẤT KHẢ THI** cho tới FD-R1 — xem §4.
 4. **Xác nhận:** mã + mật khẩu mới → MỌI failure collapse về cùng một lỗi
    (không phân biệt "không có tài khoản"/"sai mã"/"hết hạn"/"khóa").
    Mật khẩu mới + **thu hồi TOÀN BỘ session** trong CÙNG transaction
