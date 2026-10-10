@@ -14,7 +14,7 @@
 > moderation operational; report/block operational; seller verification
 > operational; legal/operations sign-offs recorded; founding seller process
 > ready; supply readiness approved") đều **có evidence ghi nhận** (§3 — mapping
-> verbatim từng mục). Mọi gate kỹ thuật xanh: unit 2447/2447, integration
+> verbatim từng mục). Mọi gate kỹ thuật xanh: unit 2485/2485, integration
 > 279/279, preflight 7/7, build, smoke, `npm audit --omit=dev` = 0, migration
 > graph **identical Batch 7** (G2), abuse-matrix 29 hàng machine-checked.
 >
@@ -37,11 +37,18 @@ gate Batch 7; `beta/batch7-cohort-ops` @ `308b7fd` per corrections §A — verif
 `308b7fd` là ancestor của HEAD; `git diff 308b7fd -- migrations src/prisma`
 **rỗng** — G2 giữ nguyên graph + contract).
 
-**Final state verified:** `8cf74ce` + commit của doc này (Task 10).
+**Final state verified:** `0fbbf1a` + commit của doc này (refresh vòng 2 —
+review 2026-10-10 vòng 2 của fix Task 9 + doc này; mọi số §2/§5 là re-run
+foreground trên tree đó).
 
 ```
-$ git log --oneline 308b7fd..HEAD   (tại Task 10; + commit doc này sau)
+$ git log --oneline 308b7fd..HEAD   (refresh vòng 2 2026-10-10, tree cuối 0fbbf1a; + commit doc này sau)
 
+0fbbf1a docs(ops): fresh-backup production drill and first-deploy note  ← vòng 2 fix finding 1 (OPS-01/OPS-12 + §16)
+541624a fix(gate): restrict fixture overrides to test mode             ← vòng 2 fix finding 5+6 (gate + tests + checklist §3)
+6315baf docs(ops): correct release checklist server-side steps         ← Task 9 review fix (checklist)
+1481e35 fix(gate): fail-closed release gate checks from review          ← Task 9 review fix (gate script + tests)
+a4a983c test(batch8): verify launch gate                               ← Task 10 (doc này, bản đầu)
 8cf74ce docs(ops): last doc-accuracy fixes from fix verification      ← Task 10 doc-fix (§11)
 fdc7272 feat(gate): private-beta release checklist and release gate   ← Task 9
 8ec8b62 merge: batch 8 playbooks and wave-0 review fixes              ← merge playbooks + review fixes
@@ -78,7 +85,8 @@ ví dụ `85e333e` ← `dd0f48d…`, `4e995d9` ← `d4f8d37…`).
 **Mỗi task được review độc lập và mọi confirmed finding đã fix** — các commit
 review-fix trong danh sách trên: `51f0ca4` (T1/2), `276ff85` (T5), `4a06922` +
 `921c91a` + `b83b9b2` (T6), `0cdfbf6` (T7), `7a8f5ac` (Wave 0 merge), `4c20b95` + `15781b7` (T3/4), `612b29a` + `06cb1f2`
-(T8), `8cf74ce` (doc fix verification — §11). Task 9 (`fdc7272`) review độc
+(T8), `8cf74ce` (doc fix verification — §11), **`1481e35` + `6315baf` (T9
+review fix — gate script/tests + checklist)**. Task 9 (`fdc7272`) review độc
 lập (2026-10-10): **6 confirmed findings** — 1 HIGH (gate `evidence-files` parse
 findings-register **fail-open** — regex không khớp layout cột thực), 2 MEDIUM
 (gate xanh nếu hàng FOUNDER/user-run bị **xoá** hay **flip `PASS`** không chữ
@@ -86,20 +94,45 @@ ký; checklist thiếu hàng server-side deploy — không backup pre-migrate, k
 backfills, hàng seed mâu thuẫn seed catalog bắt buộc), 3 LOW (OPS-08 mô tả bind
 mount không tồn tại — thực tế **named volume**; ô Reviewer placeholder
 `— (chờ founder)` được tính là đã điền; `policy-reviews` dùng row ĐẦU của key
-thay vì row khớp version+hash). **Fix bởi session review-fix song song**
-(working tree tại lúc gate run của doc này — theo task contract commit
-`fix(gate): fail-closed release gate checks from review` [script + tests] +
-`docs(ops): correct release checklist server-side steps` [checklist], land
-cạnh doc này trong cùng chu kỳ). Checklist sau fix: **53 hàng chính [26
-FOUNDER] + 28 FD-mirror** (so với snapshot gate run4 49 [22] trước review
+thay vì row khớp version+hash). **Fix bởi commit `1481e35`** (`fix(gate):
+fail-closed release gate checks from review` — script + tests) **+ `6315baf`**
+(`docs(ops): correct release checklist server-side steps` — checklist), land
+sau `a4a983c` — KHÔNG còn working-tree-only. Checklist sau fix: **53 hàng chính
+[26 FOUNDER] + 28 FD-mirror** (so với snapshot gate run4 49 [22] trước review
 fix — xem §5).
 
-## 2. Acceptance set — kết quả từng lệnh (chạy 2026-10-10 trên `8cf74ce`, foreground, exit code ghi từng lệnh)
+**Review vòng 2 (2026-10-10) của fix Task 9 + doc này — fix bởi `541624a` +
+`0fbbf1a` + commit refresh doc này:**
+
+- **Finding 1 (CONFIRMED):** OPS-12 bảo dùng lại backup pre-migrate cho drill
+  OPS-01 — drill so sánh DB live với dump nên dump cũ luôn lệch. Fix
+  `0fbbf1a`: OPS-01 yêu cầu **backup MỚI ngay trước drill** (sau
+  migrate/seed/backfill, không có ghi nào vào DB giữa hai lệnh); OPS-12 bỏ
+  "dùng lại cho OPS-01" + thêm note **lần deploy đầu** (server mới chưa có
+  container `loaviet-db` → không có gì để backup: `up -d db` rồi backup, hoặc
+  ghi chú N/A + ký) — checklist + §16.
+- **Finding 5 (SPLIT):** cả hai `filled()` (bash + awk trong
+  `scripts/release-gate.sh`) match substring `chờ|pending|tbd` — từ chối
+  decision THẬT chứa các từ đó. Fix `541624a`: placeholder **nguyên ô** (trống;
+  bắt đầu `—`/`-`; đúng `PENDING`/`TBD`/`chờ` case-insensitive sau trim) —
+  "Chờ provider OTP (FD-R1) — chấp nhận" + date giờ qua; `PENDING` + `— (chờ
+  founder)` vẫn FAIL (fixture test chứng minh cả ba); quy tắc nêu trong
+  checklist header + §3.
+- **Finding 6 (REJECTED theo review — harden luôn theo commit plan founder):**
+  env override fixture được honour cả khi chạy thật. Fix `541624a`: guard đầu
+  script **từ chối chạy** (exit 1 ngay, không gate nào chạy) khi
+  `RELEASE_GATE_POLICY_RECORD`/`RELEASE_GATE_POLICY_HASH_CMD`/`RELEASE_GATE_CHECKLIST_DOC`/`RELEASE_GATE_REQUIRED_FOUNDER_REFS`
+  bị set ngoài source mode của test; test chứng minh từng biến bị từ chối +
+  source mode (test) vẫn cho phép.
+- **Finding 2/3/4 (doc này):** commit list + final state (§1), số đếm re-run
+  (§2/§3/§6/§9), output gate theo thứ tự chạy thật (§5).
+
+## 2. Acceptance set — kết quả từng lệnh (foreground, exit code ghi từng lệnh; **số dưới đây = refresh vòng 2 2026-10-10 re-run trên tree cuối `0fbbf1a`** — `npm test` / 8 file contract / lint / typegen+tsc / `release:gate` chạy trực tiếp; build + integration + smoke + preflight + audit re-run bên trong `release:gate`; 2 dry-run dev + `prisma migration list` giữ từ bản đầu `8cf74ce` — vòng 2 không đụng code tương ứng)
 
 | Lệnh | Kết quả | Exit |
 |---|---|---|
-| `npm test` (full unit) | **109 files / 2447 tests PASS** (Duration ~15.6s) | 0 |
-| `npm test --` 8 file contract Batch 8 (`policy-registry`, `copy-safety`, `ops-alerts`, `admin-access-review`, `abuse-matrix`, `security-headers`, `chat-surface-xss`, `release-gate-checklist`) | **8 files / 142 tests PASS** | 0 |
+| `npm test` (full unit) | **109 files / 2485 tests PASS** (Duration ~17s) | 0 |
+| `npm test --` 8 file contract Batch 8 (`policy-registry`, `copy-safety`, `ops-alerts`, `admin-access-review`, `abuse-matrix`, `security-headers`, `chat-surface-xss`, `release-gate-checklist`) | **8 files / 180 tests PASS** (`release-gate-checklist.test.ts` = **48 test**: 10 bản đầu → 33 sau `1481e35` → 48 sau `541624a` vòng 2) | 0 |
 | `npm run lint` | eslint clean (0 error) | 0 |
 | `npx next typegen` + `npx tsc --noEmit` | typegen "Types generated successfully"; tsc **0 error** (corrections item 14 — typegen trước) | 0 |
 | `npm run build` | Next 16.3.8 build PASS (21 static pages; 1 warning đã biết `instrumentation.ts:27` Edge `process.exit` — RR-31, pre-existing) | 0 |
@@ -108,7 +141,7 @@ fix — xem §5).
 | `npm run preflight` | **PREFLIGHT PASS 7/7**: contract-emit-drift, lint, typecheck, unit-tests, production-build, compose-config, migration-graph | 0 |
 | `npx prisma migration list` | **9 dirs, head `20261008T1130_batch7_cohort_operations`** (refs `[db, production]`), invariant `backfill-listing-approved-content-at` trên self-edge batch4_round4 — **identical Batch 7, KHÔNG có migration Batch 8** (G2; §9) | 0 |
 | `npm audit --omit=dev` | **0 vulnerabilities** runtime | 0 |
-| `npm run release:gate` | **exit 1 — ĐÚNG theo thiết kế**: 14 gate xanh + **2 gate đỏ `policy-reviews` + `release-checklist`** (§5 verbatim; chạy trên working tree bao gồm fix review Task 9 — §1) | 1 |
+| `npm run release:gate` | **exit 1 — ĐÚNG theo thiết kế**: **7/9 gate xanh** (preflight 7/7 sub-steps) + **2 gate đỏ `policy-reviews` + `release-checklist`** (§5 — trích dòng kết quả nguyên văn theo thứ tự chạy; chạy trên tree cuối `0fbbf1a`: fix Task 9 đã commit `1481e35`/`6315baf`, vòng 2 `541624a`/`0fbbf1a`) | 1 |
 | `npx tsx scripts/ops-alerts.ts` (dev dry run, corrections item 18) | mode `docker` (không `.env` trong worktree — auto mode): 3 CRITICAL + 3 WARN — **tất cả expected dev-without-stack** (§10) | 1 (CRITICAL → exit ≠ 0 by design) |
 | `npx tsx scripts/admin-access-review.ts` (dev dry run) | **fail-closed typed**: `DATABASE_URL chưa đặt trong MÔI TRƯỜNG THẬT` — guard đúng; evidence run dated 2026-10-08 đã ghi (§10) | 1 (typed refusal) |
 | `npx tsx scripts/policy-hash.ts --check` | 6 dòng `<key> v1 <sha256> DRAFT-NOT-REVIEWED` — hash **byte-identical** với 6 row `docs/operations/policy-review-record.md` (Decision `PENDING`) | 0 |
@@ -119,7 +152,7 @@ fix — xem §5).
 |---|---|---|
 | 1. no known critical security issue | `docs/operations/private-beta-security-review.md` findings register: **0 CRITICAL, 0 HIGH**, 2 MEDIUM ACCEPTED (FD-R58), 10 LOW ACCEPTED, 1 LOW OPEN (CSP flip = checklist row SEC-01, không phải defect code) — 13 hàng; `tests/unit/abuse-matrix.test.ts` 29 hàng machine-checked (mọi evidence path resolve + `@key` marker nằm trong file test); `npm audit --omit=dev` = 0 | **PASS** (§9-01) |
 | 2. restore drill successful | `docs/operations/restore-drill-evidence.md`: 2026-10-08 scratch **14 PASS / 0 FAIL — DRILL PASS (exit 0)** trên graph 9 migration / 48 bảng; 2026-10-08 `--file` test-rig **14 PASS / 0 FAIL / 0 CANNOT RUN** (check 4/4 qua image migrate); 2026-10-06 (graph batch2) giữ làm history. Production `--file` = hàng OPS-01 (user) | **PASS** (§9-02) |
-| 3. admin MFA operational | `tests/unit/admin-mfa.test.ts`, `admin-mfa-login.test.ts`, `tests/integration/admin-mfa-login.test.ts`, `admin-bootstrap.test.ts` xanh trong suite 2447; `docs/operations/admin-access-review.md` (findings vocabulary + dev runs dated 2026-10-06/2026-10-08; production run = OPS-02) | **PASS** (§9-03) |
+| 3. admin MFA operational | `tests/unit/admin-mfa.test.ts`, `admin-mfa-login.test.ts`, `tests/integration/admin-mfa-login.test.ts`, `admin-bootstrap.test.ts` xanh trong suite 2485; `docs/operations/admin-access-review.md` (findings vocabulary + dev runs dated 2026-10-06/2026-10-08; production run = OPS-02) | **PASS** (§9-03) |
 | 4. RBAC operational | `tests/unit/rbac.test.ts` (matrix) + mọi capability suite B3–B7 xanh; FD-R58 observations ghi trong security review §5/§6 | **PASS** (§9-04) |
 | 5. moderation operational | Batch 3 moderation suites xanh; `docs/operations/moderation-playbook.md` (queue, hand-off, recusal FD-R11, evidence §5.5.1, appeal intake + notification gap FD-R8, taxonomy PROVISIONAL FD-R12, placeholder copy FD-R50) | **PASS** (§9-05) |
 | 6. report/block operational | Batch 3 block/report suites xanh (`report-actions`, `block-actions`, `chat-guard`, `block-enforcement`) — re-run là evidence | **PASS** (§9-06) |
@@ -140,16 +173,25 @@ inventory/quality listings/model coverage/listing sampling/capacity —
 FD-R30/FD-R23/FD-R16/FD-R14). **§12 "technically beta-ready" chưa đạt cho tới
 founder ký các hàng đó** — đúng thiết kế FD-3 fail-closed.
 
-## 5. Release gate — output verbatim (chạy 2026-10-10, `npm run release:gate`, exit 1)
+## 5. Release gate — output run refresh vòng 2 (2026-10-10, `npm run release:gate` trên `0fbbf1a`, exit 1)
+
+**Kết quả 9 gate theo ĐÚNG thứ tự chạy của script** (`scripts/release-gate.sh`:
+preflight → integration → smoke → dependency-audit → policy-reviews →
+evidence-files → release-checklist → finance-off → abuse-matrix). Các dòng
+kết quả dưới đây **trích nguyên văn từ log run** — output chi tiết của từng
+gate con (build log, test output, JSON migration graph…) được lược: đây là
+tóm tắt theo dòng kết quả, KHÔNG phải toàn bộ output verbatim.
 
 ```
-✔ PASS: contract-emit-drift      ✔ PASS: lint           ✔ PASS: typecheck
-✔ PASS: unit-tests               ✔ PASS: production-build
-✔ PASS: compose-config           ✔ PASS: migration-graph
-✔ PASS: preflight                ✔ PASS: integration    ✔ PASS: smoke
-✔ PASS: dependency-audit         ✔ PASS: evidence-files
-✔ PASS: finance-off              ✔ PASS: abuse-matrix
-✘ FAIL: policy-reviews           ✘ FAIL: release-checklist
+✔ PASS: preflight
+✔ PASS: integration
+✔ PASS: smoke
+✔ PASS: dependency-audit
+✘ FAIL: policy-reviews
+✔ PASS: evidence-files
+✘ FAIL: release-checklist
+✔ PASS: finance-off
+✔ PASS: abuse-matrix
 
 RELEASE GATE FAIL — gate đỏ: policy-reviews release-checklist
 (FAIL là ĐÚNG khi policy còn DRAFT-NOT-REVIEWED + hàng founder blocking chưa ký —
@@ -157,6 +199,11 @@ FD-3 fail-closed. Founder duyệt 6 policy [FD-R34, kèm FD-R4 bump v1→v2], qu
 các register item blocking trong docs/operations/founder-decision-register.md,
 chạy + ký các hàng OPS/SEC trong checklist — gate xanh sau đó.)
 ```
+
+(preflight = **7/7 sub-steps**: contract-emit-drift, lint, typecheck,
+unit-tests [109 files / 2485], production-build [21 static pages],
+compose-config, migration-graph [identical Batch 7]; abuse-matrix = **4 file
+contract / 90 tests**.)
 
 **`policy-reviews` đỏ (6 hàng — thiết kế §9 "legal/operations sign-offs
 recorded" machine-checked):**
@@ -184,16 +231,19 @@ while blocking founder decisions are unsigned — that is the designed
 behavior"). So sánh với run Task 9 (`.superpowers/sdd/…/release-gate-run4.log`,
 49 hàng [22 FOUNDER] — snapshot **trước** review fix): review fix Task 9 thêm
 4 hàng OPS-11..14 (secrets/backup-before-migrate/seed/backfills) + harden gate
-→ **53 [26]**; cùng tập gate đỏ. **Gate run này (2026-10-10) chạy trên working
-tree bao gồm các fix review Task 9** (chưa commit tại thời điểm chạy — §1);
-sau khi session review-fix commit, gate re-run cho cùng kết quả này.
+→ **53 [26]**; cùng tập gate đỏ. **Gate re-run (refresh vòng 2, 2026-10-10)
+chạy trên tree cuối `0fbbf1a`** — fix Task 9 đã commit (`1481e35` +
+`6315baf`), vòng 2 fix thêm (`541624a` + `0fbbf1a`): cùng tập gate đỏ, cùng
+**53 hàng chính [26 FOUNDER] + 28 FD-mirror** — các vòng fix chỉ harden
+(whole-cell placeholder, guard fixture override, fresh-backup drill), KHÔNG
+đổi kết quả gate.
 
 ## 6. Founder Decision Register — trạng thái tại thời điểm thực thi
 
 **Nguồn machine-parsed:** `docs/operations/founder-decision-register.md`
 (corrections item 7 — test parse file NÀY, không parse plan). Số derive tại
 Task 10 bởi `tests/unit/release-gate-checklist.test.ts` (chạy xanh trong
-`npm test` 2447 + gate `abuse-matrix` 52/52): **73 hàng — 28 blocking**
+`npm test` 2485 + gate `abuse-matrix` 90/90): **73 hàng — 28 blocking**
 (FD-R1, R2, R3, R4, R6, R7, R8, R11, R12, R14, R15, R16, R17, R20, R21, R23,
 R24, R28, R29, R30, R33, R34, R48, R50, R59, R62, R68, R69), 45 non-blocking —
 khớp dòng "Register size" của register (test ghim drift).
@@ -276,8 +326,8 @@ review độc lập + fix `612b29a`/`06cb1f2`):
 
 - **§10.1 abuse matrix:** 29/29 hàng present exactly once, mọi evidence path
   resolve, mọi `@key` marker nằm trong cited file — machine-checked bởi
-  `tests/unit/abuse-matrix.test.ts` (trong 142 contract tests + gate
-  `abuse-matrix` 52/52).
+  `tests/unit/abuse-matrix.test.ts` (trong 180 contract tests + gate
+  `abuse-matrix` 90/90).
 - **Dependency audit:** `npm audit --omit=dev` **0** runtime (18 findings
   dev-transitive đã ghi trong findings register — image `migrate` carries
   them; code path không được `prisma db migrate` thực thi — LOW ACCEPTED).
@@ -428,7 +478,7 @@ marker `656449ac…`). **Identical Batch 7 — KHÔNG có migration Batch 8**
 3. **Founder chạy + ký các hàng OPS/SEC** (§16) + các hàng FOUNDER còn lại
    (§12-12/13 E2E posture FD-R59, §12-15, §12.1-02..08, §9-08, §9-10).
 
-## 16. Các bước deploy + sign-off NGƯỜI CHẠY (user-run — từ `docs/operations/private-beta-release-checklist.md` **sau review fix Task 9** — các hàng OPS-11..14 là phần thêm của review fix, §1; agent không bao giờ chạy)
+## 16. Các bước deploy + sign-off NGƯỜI CHẠY (user-run — từ `docs/operations/private-beta-release-checklist.md` **sau review fix Task 9 + refresh vòng 2** — các hàng OPS-11..14 là phần thêm của review fix; bước 2 + 7 (OPS-12/OPS-01) refresh vòng 2 finding 1: backup MỚI ngay trước drill + note lần deploy đầu, §1; agent không bao giờ chạy)
 
 **Thứ tự deploy (lần đầu trên server production):**
 
@@ -523,16 +573,19 @@ quyết 28 hàng FD-mirror, ký 26 hàng FOUNDER của checklist (§12-12/13/15,
   chạy mode docker (worktree không có `.env` — auto mode, corrections item 18
   posture); `rg` thay bằng `git grep` (item 33).
 - **Song song (không phải deviation của corrections):** session review-fix
-  Task 9 chạy cùng worktree trong lúc Task 10 chạy acceptance set — các fix
-  của nó (checklist + gate script + test) nằm trong working tree (chưa commit)
-  tại lúc gate run của doc này; doc ghi nhận đúng trạng thái đó (§1, §5) và
-  KHÔNG đụng vào file của task đó (chỉ thêm file verification này).
+  Task 9 chạy cùng worktree trong lúc Task 10 chạy acceptance set bản đầu —
+  các fix của nó (checklist + gate script + test) land sau đó trong `1481e35`
+  + `6315baf` (KHÔNG còn working-tree-only); doc này refresh vòng 2 ghi lại
+  đúng trạng thái cuối của tree (§1, §5) — gate re-run trên tree đó cho cùng
+  tập gate đỏ.
 
 ## 18. Verdict cuối
 
 **Cổng §9 Batch 8 (implementation): PASS** — mọi deliverable Task 1–9 trong
-tree, mọi suite xanh, mọi scan classified, migration graph identical, mọi
-task review độc lập + confirmed findings đã fix (§1). **Cổng release
+tree, mọi suite xanh (refresh vòng 2 re-run: **2485 unit / 180 contract / gate
+abuse-matrix 90**), mọi scan classified, migration graph identical, mọi
+task review độc lập + confirmed findings đã fix, **review vòng 2 của fix
+Task 9 + doc này đã fix (§1 — `541624a` + `0fbbf1a` + commit này)**. **Cổng release
 (private-beta launch): ĐỎ — ĐÚNG THEO THIẾT KẾ** — `npm run release:gate`
 exit 1 với đúng `policy-reviews` + `release-checklist` đỏ (founder sign-off
 pending, FD-3 fail-closed); **LAUNCH BLOCKER lớn nhất: production OTP
