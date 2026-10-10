@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { cn, timeAgo } from "@/src/lib/utils";
+import { ReportDialog } from "@/src/components/report-dialog";
 import { Send, LoaderCircle, CheckCheck } from "lucide-react";
 
 type Message = {
@@ -17,9 +18,12 @@ type Message = {
 export function ChatWindow({
   conversationId,
   myUserId,
+  disabled = false,
 }: {
   conversationId: string;
   myUserId: string;
+  /** Composer tắt (block/đình chỉ — Batch 3 Task 3). UI-only: route POST là boundary. */
+  disabled?: boolean;
 }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
@@ -58,6 +62,7 @@ export function ChatWindow({
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
+    if (disabled) return; // route vẫn tự chặn — đây chỉ là UX
     const body = text.trim();
     if (!body || sending) return;
     setSending(true);
@@ -86,7 +91,20 @@ export function ChatWindow({
         {messages.map((m) => {
           const mine = m.senderId === myUserId;
           return (
-            <div key={m.id} className={cn("flex", mine ? "justify-end" : "justify-start")}>
+            <div
+              key={m.id}
+              className={cn("flex items-end gap-1.5", mine ? "justify-end" : "justify-start")}
+            >
+              {/* Báo cáo tin nhắn (Batch 3 Task 4 — spec §5.5) — affordance nhỏ,
+                  ẨN trên tin của chính mình (self-report bị chặn server-side). */}
+              {!mine && (
+                <ReportDialog
+                  targetType="message"
+                  targetId={m.id}
+                  triggerLabel="Báo cáo"
+                  className="btn-ghost h-6 shrink-0 px-1.5 text-[10px] text-[var(--muted)] hover:text-[var(--red)]"
+                />
+              )}
               <div
                 className={cn(
                   "max-w-[78%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed shadow-sm",
@@ -123,12 +141,13 @@ export function ChatWindow({
           value={text}
           onChange={(e) => setText(e.target.value)}
           className="input rounded-full"
-          placeholder="Nhập tin nhắn…"
+          placeholder={disabled ? "Không thể gửi tin nhắn" : "Nhập tin nhắn…"}
           maxLength={2000}
+          disabled={disabled}
         />
         <button
           type="submit"
-          disabled={!text.trim() || sending}
+          disabled={!text.trim() || sending || disabled}
           className="btn-primary size-10 shrink-0 rounded-full p-0"
         >
           {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}

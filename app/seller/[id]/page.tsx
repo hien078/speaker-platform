@@ -1,12 +1,16 @@
 import { notFound } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
+import { getCurrentUser } from "@/src/lib/auth";
+import { getBlockState } from "@/src/lib/moderation";
+import { blockUserAction, unblockUserAction } from "@/src/lib/actions/blocks";
+import { ReportDialog } from "@/src/components/report-dialog";
 import { ListingCard } from "@/src/components/listing-card";
 import { formatDate, formatDateShort, cn } from "@/src/lib/utils";
 import {
   SELLER_VERIFIED_BADGE_LABEL,
   isVerifiedSellerStatus,
 } from "@/src/lib/seller-verification-status";
-import { BadgeCheck, MapPin, Star, Package } from "lucide-react";
+import { BadgeCheck, MapPin, Star, Package, Ban, CircleSlash } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +27,16 @@ export default async function SellerProfilePage({
     .first();
 
   if (!seller || seller.role === "buyer") notFound();
+
+  // Batch 3 Task 3 (spec §5.5) — nút Chặn/Bỏ chặn. UI convenience: action tự
+  // enforce auth + rate limit + self/target checks server-side. Visitor hoặc
+  // chính seller không thấy gì; `other_blocked` không có nút (không thể bỏ
+  // chặn block của người khác — chỉ getBlockState direction-aware mới biết).
+  const viewer = await getCurrentUser();
+  const blockState =
+    viewer !== null && viewer.id !== seller.id
+      ? await getBlockState(viewer.id, seller.id)
+      : null;
 
   const [listings, reviewAgg, completedSales, reviews, verification] = await Promise.all([
     db.orm.public.Listing
@@ -111,6 +125,46 @@ export default async function SellerProfilePage({
               <p className="mt-0.5 text-[11px] text-[var(--muted)]">{reviewAgg.c} đánh giá</p>
             </div>
           </div>
+
+          {/* Chặn / bỏ chặn (Batch 3 Task 3 — spec §5.5; enforcement đối xứng ở chat) */}
+          {blockState === "none" && (
+            <form action={blockUserAction} className="self-center">
+              <input type="hidden" name="userId" value={seller.id} />
+              <button
+                type="submit"
+                className="btn-secondary h-9 px-3.5 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
+                title="Chặn người này — không bắt đầu hội thoại/tin nhắn mới (lịch sử cũ vẫn đọc được)"
+              >
+                <Ban className="size-3.5" />
+                Chặn
+              </button>
+            </form>
+          )}
+          {blockState === "viewer_blocked" && (
+            <form action={unblockUserAction} className="self-center">
+              <input type="hidden" name="userId" value={seller.id} />
+              <button
+                type="submit"
+                className="btn-secondary h-9 px-3.5 text-xs"
+                title="Bỏ chặn người này — mở lại hội thoại/tin nhắn mới"
+              >
+                <CircleSlash className="size-3.5" />
+                Bỏ chặn
+              </button>
+            </form>
+          )}
+
+          {/* Báo cáo người bán (Batch 3 Task 4 — spec §5.5) — chỉ render cho
+              người đã đăng nhập khác chính seller (UI convenience; action tự
+              enforce auth + self-report checks server-side). */}
+          {viewer !== null && viewer.id !== seller.id && (
+            <ReportDialog
+              targetType="user"
+              targetId={seller.id}
+              triggerLabel="Báo cáo"
+              className="btn-secondary h-9 px-3.5 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
+            />
+          )}
         </div>
 
         <p className="relative mt-6 flex items-start gap-2 rounded-xl border border-[var(--green)]/25 bg-[var(--green-soft)] px-4 py-2.5 text-xs leading-relaxed text-[var(--green)]/90">

@@ -4,6 +4,10 @@
   "target": "postgres",
   "profileHash": "3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2",
   "roots": {
+    "AbuseReport": {
+      "model": "AbuseReport",
+      "namespace": "public"
+    },
     "AdminAuditLog": {
       "model": "AdminAuditLog",
       "namespace": "public"
@@ -14,6 +18,10 @@
     },
     "AdminRecoveryCode": {
       "model": "AdminRecoveryCode",
+      "namespace": "public"
+    },
+    "Appeal": {
+      "model": "Appeal",
       "namespace": "public"
     },
     "AuditEvent": {
@@ -66,6 +74,18 @@
     },
     "Message": {
       "model": "Message",
+      "namespace": "public"
+    },
+    "ModerationAction": {
+      "model": "ModerationAction",
+      "namespace": "public"
+    },
+    "ModerationCase": {
+      "model": "ModerationCase",
+      "namespace": "public"
+    },
+    "ModerationEvidence": {
+      "model": "ModerationEvidence",
       "namespace": "public"
     },
     "Notification": {
@@ -128,8 +148,16 @@
       "model": "User",
       "namespace": "public"
     },
+    "UserBlock": {
+      "model": "UserBlock",
+      "namespace": "public"
+    },
     "UserSession": {
       "model": "UserSession",
+      "namespace": "public"
+    },
+    "UserSuspension": {
+      "model": "UserSuspension",
       "namespace": "public"
     },
     "WishlistItem": {
@@ -167,6 +195,19 @@
               {
                 "name": "analyst",
                 "value": "analyst"
+              }
+            ]
+          },
+          "appeal_state": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "submitted",
+                "value": "submitted"
+              },
+              {
+                "name": "closed",
+                "value": "closed"
               }
             ]
           },
@@ -284,6 +325,10 @@
               {
                 "name": "sold",
                 "value": "sold"
+              },
+              {
+                "name": "removed",
+                "value": "removed"
               }
             ]
           },
@@ -301,6 +346,56 @@
               {
                 "name": "merged",
                 "value": "merged"
+              }
+            ]
+          },
+          "moderation_case_state": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "open",
+                "value": "open"
+              },
+              {
+                "name": "triaged",
+                "value": "triaged"
+              },
+              {
+                "name": "investigating",
+                "value": "investigating"
+              },
+              {
+                "name": "actioned",
+                "value": "actioned"
+              },
+              {
+                "name": "dismissed",
+                "value": "dismissed"
+              },
+              {
+                "name": "appealed",
+                "value": "appealed"
+              },
+              {
+                "name": "closed",
+                "value": "closed"
+              }
+            ]
+          },
+          "moderation_priority": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "low",
+                "value": "low"
+              },
+              {
+                "name": "normal",
+                "value": "normal"
+              },
+              {
+                "name": "high",
+                "value": "high"
               }
             ]
           },
@@ -496,6 +591,64 @@
               }
             ]
           },
+          "report_reason": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "suspected_scam",
+                "value": "suspected_scam"
+              },
+              {
+                "name": "harassment",
+                "value": "harassment"
+              },
+              {
+                "name": "spam",
+                "value": "spam"
+              },
+              {
+                "name": "counterfeit_claim",
+                "value": "counterfeit_claim"
+              },
+              {
+                "name": "misleading_listing",
+                "value": "misleading_listing"
+              },
+              {
+                "name": "prohibited_content",
+                "value": "prohibited_content"
+              },
+              {
+                "name": "unsafe_behavior",
+                "value": "unsafe_behavior"
+              },
+              {
+                "name": "identity_impersonation",
+                "value": "identity_impersonation"
+              },
+              {
+                "name": "other",
+                "value": "other"
+              }
+            ]
+          },
+          "report_target_type": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "listing",
+                "value": "listing"
+              },
+              {
+                "name": "user",
+                "value": "user"
+              },
+              {
+                "name": "message",
+                "value": "message"
+              }
+            ]
+          },
           "seller_type": {
             "codecId": "pg/text@1",
             "members": [
@@ -547,6 +700,19 @@
               }
             ]
           },
+          "suspension_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "active",
+                "value": "active"
+              },
+              {
+                "name": "lifted",
+                "value": "lifted"
+              }
+            ]
+          },
           "user_role": {
             "codecId": "pg/text@1",
             "members": [
@@ -587,6 +753,142 @@
           }
         },
         "models": {
+          "AbuseReport": {
+            "fields": {
+              "caseId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reasonCode": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "report_reason",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "reporterId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "targetId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "targetType": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "report_target_type",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              }
+            },
+            "relations": {
+              "moderationCase": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "caseId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationCase",
+                  "namespace": "public"
+                }
+              },
+              "reporter": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "reporterId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "caseId": {
+                  "column": "caseId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "reasonCode": {
+                  "column": "reasonCode"
+                },
+                "reporterId": {
+                  "column": "reporterId"
+                },
+                "targetId": {
+                  "column": "targetId"
+                },
+                "targetType": {
+                  "column": "targetType"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AbuseReport"
+            }
+          },
           "AdminAuditLog": {
             "fields": {
               "action": {
@@ -864,6 +1166,136 @@
               },
               "namespaceId": "public",
               "table": "AdminRecoveryCode"
+            }
+          },
+          "Appeal": {
+            "fields": {
+              "appellantId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "caseId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "closedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "state": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "appeal_state",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "statement": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "appellant": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "appellantId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "moderationCase": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "caseId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationCase",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "appellantId": {
+                  "column": "appellantId"
+                },
+                "caseId": {
+                  "column": "caseId"
+                },
+                "closedAt": {
+                  "column": "closedAt"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "state": {
+                  "column": "state"
+                },
+                "statement": {
+                  "column": "statement"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "Appeal"
             }
           },
           "AuditEvent": {
@@ -2677,6 +3109,493 @@
               },
               "namespaceId": "public",
               "table": "Message"
+            }
+          },
+          "ModerationAction": {
+            "fields": {
+              "actionType": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "actorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "caseId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reasonCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "targetId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "targetType": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "actor": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "actorId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "moderationCase": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "caseId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationCase",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "actionType": {
+                  "column": "actionType"
+                },
+                "actorId": {
+                  "column": "actorId"
+                },
+                "caseId": {
+                  "column": "caseId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "reasonCode": {
+                  "column": "reasonCode"
+                },
+                "targetId": {
+                  "column": "targetId"
+                },
+                "targetType": {
+                  "column": "targetType"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ModerationAction"
+            }
+          },
+          "ModerationCase": {
+            "fields": {
+              "assignedModeratorId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "priority": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "moderation_priority",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "reasonCategory": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "report_reason",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "state": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "moderation_case_state",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "targetId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "targetType": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "report_target_type",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "actions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "caseId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationAction",
+                  "namespace": "public"
+                }
+              },
+              "appeal": {
+                "cardinality": "1:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "caseId"
+                  ]
+                },
+                "to": {
+                  "model": "Appeal",
+                  "namespace": "public"
+                }
+              },
+              "assignedModerator": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "assignedModeratorId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "evidence": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "caseId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationEvidence",
+                  "namespace": "public"
+                }
+              },
+              "reports": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "caseId"
+                  ]
+                },
+                "to": {
+                  "model": "AbuseReport",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "assignedModeratorId": {
+                  "column": "assignedModeratorId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "priority": {
+                  "column": "priority"
+                },
+                "reasonCategory": {
+                  "column": "reasonCategory"
+                },
+                "state": {
+                  "column": "state"
+                },
+                "targetId": {
+                  "column": "targetId"
+                },
+                "targetType": {
+                  "column": "targetType"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ModerationCase"
+            }
+          },
+          "ModerationEvidence": {
+            "fields": {
+              "capturedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "caseId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "classification": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "relevantSnapshot": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/json@1",
+                  "kind": "scalar"
+                }
+              },
+              "reporterUserId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sourceResourceId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "sourceResourceType": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "subjectUserId": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "moderationCase": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "caseId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationCase",
+                  "namespace": "public"
+                }
+              },
+              "reporter": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "reporterUserId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "subject": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "subjectUserId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "capturedAt": {
+                  "column": "capturedAt"
+                },
+                "caseId": {
+                  "column": "caseId"
+                },
+                "classification": {
+                  "column": "classification"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "relevantSnapshot": {
+                  "column": "relevantSnapshot"
+                },
+                "reporterUserId": {
+                  "column": "reporterUserId"
+                },
+                "sourceResourceId": {
+                  "column": "sourceResourceId"
+                },
+                "sourceResourceType": {
+                  "column": "sourceResourceType"
+                },
+                "subjectUserId": {
+                  "column": "subjectUserId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ModerationEvidence"
             }
           },
           "Notification": {
@@ -4759,6 +5678,21 @@
                   "namespace": "public"
                 }
               },
+              "appealsFiled": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "appellantId"
+                  ]
+                },
+                "to": {
+                  "model": "Appeal",
+                  "namespace": "public"
+                }
+              },
               "auditEventsActor": {
                 "cardinality": "1:N",
                 "on": {
@@ -4819,6 +5753,36 @@
                   "namespace": "public"
                 }
               },
+              "blocksMade": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "blockerId"
+                  ]
+                },
+                "to": {
+                  "model": "UserBlock",
+                  "namespace": "public"
+                }
+              },
+              "blocksReceived": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "blockedId"
+                  ]
+                },
+                "to": {
+                  "model": "UserBlock",
+                  "namespace": "public"
+                }
+              },
               "buyerConversations": {
                 "cardinality": "1:N",
                 "on": {
@@ -4849,6 +5813,21 @@
                   "namespace": "public"
                 }
               },
+              "casesAssigned": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "assignedModeratorId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationCase",
+                  "namespace": "public"
+                }
+              },
               "disputesOpened": {
                 "cardinality": "1:N",
                 "on": {
@@ -4861,6 +5840,36 @@
                 },
                 "to": {
                   "model": "Dispute",
+                  "namespace": "public"
+                }
+              },
+              "evidenceReporter": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "reporterUserId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationEvidence",
+                  "namespace": "public"
+                }
+              },
+              "evidenceSubject": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "subjectUserId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationEvidence",
                   "namespace": "public"
                 }
               },
@@ -4891,6 +5900,21 @@
                 },
                 "to": {
                   "model": "Listing",
+                  "namespace": "public"
+                }
+              },
+              "moderationActions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "actorId"
+                  ]
+                },
+                "to": {
+                  "model": "ModerationAction",
                   "namespace": "public"
                 }
               },
@@ -4981,6 +6005,21 @@
                 },
                 "to": {
                   "model": "WithdrawRequest",
+                  "namespace": "public"
+                }
+              },
+              "reportsMade": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "reporterId"
+                  ]
+                },
+                "to": {
+                  "model": "AbuseReport",
                   "namespace": "public"
                 }
               },
@@ -5090,6 +6129,51 @@
                   "namespace": "public"
                 }
               },
+              "suspensions": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "UserSuspension",
+                  "namespace": "public"
+                }
+              },
+              "suspensionsActedBy": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "suspendedById"
+                  ]
+                },
+                "to": {
+                  "model": "UserSuspension",
+                  "namespace": "public"
+                }
+              },
+              "suspensionsLiftedBy": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "liftedById"
+                  ]
+                },
+                "to": {
+                  "model": "UserSuspension",
+                  "namespace": "public"
+                }
+              },
               "wishlist": {
                 "cardinality": "1:N",
                 "on": {
@@ -5177,6 +6261,90 @@
               },
               "namespaceId": "public",
               "table": "User"
+            }
+          },
+          "UserBlock": {
+            "fields": {
+              "blockedId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "blockerId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "blocked": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "blockedId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "blocker": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "blockerId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "blockedId": {
+                  "column": "blockedId"
+                },
+                "blockerId": {
+                  "column": "blockerId"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "id": {
+                  "column": "id"
+                }
+              },
+              "namespaceId": "public",
+              "table": "UserBlock"
             }
           },
           "UserSession": {
@@ -5315,6 +6483,172 @@
               },
               "namespaceId": "public",
               "table": "UserSession"
+            }
+          },
+          "UserSuspension": {
+            "fields": {
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "liftReasonCode": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "liftedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "liftedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "reasonCode": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "suspension_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "suspendedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "suspendedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "liftedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "liftedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "suspendedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "suspendedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "id": {
+                  "column": "id"
+                },
+                "liftReasonCode": {
+                  "column": "liftReasonCode"
+                },
+                "liftedAt": {
+                  "column": "liftedAt"
+                },
+                "liftedById": {
+                  "column": "liftedById"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "reasonCode": {
+                  "column": "reasonCode"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "suspendedAt": {
+                  "column": "suspendedAt"
+                },
+                "suspendedById": {
+                  "column": "suspendedById"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "UserSuspension"
             }
           },
           "WishlistItem": {
@@ -5580,6 +6914,171 @@
       "public": {
         "entries": {
           "table": {
+            "AbuseReport": {
+              "checks": [
+                {
+                  "expression": "\"reasonCode\" IN ('suspected_scam', 'harassment', 'spam', 'counterfeit_claim', 'misleading_listing', 'prohibited_content', 'unsafe_behavior', 'identity_impersonation', 'other')",
+                  "name": "AbuseReport_reasonCode_check_4123daed",
+                  "prefix": "AbuseReport_reasonCode_check"
+                },
+                {
+                  "expression": "\"targetType\" IN ('listing', 'user', 'message')",
+                  "name": "AbuseReport_targetType_check_7d298aee",
+                  "prefix": "AbuseReport_targetType_check"
+                }
+              ],
+              "columns": {
+                "caseId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "reasonCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "report_reason",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "reporterId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "targetId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "targetType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "report_target_type",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "reporterId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AbuseReport"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "source": {
+                    "columns": [
+                      "caseId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AbuseReport"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationCase"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "caseId",
+                    "createdAt"
+                  ],
+                  "name": "AbuseReport_caseId_createdAt_idx_18fcd752",
+                  "prefix": "AbuseReport_caseId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "caseId"
+                  ],
+                  "name": "AbuseReport_caseId_idx_f7093793",
+                  "prefix": "AbuseReport_caseId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "reporterId",
+                    "createdAt"
+                  ],
+                  "name": "AbuseReport_reporterId_createdAt_idx_468b5f4f",
+                  "prefix": "AbuseReport_reporterId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "reporterId"
+                  ],
+                  "name": "AbuseReport_reporterId_idx_aa245831",
+                  "prefix": "AbuseReport_reporterId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "targetType",
+                    "targetId"
+                  ],
+                  "name": "AbuseReport_targetType_targetId_idx_7a5ee9cb",
+                  "prefix": "AbuseReport_targetType_targetId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "caseId",
+                    "reporterId"
+                  ]
+                }
+              ]
+            },
             "AdminAuditLog": {
               "columns": {
                 "action": {
@@ -5812,6 +7311,128 @@
                 ]
               },
               "uniques": []
+            },
+            "Appeal": {
+              "checks": [
+                {
+                  "expression": "\"state\" IN ('submitted', 'closed')",
+                  "name": "Appeal_state_check_7c0e4b2e",
+                  "prefix": "Appeal_state_check"
+                }
+              ],
+              "columns": {
+                "appellantId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "caseId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "closedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "state": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "submitted"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "appeal_state",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "statement": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "caseId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Appeal"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationCase"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "appellantId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "Appeal"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "appellantId"
+                  ],
+                  "name": "Appeal_appellantId_idx_ae4cf735",
+                  "prefix": "Appeal_appellantId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "caseId"
+                  ]
+                }
+              ]
             },
             "AuditEvent": {
               "columns": {
@@ -6919,8 +8540,8 @@
                   "prefix": "Listing_condition_check"
                 },
                 {
-                  "expression": "\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold')",
-                  "name": "Listing_status_check_cc925b6c",
+                  "expression": "\"status\" IN ('draft', 'pending', 'approved', 'rejected', 'hidden', 'sold', 'removed')",
+                  "name": "Listing_status_check_505de324",
                   "prefix": "Listing_status_check"
                 }
               ],
@@ -7358,6 +8979,472 @@
                   ],
                   "name": "Message_senderId_idx_4689c490",
                   "prefix": "Message_senderId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "ModerationAction": {
+              "columns": {
+                "actionType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "actorId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "caseId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "reasonCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "targetId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "targetType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "caseId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationAction"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationCase"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "actorId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationAction"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "actorId",
+                    "createdAt"
+                  ],
+                  "name": "ModerationAction_actorId_createdAt_idx_0e9f1adf",
+                  "prefix": "ModerationAction_actorId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "actorId"
+                  ],
+                  "name": "ModerationAction_actorId_idx_a58f6b4b",
+                  "prefix": "ModerationAction_actorId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "caseId",
+                    "createdAt"
+                  ],
+                  "name": "ModerationAction_caseId_createdAt_idx_18fcd752",
+                  "prefix": "ModerationAction_caseId_createdAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "caseId"
+                  ],
+                  "name": "ModerationAction_caseId_idx_f7093793",
+                  "prefix": "ModerationAction_caseId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "targetType",
+                    "targetId",
+                    "createdAt"
+                  ],
+                  "name": "ModerationAction_targetType_targetId_createdAt_idx_e37b8716",
+                  "prefix": "ModerationAction_targetType_targetId_createdAt_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "ModerationCase": {
+              "checks": [
+                {
+                  "expression": "\"priority\" IN ('low', 'normal', 'high')",
+                  "name": "ModerationCase_priority_check_f81d8d9b",
+                  "prefix": "ModerationCase_priority_check"
+                },
+                {
+                  "expression": "\"reasonCategory\" IN ('suspected_scam', 'harassment', 'spam', 'counterfeit_claim', 'misleading_listing', 'prohibited_content', 'unsafe_behavior', 'identity_impersonation', 'other')",
+                  "name": "ModerationCase_reasonCategory_check_db40a994",
+                  "prefix": "ModerationCase_reasonCategory_check"
+                },
+                {
+                  "expression": "\"state\" IN ('open', 'triaged', 'investigating', 'actioned', 'dismissed', 'appealed', 'closed')",
+                  "name": "ModerationCase_state_check_a778d74c",
+                  "prefix": "ModerationCase_state_check"
+                },
+                {
+                  "expression": "\"targetType\" IN ('listing', 'user', 'message')",
+                  "name": "ModerationCase_targetType_check_7d298aee",
+                  "prefix": "ModerationCase_targetType_check"
+                }
+              ],
+              "columns": {
+                "assignedModeratorId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "priority": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "normal"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "moderation_priority",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "reasonCategory": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "report_reason",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "state": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "open"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "moderation_case_state",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "targetId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "targetType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "report_target_type",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "assignedModeratorId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationCase"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "assignedModeratorId"
+                  ],
+                  "name": "ModerationCase_assignedModeratorId_idx_19bc61ea",
+                  "prefix": "ModerationCase_assignedModeratorId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "state",
+                    "updatedAt"
+                  ],
+                  "name": "ModerationCase_state_updatedAt_idx_f9692f3e",
+                  "prefix": "ModerationCase_state_updatedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "targetType",
+                    "targetId"
+                  ],
+                  "name": "ModerationCase_targetType_targetId_idx_7a5ee9cb",
+                  "prefix": "ModerationCase_targetType_targetId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "targetType",
+                    "targetId",
+                    "reasonCategory"
+                  ],
+                  "name": "moderation_case_one_active_per_target_reason_7f3ba3cd",
+                  "prefix": "moderation_case_one_active_per_target_reason",
+                  "unique": true,
+                  "where": "(state IN ('open', 'triaged', 'investigating'))"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
+            "ModerationEvidence": {
+              "columns": {
+                "capturedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "caseId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "classification": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "relevantSnapshot": {
+                  "codecId": "pg/json@1",
+                  "nativeType": "json",
+                  "nullable": false
+                },
+                "reporterUserId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "sourceResourceId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "sourceResourceType": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "subjectUserId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                }
+              },
+              "foreignKeys": [
+                {
+                  "source": {
+                    "columns": [
+                      "caseId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationEvidence"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationCase"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "subjectUserId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationEvidence"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "reporterUserId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ModerationEvidence"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "caseId",
+                    "capturedAt"
+                  ],
+                  "name": "ModerationEvidence_caseId_capturedAt_idx_0525a671",
+                  "prefix": "ModerationEvidence_caseId_capturedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "caseId"
+                  ],
+                  "name": "ModerationEvidence_caseId_idx_f7093793",
+                  "prefix": "ModerationEvidence_caseId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "reporterUserId"
+                  ],
+                  "name": "ModerationEvidence_reporterUserId_idx_24dc5c40",
+                  "prefix": "ModerationEvidence_reporterUserId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "subjectUserId"
+                  ],
+                  "name": "ModerationEvidence_subjectUserId_idx_60714ffd",
+                  "prefix": "ModerationEvidence_subjectUserId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "sourceResourceType",
+                    "sourceResourceId"
+                  ],
+                  "name": "moderation_evidence_source_idx_d7306d73",
+                  "prefix": "moderation_evidence_source_idx",
                   "unique": false
                 }
               ],
@@ -9248,6 +11335,101 @@
                 }
               ]
             },
+            "UserBlock": {
+              "columns": {
+                "blockedId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "blockerId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "blockerId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserBlock"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "cascade",
+                  "source": {
+                    "columns": [
+                      "blockedId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserBlock"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "blockedId"
+                  ],
+                  "name": "UserBlock_blockedId_idx_e3047657",
+                  "prefix": "UserBlock_blockedId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "blockerId"
+                  ],
+                  "name": "UserBlock_blockerId_idx_a25bd35c",
+                  "prefix": "UserBlock_blockerId_idx",
+                  "unique": false
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": [
+                {
+                  "columns": [
+                    "blockerId",
+                    "blockedId"
+                  ]
+                }
+              ]
+            },
             "UserSession": {
               "columns": {
                 "createdAt": {
@@ -9372,6 +11554,185 @@
                   ]
                 }
               ]
+            },
+            "UserSuspension": {
+              "checks": [
+                {
+                  "expression": "\"status\" IN ('active', 'lifted')",
+                  "name": "UserSuspension_status_check_826da613",
+                  "prefix": "UserSuspension_status_check"
+                }
+              ],
+              "columns": {
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "liftReasonCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "liftedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "liftedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "reasonCode": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "active"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "suspension_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "suspendedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "suspendedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserSuspension"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "suspendedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserSuspension"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "liftedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "UserSuspension"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "liftedById"
+                  ],
+                  "name": "UserSuspension_liftedById_idx_3b725051",
+                  "prefix": "UserSuspension_liftedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status",
+                    "suspendedAt"
+                  ],
+                  "name": "UserSuspension_status_suspendedAt_idx_67dc6dbd",
+                  "prefix": "UserSuspension_status_suspendedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "suspendedById"
+                  ],
+                  "name": "UserSuspension_suspendedById_idx_441458ac",
+                  "prefix": "UserSuspension_suspendedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "status"
+                  ],
+                  "name": "UserSuspension_userId_status_idx_e4a128ba",
+                  "prefix": "UserSuspension_userId_status_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "user_suspension_one_active_c770076c",
+                  "prefix": "user_suspension_one_active",
+                  "unique": true,
+                  "where": "(status = 'active')"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
             },
             "WishlistItem": {
               "columns": {
@@ -9640,6 +12001,13 @@
                 "analyst"
               ]
             },
+            "appeal_state": {
+              "kind": "valueSet",
+              "values": [
+                "submitted",
+                "closed"
+              ]
+            },
             "beta_cohort": {
               "kind": "valueSet",
               "values": [
@@ -9685,7 +12053,8 @@
                 "approved",
                 "rejected",
                 "hidden",
-                "sold"
+                "sold",
+                "removed"
               ]
             },
             "model_status": {
@@ -9694,6 +12063,26 @@
                 "approved",
                 "pending",
                 "merged"
+              ]
+            },
+            "moderation_case_state": {
+              "kind": "valueSet",
+              "values": [
+                "open",
+                "triaged",
+                "investigating",
+                "actioned",
+                "dismissed",
+                "appealed",
+                "closed"
+              ]
+            },
+            "moderation_priority": {
+              "kind": "valueSet",
+              "values": [
+                "low",
+                "normal",
+                "high"
               ]
             },
             "offer_status": {
@@ -9774,6 +12163,28 @@
                 "for_parts"
               ]
             },
+            "report_reason": {
+              "kind": "valueSet",
+              "values": [
+                "suspected_scam",
+                "harassment",
+                "spam",
+                "counterfeit_claim",
+                "misleading_listing",
+                "prohibited_content",
+                "unsafe_behavior",
+                "identity_impersonation",
+                "other"
+              ]
+            },
+            "report_target_type": {
+              "kind": "valueSet",
+              "values": [
+                "listing",
+                "user",
+                "message"
+              ]
+            },
             "seller_type": {
               "kind": "valueSet",
               "values": [
@@ -9796,6 +12207,13 @@
                 "rejected",
                 "needs_review",
                 "revoked"
+              ]
+            },
+            "suspension_status": {
+              "kind": "valueSet",
+              "values": [
+                "active",
+                "lifted"
               ]
             },
             "user_role": {
@@ -9821,12 +12239,23 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "0ed42b4563bdd21ef0c4fd0af28cd764edfcf464e419207721dbb15fd12b8e64"
+    "storageHash": "dbd12d36f72ca512419a7f4c170d8d798cdc03cb9b9919f4ff35119134814df1"
   },
   "execution": {
-    "executionHash": "1a2730b3378c4e3c05e3db749d0808aabb404a88facdd6873d56c6b320f24950",
+    "executionHash": "41683733e7eacfb5133cbac63b3966a85e02ef0472e6f0ea3869dbc1c8280133",
     "mutations": {
       "defaults": [
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AbuseReport",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
         {
           "onCreate": {
             "id": "uuidv4",
@@ -9872,6 +12301,32 @@
           "ref": {
             "entry": "AdminRecoveryCode",
             "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "Appeal",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "Appeal",
+            "field": "updatedAt",
             "namespace": "public"
           }
         },
@@ -10059,6 +12514,54 @@
           },
           "ref": {
             "entry": "Message",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ModerationAction",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ModerationCase",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ModerationCase",
+            "field": "updatedAt",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ModerationEvidence",
             "field": "id",
             "namespace": "public"
           }
@@ -10298,7 +12801,29 @@
             "kind": "generator"
           },
           "ref": {
+            "entry": "UserBlock",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
             "entry": "UserSession",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "UserSuspension",
             "field": "id",
             "namespace": "public"
           }

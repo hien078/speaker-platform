@@ -2,9 +2,12 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
+import { getBlockState, isUserSuspended } from "@/src/lib/moderation";
+import { unblockUserAction } from "@/src/lib/actions/blocks";
+import { ReportDialog } from "@/src/components/report-dialog";
 import { ChatWindow } from "@/src/components/chat-window";
 import { formatVND } from "@/src/lib/utils";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Ban, ShieldX } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +34,16 @@ export default async function ConversationPage({
   const other = (convo.buyerId === user.id ? convo.seller : convo.buyer)!;
   const listing = convo.listing;
 
+  // Batch 3 Task 3 (spec §5.5/§7.8) — banner direction-aware + composer
+  // disabled. UI CONVENIENCE: route POST là boundary (403 CHAT_BLOCKED /
+  // ACCOUNT_SUSPENDED kể cả khi composer bị bypass); lịch sử vẫn đọc được.
+  // Viewer bị đình chỉ đọc FRESH từ DB mỗi render (P1: không cache theo session).
+  const [blockState, viewerSuspended] = await Promise.all([
+    getBlockState(user.id, other.id),
+    isUserSuspended(user.id),
+  ]);
+  const composerDisabled = blockState !== "none" || viewerSuspended;
+
   return (
     <main className="mx-auto max-w-3xl px-4 py-8 lg:px-8">
       <Link href="/chat" className="btn-ghost mb-4 h-9 px-3 text-sm">
@@ -52,29 +65,85 @@ export default async function ConversationPage({
               </p>
             </div>
           </div>
-          {listing && (
-            <Link
-              href={`/listings/${listing.slug}`}
-              className="hidden min-w-0 items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2 transition hover:border-[var(--accent)]/45 sm:flex"
-            >
-              <div className="size-9 shrink-0 overflow-hidden rounded-md bg-[var(--paper-deep)]">
-                {listing.images[0] ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={listing.images[0].url} alt="" className="size-full object-cover" />
-                ) : (
-                  <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
-                )}
-              </div>
-              <div className="min-w-0 max-w-44">
-                <p className="truncate text-xs font-medium">{listing.title}</p>
-                <p className="text-xs font-bold text-[var(--accent)]">{formatVND(listing.price)}</p>
-              </div>
-            </Link>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Bỏ chặn — CHỈ khi viewer là người chặn (direction-aware, spec §5.5) */}
+            {blockState === "viewer_blocked" && (
+              <form action={unblockUserAction}>
+                <input type="hidden" name="userId" value={other.id} />
+                <button
+                  type="submit"
+                  className="btn-secondary h-8 px-3 text-xs"
+                  title="Bỏ chặn để gửi tin nhắn lại được"
+                >
+                  <Ban className="size-3.5" />
+                  Bỏ chặn
+                </button>
+              </form>
+            )}
+            {/* Báo cáo người đối thoại (Batch 3 Task 4 — spec §5.5) — UI
+                convenience; action tự enforce auth + self-report server-side. */}
+            {other.id !== user.id && (
+              <ReportDialog
+                targetType="user"
+                targetId={other.id}
+                triggerLabel="Báo cáo"
+                className="btn-secondary h-8 px-3 text-xs text-[var(--red)] hover:border-[var(--red)]/40 hover:bg-[var(--red-soft)]"
+              />
+            )}
+            {listing && (
+              <Link
+                href={`/listings/${listing.slug}`}
+                className="hidden min-w-0 items-center gap-2.5 rounded-lg border border-[var(--line)] bg-[var(--paper)] p-2 transition hover:border-[var(--accent)]/45 sm:flex"
+              >
+                <div className="size-9 shrink-0 overflow-hidden rounded-md bg-[var(--paper-deep)]">
+                  {listing.images[0] ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={listing.images[0].url} alt="" className="size-full object-cover" />
+                  ) : (
+                    <span className="grid size-full place-items-center text-[var(--muted)]">🔇</span>
+                  )}
+                </div>
+                <div className="min-w-0 max-w-44">
+                  <p className="truncate text-xs font-medium">{listing.title}</p>
+                  <p className="text-xs font-bold text-[var(--accent)]">{formatVND(listing.price)}</p>
+                </div>
+              </Link>
+            )}
+          </div>
         </div>
 
+        {/* Banner direction-aware (Batch 3 Task 3) — composer tắt theo cùng điều kiện */}
+        {composerDisabled && (
+          <div
+            className="flex items-center gap-2 border-b border-[var(--line)] bg-[var(--paper)] px-4 py-2.5 text-xs leading-relaxed text-[var(--ink-2)]"
+            role="status"
+          >
+            <ShieldX className="size-4 shrink-0 text-[var(--red)]" />
+            {viewerSuspended ? (
+              <span>
+                <strong className="font-semibold">Tài khoản đang bị đình chỉ.</strong> Bạn không thể
+                gửi tin nhắn cho đến khi đình chỉ được gỡ.
+              </span>
+            ) : blockState === "viewer_blocked" ? (
+              <span>
+                <strong className="font-semibold">Bạn đã chặn người này.</strong> Bỏ chặn để gửi tin
+                nhắn tiếp — lịch sử cũ vẫn đọc được.
+              </span>
+            ) : (
+              <span>
+                <strong className="font-semibold">Người này đã chặn bạn.</strong> Bạn không thể gửi
+                tin nhắn trong hội thoại này — lịch sử cũ vẫn đọc được.
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Cửa sổ chat */}
-        <ChatWindow conversationId={convo.id} myUserId={user.id} />
+        <ChatWindow
+          conversationId={convo.id}
+          myUserId={user.id}
+          disabled={composerDisabled}
+        />
       </div>
     </main>
   );

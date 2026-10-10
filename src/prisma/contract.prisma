@@ -22,6 +22,9 @@ enum listing_status {
   rejected = "rejected" // bị từ chối
   hidden   = "hidden"   // người bán tự ẩn
   sold     = "sold"     // đã bán
+  // Trong enum HIỆN CÓ — THÊM MỘT value (R2: Batch 3 là first writer của
+  // `removed`; Batch 4 Task 1 chỉ thêm `archived`, KHÔNG đụng `removed` — additive-only):
+  removed  = "removed"  // moderation takedown (R4) — KHÔNG dùng cho seller self-hide
 }
 
 enum product_condition {
@@ -142,6 +145,58 @@ enum beta_membership_status {
   exited    = "exited"
 }
 
+// ─── Enums (Batch 3 — trust & safety, spec §5.5/§5.5.1) ───
+
+enum report_target_type {
+  @@type("pg/text@1")
+  listing = "listing"
+  user    = "user"
+  message = "message"
+}
+
+enum report_reason {
+  @@type("pg/text@1")
+  suspected_scam         = "suspected_scam"
+  harassment             = "harassment"
+  spam                   = "spam"
+  counterfeit_claim      = "counterfeit_claim"
+  misleading_listing     = "misleading_listing"
+  prohibited_content     = "prohibited_content"
+  unsafe_behavior        = "unsafe_behavior"
+  identity_impersonation = "identity_impersonation"
+  other                  = "other"
+}
+
+enum moderation_case_state {
+  @@type("pg/text@1")
+  open          = "open"
+  triaged       = "triaged"
+  investigating = "investigating"
+  actioned      = "actioned"
+  dismissed     = "dismissed"
+  appealed      = "appealed"
+  closed        = "closed"
+}
+
+enum moderation_priority {
+  @@type("pg/text@1")
+  low    = "low"
+  normal = "normal"
+  high   = "high"
+}
+
+enum suspension_status {
+  @@type("pg/text@1")
+  active = "active"
+  lifted = "lifted"
+}
+
+enum appeal_state {
+  @@type("pg/text@1")
+  submitted = "submitted"
+  closed    = "closed"
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -190,6 +245,18 @@ model User {
   adminMfa            AdminMfa?              @relation("admin_mfa_user")
   auditEventsActor    AuditEvent[]           @relation("audit_event_actor")
   auditEventsSubject  AuditEvent[]           @relation("audit_event_subject")
+  // ─── Batch 3 — trust & safety relations (additive — KHÔNG cột mới trên User) ───
+  reportsMade          AbuseReport[]        @relation("abuse_report_reporter")
+  casesAssigned        ModerationCase[]     @relation("moderation_case_assignee")
+  evidenceSubject      ModerationEvidence[] @relation("moderation_evidence_subject")
+  evidenceReporter     ModerationEvidence[] @relation("moderation_evidence_reporter")
+  moderationActions    ModerationAction[]   @relation("moderation_action_actor")
+  blocksMade           UserBlock[]          @relation("user_block_blocker")
+  blocksReceived       UserBlock[]          @relation("user_block_blocked")
+  suspensions          UserSuspension[]     @relation("user_suspension_user")
+  suspensionsActedBy   UserSuspension[]     @relation("user_suspension_actor")
+  suspensionsLiftedBy  UserSuspension[]     @relation("user_suspension_lifter")
+  appealsFiled         Appeal[]             @relation("appeal_appellant")
 
   @@index([role])
 }
@@ -812,4 +879,158 @@ model AuditEvent {
   @@index([actorId, createdAt])
   @@index([subjectId, createdAt])
   @@index([action, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 3 — Trust & Safety (spec §5.5/§5.5.1/§7.8/§9 Batch 3)
+// Additive-only: không drop/rename/repurpose model/cột/enum value nào đang có.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Abuse report (spec §5.5 — typed reason + case linkage) ───
+
+model AbuseReport {
+  id         String             @id @default(uuid())
+  reporterId String?            // nullable + SetNull: report row sống qua account deletion (A3)
+  reporter    User?             @relation("abuse_report_reporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  targetType report_target_type
+  targetId   String
+  reasonCode report_reason
+  note       String?            // mô tả thêm của người báo cáo — untrusted input, cap ở action layer
+  caseId     String
+  moderationCase ModerationCase @relation(fields: [caseId], references: [id])
+  createdAt  TimestamptzString @default(now())
+
+  @@unique([caseId, reporterId])   // một report/reporter/case — dedupe race-safe (Task 4)
+  @@index([reporterId, createdAt])
+  @@index([targetType, targetId])
+  @@index([caseId, createdAt])
+}
+
+// ─── Moderation case (spec §5.5 — grouping + workflow) ───
+
+model ModerationCase {
+  id                  String                 @id @default(uuid())
+  targetType           report_target_type
+  targetId            String
+  state               moderation_case_state  @default(open)
+  priority             moderation_priority    @default(normal)
+  assignedModeratorId String?
+  assignedModerator   User?                  @relation("moderation_case_assignee", fields: [assignedModeratorId], references: [id], onDelete: SetNull)
+  reasonCategory      report_reason
+  createdAt           TimestamptzString     @default(now())
+  updatedAt           temporal.updatedAtString()
+
+  reports  AbuseReport[]
+  evidence ModerationEvidence[]
+  actions  ModerationAction[]
+  appeal   Appeal?              // one-to-one: Appeal.caseId @unique
+
+  @@index([state, updatedAt])
+  @@index([targetType, targetId])
+  @@index([assignedModeratorId])
+  // một case active duy nhất per (target, reason) — đóng race find-or-create (Task 4);
+  // cú pháp where:/unique: theo .agents/skills/prisma-8/references/contract.md §index attributes
+  @@index([targetType, targetId, reasonCategory], where: "(state IN ('open', 'triaged', 'investigating'))", unique: true, name: "moderation_case_one_active_per_target_reason")
+}
+
+// ─── Evidence (spec §5.5.1) — immutable from product flows; SetNull FKs để
+// evidence sống qua account deletion tương lai (A3); KHÔNG BAO GIỜ update/delete từ app flow. ───
+
+model ModerationEvidence {
+  id                 String            @id @default(uuid())
+  caseId             String
+  moderationCase     ModerationCase    @relation(fields: [caseId], references: [id])
+  sourceResourceType String            // "listing" | "user" | "message"
+  sourceResourceId   String
+  capturedAt         TimestamptzString @default(now())
+  relevantSnapshot    Json              // snapshot JSON tại thời điểm báo cáo — immutable
+  subjectUserId      String?
+  subject            User?             @relation("moderation_evidence_subject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+  reporterUserId     String?
+  reporter           User?             @relation("moderation_evidence_reporter", fields: [reporterUserId], references: [id], onDelete: SetNull)
+  classification     String            // reason category tại thời điểm capture
+
+  @@index([caseId, capturedAt])
+  // name: tường minh — prefix mặc định ModerationEvidence_sourceResourceType_sourceResourceId_idx
+  // (57B) vượt giới hạn 54B của wire name (63B identifier − 9B hash suffix)
+  @@index([sourceResourceType, sourceResourceId], name: "moderation_evidence_source_idx")
+}
+
+// ─── Case-scoped action history (spec §5.5 "append audit history") — mọi case
+// event append một row; KHÔNG update/delete. actor có thể là user thường
+// (report/appeal) hoặc admin (transition/suspend) — AuditEvent riêng chỉ dành
+// cho privileged actor. ───
+
+model ModerationAction {
+  id         String            @id @default(uuid())
+  caseId     String?
+  moderationCase ModerationCase? @relation(fields: [caseId], references: [id])
+  actorId    String?
+  actor      User?             @relation("moderation_action_actor", fields: [actorId], references: [id], onDelete: SetNull)
+  actionType String            // typed registry: MODERATION_ACTION_TYPES (src/lib/moderation-vocab.ts)
+  targetType String?
+  targetId   String?
+  reasonCode String?           // bắt buộc với action type là quyết định (transition/takedown/suspend/lift/assign)
+  note       String?           // đã qua redactDetail tại write time — KHÔNG chứa PII thô
+  createdAt  TimestamptzString @default(now())
+
+  @@index([caseId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([targetType, targetId, createdAt])
+}
+
+// ─── Blocking (spec §5.5) — directional data, symmetric enforcement; KHÔNG xóa
+// message/conversation — block chỉ chặn MỚI, không phá evidence. ───
+
+model UserBlock {
+  id        String            @id @default(uuid())
+  blockerId String
+  blocker    User              @relation("user_block_blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked    User              @relation("user_block_blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  createdAt TimestamptzString @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+}
+
+// ─── Suspension (spec §7.8) — một row = một episode; active → lifted qua atomic
+// claim; KHÔNG auto-expiry (policy duration = Ambiguity A2 — fail closed: indefinite). ───
+
+model UserSuspension {
+  id             String            @id @default(uuid())
+  userId         String
+  user           User              @relation("user_suspension_user", fields: [userId], references: [id], onDelete: Restrict) // explicit: xóa user đang bị đình chỉ bị chặn — account deletion là batch sau + quyết định A3
+  status         suspension_status @default(active)
+  reasonCode     String            // typed — SUSPENSION_REASON_CODES (src/lib/moderation-vocab.ts)
+  note           String?           // đã qua redactDetail tại write time
+  suspendedById  String?          // nullable + SetNull: row lịch sử sống qua admin deletion (A3)
+  suspendedBy    User?             @relation("user_suspension_actor", fields: [suspendedById], references: [id], onDelete: SetNull)
+  suspendedAt    TimestamptzString @default(now())
+  liftedById     String?
+  liftedBy       User?             @relation("user_suspension_lifter", fields: [liftedById], references: [id], onDelete: SetNull)
+  liftedAt       TimestamptzString?
+  liftReasonCode String?
+
+  @@index([userId, status])
+  @@index([status, suspendedAt])
+  // một episode active duy nhất per user — đóng race double-suspend (Task 5)
+  @@index([userId], where: "(status = 'active')", unique: true, name: "user_suspension_one_active")
+}
+
+// ─── Appeal foundation (spec §9 Batch 3) — chỉ ghi nhận + state; decision workflow = A4. ───
+
+model Appeal {
+  id          String            @id @default(uuid())
+  caseId      String            @unique
+  moderationCase ModerationCase @relation(fields: [caseId], references: [id])
+  appellantId String?           // nullable + SetNull: appeal sống qua account deletion (A3)
+  appellant   User?             @relation("appeal_appellant", fields: [appellantId], references: [id], onDelete: SetNull)
+  statement   String?           // lời trình bày của subject — untrusted input, cap ở action layer
+  state       appeal_state      @default(submitted)
+  createdAt   TimestamptzString @default(now())
+  closedAt    TimestamptzString?
+  updatedAt   temporal.updatedAtString()
+
+  @@index([appellantId])
 }

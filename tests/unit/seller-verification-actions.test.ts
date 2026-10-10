@@ -71,6 +71,7 @@ const dbState = vi.hoisted(() => ({
   verifications: [] as Array<Record<string, unknown>>,
   acceptances: [] as Array<Record<string, unknown>>,
   memberships: [] as Array<Record<string, unknown>>,
+  suspensions: [] as Array<Record<string, unknown>>,
   audits: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
   mfas: [] as Array<Record<string, unknown>>,
@@ -210,6 +211,15 @@ vi.mock("@/src/prisma/db.client", () => {
       id: `rc-${dbState.codes.length + 1}`,
       createdAt: new Date().toISOString(),
       usedAt: null,
+    })),
+    UserSuspension: makeModel(dbState.suspensions, () => ({
+      id: `susp-${dbState.suspensions.length + 1}`,
+      status: "active",
+      note: null,
+      suspendedById: null,
+      liftedById: null,
+      liftedAt: null,
+      liftReasonCode: null,
     })),
   };
   const orm = { public: models };
@@ -364,6 +374,7 @@ beforeEach(() => {
   dbState.verifications.length = 0;
   dbState.acceptances.length = 0;
   dbState.memberships.length = 0;
+  dbState.suspensions.length = 0;
   dbState.audits.length = 0;
   dbState.notifications.length = 0;
   dbState.mfas.length = 0;
@@ -648,6 +659,39 @@ describe("submitSellerVerificationAction — gửi hồ sơ (spec §5.3.2)", () 
     expect(state.error).toBeUndefined();
     expect(row.status).toBe("verified"); // KHÔNG bị đá về pending
     expect(row.reasonCode).toBe("requirements_met");
+  });
+
+  // ─── Batch 3 Task 5 (S10): suspension là prerequisite CỦA CẢ submit ────────
+
+  it("(Batch 3) user đang bị đình chỉ → typed error liệt kê account_not_suspended, KHÔNG vào hàng đợi verification", async () => {
+    const seller = seedSeller(); // đủ 6 prerequisite submit (trừ ops review + rules)
+    dbState.suspensions.push({
+      id: `susp-${dbState.suspensions.length + 1}`,
+      userId: seller.id,
+      status: "active",
+      reasonCode: "confirmed_abuse",
+      note: null,
+      suspendedById: "admin-ops",
+      suspendedAt: new Date().toISOString(),
+      liftedById: null,
+      liftedAt: null,
+      liftReasonCode: null,
+    });
+    login(seller);
+
+    const state = await submitSellerVerificationAction({}, fd({ acceptSellerRules: "on" }));
+
+    // typed error LIỆT KÊ yêu cầu thiếu (yêu cầu thứ 8 — spec §7.8)
+    expect(state.error).toBeTruthy();
+    expect(state.error).toContain("đình chỉ");
+    expect(state.code).toBe("REQUIREMENTS_MISSING");
+    // (Review fix Task 5) đình chỉ KHÔNG phải requirement "fixable" — KHÔNG liệt
+    // kê như thể hoàn tất được tại trang này; special-case thông báo riêng.
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ");
+    expect(state.error).not.toContain("còn thiếu");
+    // KHÔNG tạo row — suspended user không thể vào verification queue
+    expect(dbState.verifications).toHaveLength(0);
+    expect(dbState.audits.filter((r) => r.action === "seller_verification.submitted")).toHaveLength(0);
   });
 });
 

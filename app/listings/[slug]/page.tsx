@@ -12,6 +12,7 @@ import {
 } from "@/src/lib/seller-verification-status";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
+import { ReportDialog } from "@/src/components/report-dialog";
 import {
   MapPin,
   Eye,
@@ -249,6 +250,20 @@ export default async function ListingDetailPage({
                 </p>
               )}
             </div>
+
+            {/* Báo cáo tin đăng (Batch 3 Task 4 — spec §5.5) — chỉ render cho
+                người đã đăng nhập KHÔNG phải seller (UI convenience; action tự
+                enforce auth + self-report + participant checks server-side). */}
+            {user && !isOwner && (
+              <div className="mt-3 border-t border-[var(--line)] pt-3">
+                <ReportDialog
+                  targetType="listing"
+                  targetId={listing.id}
+                  triggerLabel="Báo cáo tin đăng"
+                  className="btn-ghost w-full text-xs text-[var(--muted)] hover:text-[var(--red)]"
+                />
+              </div>
+            )}
           </div>
 
           {/* Thẻ người bán */}

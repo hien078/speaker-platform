@@ -73,6 +73,7 @@ const dbState = vi.hoisted(() => ({
   verifications: [] as Array<Record<string, unknown>>,
   acceptances: [] as Array<Record<string, unknown>>,
   memberships: [] as Array<Record<string, unknown>>,
+  suspensions: [] as Array<Record<string, unknown>>,
   audits: [] as Array<Record<string, unknown>>,
   adminAudits: [] as Array<Record<string, unknown>>,
   notifications: [] as Array<Record<string, unknown>>,
@@ -230,6 +231,15 @@ vi.mock("@/src/prisma/db.client", () => {
     Notification: makeModel(dbState.notifications, () => ({
       id: `notif-${dbState.notifications.length + 1}`,
     })),
+    UserSuspension: makeModel(dbState.suspensions, () => ({
+      id: `susp-${dbState.suspensions.length + 1}`,
+      status: "active",
+      note: null,
+      suspendedById: null,
+      liftedById: null,
+      liftedAt: null,
+      liftReasonCode: null,
+    })),
   };
   const orm = { public: models };
   return {
@@ -331,6 +341,22 @@ const seedPolicyRows = (sellerId: string, over?: { membershipStatus?: string; ve
 
 const CATEGORY = { id: "cat-1", name: "Loa bluetooth", slug: "loa-bluetooth", commissionRate: 5, sortOrder: 0, isActive: true, createdAt: "2026-09-01T00:00:00.000Z" };
 
+/** Episode đình chỉ ACTIVE cho seller (yêu cầu thứ 8 — spec §7.8, Batch 3 Task 5). */
+const seedSuspension = (userId: string): void => {
+  dbState.suspensions.push({
+    id: `susp-${dbState.suspensions.length + 1}`,
+    userId,
+    status: "active",
+    reasonCode: "confirmed_abuse",
+    note: null,
+    suspendedById: ADMIN_OPS.id,
+    suspendedAt: new Date().toISOString(),
+    liftedById: null,
+    liftedAt: null,
+    liftReasonCode: null,
+  });
+};
+
 /** Listing fixture của seller. */
 const seedListing = (sellerId: string, status: string, over?: Partial<Row>): Row & { id: string } => {
   const row: Row & { id: string } = {
@@ -422,6 +448,7 @@ beforeEach(() => {
   dbState.verifications.length = 0;
   dbState.acceptances.length = 0;
   dbState.memberships.length = 0;
+  dbState.suspensions.length = 0;
   dbState.audits.length = 0;
   dbState.adminAudits.length = 0;
   dbState.notifications.length = 0;
@@ -659,5 +686,125 @@ describe("approveListingAction — gate kể cả khi gọi bởi admin (spec §
     expect(listing.status).toBe("approved");
     expect(dbState.audits.filter((r) => r.action === "listing.approve_blocked")).toHaveLength(0);
     expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+  });
+});
+
+// ─── 5. Suspension — yêu cầu publication thứ 8 (Batch 3 Task 5, spec §7.8) ───
+
+describe("publication gate — seller đang bị đình chỉ (spec §7.8, Review Focus 5)", () => {
+  it("createListingAction: suspended seller → typed error liệt kê account_not_suspended, KHÔNG Listing.create", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id); // đủ 7 yêu cầu Batch 2
+    seedSuspension(seller.id); // ...nhưng đang bị đình chỉ
+    login(seller);
+
+    const state = await createListingAction({}, listingForm());
+
+    expect(state.error).toBeTruthy();
+    // label tiếng Việt của yêu cầu thứ 8 (SELLER_PUBLICATION_REQUIREMENT_LABELS)
+    expect(state.error).toContain("đình chỉ");
+    // (Review fix Task 5) đình chỉ KHÔNG phải requirement "fixable" tại trang
+    // xác minh — KHÔNG hướng seller sang trang đó như thể gỡ được đình chỉ ở đó.
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ — không thể đăng tin");
+    expect(state.error).not.toContain("Xác minh người bán");
+    expect(dbState.listings).toHaveLength(0); // KHÔNG transition vào review
+    expect(dbState.images).toHaveLength(0);
+  });
+
+  it("updateListingAction: content-change → pending BỊ CHẶN cho suspended seller (status + nội dung giữ nguyên)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedSuspension(seller.id);
+    const listing = seedListing(seller.id, "approved");
+    login(seller);
+
+    const state = await updateListingAction(
+      {},
+      listingForm({ title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ", listingId: listing.id }),
+    );
+
+    expect(state.error).toBeTruthy();
+    expect(state.error).toContain("đình chỉ");
+    // (Review fix Task 5) special-case như create — KHÔNG hướng sang trang xác minh
+    expect(state.error).toContain("Tài khoản đang bị đình chỉ — không thể đăng tin");
+    expect(state.error).not.toContain("Xác minh người bán");
+    expect(listing.status).toBe("approved"); // KHÔNG transition
+    expect(listing.title).toBe("Loa JBL Charge 5 chính hãng"); // KHÔNG ghi đè nội dung
+  });
+
+  it("toggleListingVisibilityAction: hidden → approved BỊ CHẶN cho suspended seller (silent return, status unchanged)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedSuspension(seller.id);
+    const listing = seedListing(seller.id, "hidden");
+    login(seller);
+
+    // silent return — KHÔNG throw, KHÔNG transition (form void không error surface)
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("hidden");
+  });
+
+  it("approveListingAction (admin): duyệt tin của suspended seller → KHÔNG approve + audit 'listing.approve_blocked' (defense-in-depth)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id);
+    seedSuspension(seller.id);
+    const listing = seedListing(seller.id, "pending");
+    login(ADMIN_OPS, { isAdmin: true });
+
+    await approveListingAction(fd({ listingId: listing.id }));
+
+    expect(listing.status).toBe("pending"); // KHÔNG approve
+    const evt = dbState.audits.find((r) => r.action === "listing.approve_blocked");
+    expect(evt).toMatchObject({
+      actorId: ADMIN_OPS.id,
+      subjectId: seller.id,
+      reason: "publication_requirements_unmet",
+    });
+    // detail liệt kê đúng yêu cầu thứ 8 (typed keys — KHÔNG PII)
+    expect(evt!.detail).toContain("account_not_suspended");
+    expect(dbState.audits.filter((r) => r.action === "listing.approved")).toHaveLength(0);
+  });
+
+  it("CẢ BỐN surface pass khi seller KHÔNG bị đình chỉ (guard không over-block)", async () => {
+    const seller = mkVerifiedSeller();
+    dbState.users.push(seller);
+    seedPolicyRows(seller.id); // đủ 8 (không có suspension)
+    login(seller);
+
+    // 1. create → pending
+    await expectRedirect(() => createListingAction({}, listingForm()));
+    const listing = dbState.listings[0]! as Row & { id: string; status: string };
+    expect(listing.status).toBe("pending");
+
+    // 2. admin approve → approved
+    login(ADMIN_OPS, { isAdmin: true });
+    await approveListingAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("approved");
+
+    // 3. seller content-change → pending (transition vào review được phép)
+    login(seller);
+    await expectRedirect(() =>
+      updateListingAction(
+        {},
+        listingForm({ title: "Loa JBL Charge 5 chính hãng ĐỔI TIÊU ĐỀ", listingId: listing.id }),
+      ),
+    );
+    expect(listing.status).toBe("pending");
+
+    // 4. admin approve lại → approved; seller toggle approved→hidden→approved
+    login(ADMIN_OPS, { isAdmin: true });
+    await approveListingAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("approved");
+
+    login(seller);
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("hidden");
+    await toggleListingVisibilityAction(fd({ listingId: listing.id }));
+    expect(listing.status).toBe("approved");
   });
 });

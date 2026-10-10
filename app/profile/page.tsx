@@ -8,9 +8,10 @@ import {
 } from "@/src/lib/seller-verification-status";
 import { ProfileForm } from "@/src/components/profile-form";
 import { VerificationPanel } from "@/src/components/verification-panel";
+import { unblockUserAction } from "@/src/lib/actions/blocks";
 import { formatDateShort } from "@/src/lib/utils";
 import { ROLE_LABELS } from "@/src/lib/constants";
-import { UserRound, BadgeCheck } from "lucide-react";
+import { UserRound, BadgeCheck, Ban } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Hồ sơ của tôi" };
@@ -29,6 +30,14 @@ export default async function ProfilePage() {
   // Inventory phiên active của chính mình (Task 9 — spec §5.4.2): user xem và
   // tự thu hồi MỌI session KHÁC (revokeMyOtherSessionsAction — verification.ts).
   const sessions = await listUserSessions(user.id);
+
+  // Danh sách chặn (Batch 3 Task 3 — spec §5.5): row UserBlock do CHÍNH MÌNH
+  // tạo (blockerId) — không thể bỏ chặn block của người khác.
+  const blocks = await db.orm.public.UserBlock
+    .where({ blockerId: user.id })
+    .include("blocked", (b) => b.select("id", "name"))
+    .orderBy((blk) => blk.createdAt.desc())
+    .all();
 
   const [listingCount, completedSales, completedBuys, reviewAgg] = await Promise.all([
     db.orm.public.Listing.where({ sellerId: user.id }).aggregate((a) => ({ c: a.count() })),
@@ -110,6 +119,44 @@ export default async function ProfilePage() {
         sessions={sessions}
         currentSessionId={session.sessionId}
       />
+
+      {/* Danh sách chặn (Batch 3 Task 3 — spec §5.5) */}
+      <div className="card mt-6 p-6">
+        <p className="mb-4 flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-[var(--ink-2)]">
+          <Ban className="size-4 text-[var(--red)]" />
+          Danh sách chặn
+        </p>
+        {blocks.length === 0 ? (
+          <p className="text-sm text-[var(--muted)]">Bạn chưa chặn ai</p>
+        ) : (
+          <ul className="divide-y divide-[var(--line)]">
+            {blocks.map((b) => (
+              <li key={b.id} className="flex items-center justify-between gap-3 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{b.blocked!.name}</p>
+                  <p className="text-[11px] text-[var(--muted)]">
+                    Chặn từ {formatDateShort(b.createdAt)}
+                  </p>
+                </div>
+                <form action={unblockUserAction} className="shrink-0">
+                  <input type="hidden" name="userId" value={b.blockedId} />
+                  <button
+                    type="submit"
+                    className="btn-secondary h-8 px-3 text-xs"
+                    title="Bỏ chặn — mở lại hội thoại/tin nhắn mới với người này"
+                  >
+                    Bỏ chặn
+                  </button>
+                </form>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="mt-3 text-[11px] leading-relaxed text-[var(--muted)]">
+          Người bị chặn không bắt đầu hội thoại hoặc gửi tin nhắn mới cho bạn (và ngược lại) —
+          lịch sử chat cũ vẫn đọc được.
+        </p>
+      </div>
     </main>
   );
 }
