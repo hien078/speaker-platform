@@ -270,6 +270,11 @@ d("suspension enforcement trên DB thật (spec §7.8 — P1: session KHÔNG b�
     const sellerX = await mkUser("seller"); // người bị đình chỉ (đủ 7 yêu cầu)
     await seedSevenRequirements(sellerX);
     const sellerY = await mkUser("seller"); // counterpart — chủ tin đăng
+    // B1 fixture migration (Batch 6 Task 3 — corrections #8): listing owner
+    // sellerY bare sẽ làm create branch (post-lift startConversationAction ở
+    // dưới) fail SELLER_NOT_VERIFIED với guard §7.8 seller-side mới (D2) —
+    // seed đủ 7 yêu cầu cho sellerY.
+    await seedSevenRequirements(sellerY);
     const listingY = await mkListing(sellerY);
     const listingY2 = await mkListing(sellerY); // path "hội thoại mới"
     const convo = await mkConversation(listingY, sellerX, sellerY);

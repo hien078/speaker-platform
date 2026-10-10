@@ -5,6 +5,8 @@ import { assertCanSendMessage, CHAT_SEND_RATE_LIMIT } from "@/src/lib/moderation
 import { recordBuyerFirstMessage, recordFirstResponse } from "@/src/lib/telemetry-recorders";
 import { captureError } from "@/src/lib/observability";
 import { SqlQueryError } from "@prisma/orm-family-sql/errors";
+import { CHAT_MESSAGE_MAX_LENGTH } from "@/src/lib/deal-vocab";
+import { LISTING_IMAGE_URL_PATTERN } from "@/src/lib/listing-images";
 
 /**
  * GET /api/chat/[id]?after=<iso>
@@ -96,9 +98,53 @@ export async function POST(
     return Response.json({ error: message }, { status: 403 });
   }
 
-  const body = (await request.json()) as { body?: string; imageUrl?: string };
-  const text = (body.body ?? "").trim();
-  if (!text && !body.imageUrl) {
+  // ─── Batch 6 Task 3 — body parse + caps (S4) + imageUrl validation (S3) ────
+  // S4: JSON malformed → 400 INVALID_BODY (KHÔNG 500); type của mọi field do
+  // client kiểm soát → 400 INVALID_BODY. KHÔNG tin kiểu từ JSON — client gọi
+  // route trực tiếp được (action id public trong client bundle).
+  let body: { body?: unknown; imageUrl?: unknown };
+  try {
+    body = (await request.json()) as { body?: unknown; imageUrl?: unknown };
+  } catch {
+    return Response.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
+  // JSON hợp lệ nhưng không phải object (null / mảng / số) → 400, không để body.body ném TypeError → 500
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return Response.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
+  if (body.body !== undefined && typeof body.body !== "string") {
+    return Response.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
+  const text = String(body.body ?? "").trim();
+  // Server-enforced message length (§7.1/§5.5 — client maxLength chỉ là UX)
+  if (text.length > CHAT_MESSAGE_MAX_LENGTH) {
+    return Response.json({ error: "MESSAGE_TOO_LONG" }, { status: 400 });
+  }
+  if (body.imageUrl !== undefined && typeof body.imageUrl !== "string") {
+    return Response.json({ error: "INVALID_BODY" }, { status: 400 });
+  }
+  // S3 (Batch 4 reuse — KHÔNG tự chế pattern mới): chỉ ảnh upload strict
+  // /uploads/<uuid>.<ext> được gắn vào tin nhắn — chặn scheme (https:/
+  // javascript:), traversal "..", và MỌI path ngoài /uploads (không có /img
+  // allowance — ChatWindow không gửi imageUrl, không có upload legacy nào
+  // trong chat). Pattern gate TRƯỚC lookup ownership nên tra theo basename
+  // mà không khớp pattern KHÔNG bao giờ đi vào ownership read.
+  let imageUrl: string | null = null;
+  if (body.imageUrl !== undefined) {
+    const raw = body.imageUrl as string;
+    if (!LISTING_IMAGE_URL_PATTERN.test(raw)) {
+      return Response.json({ error: "MESSAGE_IMAGE_INVALID" }, { status: 400 });
+    }
+    // Ownership (Batch 4 rule 1 — cross-account image theft): upload row theo
+    // storageKey = basename(url) PHẢI tồn tại VÀ thuộc CHÍNH người gửi.
+    const storageKey = raw.slice("/uploads/".length);
+    const upload = await db.orm.public.ListingImageUpload.first({ storageKey });
+    if (upload === null || upload.ownerUserId !== user.id) {
+      return Response.json({ error: "MESSAGE_IMAGE_INVALID" }, { status: 400 });
+    }
+    imageUrl = raw;
+  }
+  if (!text && !imageUrl) {
     return Response.json({ error: "EMPTY" }, { status: 400 });
   }
 
@@ -106,7 +152,7 @@ export async function POST(
     conversationId: id,
     senderId: user.id,
     body: text || "[hình ảnh]",
-    imageUrl: body.imageUrl ?? null,
+    imageUrl,
   });
 
   await db.orm.public.Conversation

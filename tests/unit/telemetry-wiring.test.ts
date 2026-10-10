@@ -937,6 +937,11 @@ describe("startConversationAction — conversation_started chỉ trên path tạ
 
   beforeEach(() => {
     listingNew = seedListing(SELLER.id, "approved");
+    // B1 fixture migration (Batch 6 Task 3 — corrections #8): guard §7.8
+    // seller-side (D2) của create branch đọc SellerVerification +
+    // BetaCohortMembership — seed đủ policy rows cho SELLER (verified +
+    // founding_seller active) để happy path vẫn đến được Conversation.create.
+    seedPolicyRows(SELLER.id);
   });
 
   it("tạo conversation MỚI → emit conversation_started (conversationId + listingId + buyer pseudonym)", async () => {
