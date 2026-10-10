@@ -4,7 +4,7 @@ export function Footer() {
   return (
     <footer className="mt-16 border-t border-[var(--line)] bg-[var(--paper-deep)]">
       <div className="mx-auto max-w-6xl px-4 py-10 lg:px-6">
-        <div className="grid gap-8 sm:grid-cols-4">
+        <div className="grid gap-8 sm:grid-cols-5">
           <div className="sm:col-span-2">
             <p className="text-[19px] font-extrabold tracking-tight">
               loa<span className="text-[var(--accent)]">viet</span>
@@ -32,6 +32,18 @@ export function Footer() {
             <ul className="mt-3 space-y-1.5 text-[13px]">
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/sell/new">Đăng tin</Link></li>
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/sell/my">Tin của tôi</Link></li>
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Chính sách</p>
+            <ul className="mt-3 space-y-1.5 text-[13px]">
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/terms">Điều khoản sử dụng</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/privacy">Chính sách bảo mật</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/marketplace_rules">Quy tắc chợ</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/seller_rules">Quy tắc người bán</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/community_rules">Quy tắc cộng đồng</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/safety_guidance">Hướng dẫn an toàn giao dịch</Link></li>
             </ul>
           </div>
         </div>

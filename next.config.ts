@@ -24,7 +24,64 @@ const nextConfig: NextConfig = {
   // từ nginx, CÙNG hai header phải vào location block đó (deploy checklist —
   // xem verification doc Batch 4).
   async headers() {
+    // ─── Batch 8 Task 8a (spec §7.4 — corrections item 4 + 23): app-wide
+    // browser-security headers, ĐỨNG ĐẦU mảng. Next headers()
+    // last-match-wins (node_modules/next/dist/docs/01-app/03-api-reference/
+    // 05-config/01-next-config-js/headers.md:47: entry sau THẮNG entry trước
+    // trên CÙNG key) — vì vậy app-wide PHẢI đứng TRƯỚC để Batch 4 /uploads và
+    // Batch 7 /invite (theo sau, NGUYÊN VẸN) giữ được key của mình:
+    //  - /uploads/:path* giữ CSP `default-src 'none'; sandbox` (Batch 4);
+    //    source app-wide LOẠI TRƯ /uploads (regex lookahead) nên upload path
+    //    KHÔNG nhận thêm Report-Only CSP (key khác với
+    //    Content-Security-Policy — sẽ nhận CẢ HAI nếu không loại);
+    //  - /invite/:token giữ Referrer-Policy: no-referrer (Batch 7 — RR-21);
+    //  - /invite (tokenless) KHÔNG match /invite/:token nên giữ
+    //    strict-origin-when-cross-origin của entry này — no-referrer trên
+    //    /invite sẽ gửi Origin: null trên action POST cùng origin → Next CSRF
+    //    check reject (corrections #8).
+    // CSP theo guide "Without Nonces" đã cài (node_modules/next/dist/docs/
+    // 01-app/02-guides/content-security-policy.md) — KHÔNG nonce (cần
+    // proxy.ts + dynamic rendering — ngoài G3; /policies/[key] là static).
+    // img-src giữ https://res.cloudinary.com theo images.remotePatterns;
+    // worker-src 'self' cho public/sw.js (src/components/sw-register.tsx);
+    // connect-src 'self' (chat poll same-origin /api/chat/[id]).
+    // KHÔNG upgrade-insecure-requests (lựa chọn được ghi nhận ở §3
+    // docs/operations/private-beta-security-review.md — deploy sau nginx TLS,
+    // mọi subresource đều 'self'/data:/blob:).
+    // Ship Content-Security-Policy-Report-Only: flip sang
+    // Content-Security-Policy là release-checklist row của OPERATOR (sau
+    // docker:smoke + manual page-load trên stack đã deploy — RR-14 không có
+    // E2E), KHÔNG phải commit của batch này.
+    const isDev = process.env.NODE_ENV === "development";
+    const appCsp = [
+      "default-src 'self'",
+      // 'unsafe-eval' CHỈ dev (guide: HMR/react-refresh cần eval) — production KHÔNG
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' blob: data: https://res.cloudinary.com",
+      "font-src 'self'",
+      "worker-src 'self'",
+      "connect-src 'self'",
+      "frame-ancestors 'none'",
+      "form-action 'self'",
+      "base-uri 'self'",
+      "object-src 'none'",
+    ].join("; ");
     return [
+      {
+        source: "/((?!uploads/).*)",
+        headers: [
+          { key: "Content-Security-Policy-Report-Only", value: appCsp },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // HSTS 180 ngày, KHÔNG preload (founder decision — preload là
+          // một-way door cả domain); app-level là HSTS DUY NHẤT cho tới khi
+          // operator cấu hình nginx (corrections item 24 — release-checklist row).
+          { key: "Strict-Transport-Security", value: "max-age=15552000; includeSubDomains" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+        ],
+      },
+      // ─── Batch 4 Task 3 (/uploads — spec §7.5): KHÔNG ĐỤNG ───────────────
       {
         source: "/uploads/:path*",
         headers: [
