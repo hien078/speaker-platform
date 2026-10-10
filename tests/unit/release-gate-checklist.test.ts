@@ -21,6 +21,11 @@
  * grep/awk checklist trực tiếp, KHÔNG thêm module src/lib). Quy tắc:
  *  - PASS → qua; PENDING → trượt; FOUNDER → chỉ qua với Sign-off không trống;
  *    status lạ → fail-closed (trượt);
+ *  - hàng Evidence type founder/user-run → bắt buộc Status FOUNDER + Sign-off
+ *    thật (review fix 2026-10-10 finding 2: flip sang PASS không thay được
+ *    chữ ký);
+ *  - ô placeholder (`—`, `-`, `— (chờ founder)`, chờ/pending/tbd) KHÔNG tính là
+ *    đã điền (review fix 2026-10-10 finding 5);
  *  - mirror: Decision không trống + ≠ PENDING + Date không trống;
  *  - blocking set derive MECHANICALLY từ register (counts không bao giờ
  *    hardcode — dòng "Register size:" của register phải khớp số derive).
@@ -28,14 +33,26 @@
  * Gate ĐỎ là kết quả ĐÚNG khi policy còn DRAFT-NOT-REVIEWED và hàng founder
  * blocking chưa ký (FD-3 fail-closed) — test KHÔNG pin trạng thái sign-off
  * ban đầu (founder điền sau); test pin: format + derivation + wiring.
+ *
+ * Section 5 (review 2026-10-10): fixture test CHẠY THẬT logic bash của
+ * `scripts/release-gate.sh` (source với RELEASE_GATE_SOURCED=1 — chỉ định
+ * nghĩa hàm, KHÔNG chạy gate) trên fixture file, chứng minh từng bad case
+ * giờ FAIL: hàng CRITICAL+OPEN (finding 1), hàng founder/user-run flip
+ * PASS / bị xoá (finding 2), ô Reviewer placeholder (finding 5), row duyệt
+ * v1 PENDING giữ làm history (finding 6). Gate fail-closed — chỉ xanh bằng
+ * chữ ký founder/user thật.
  */
-import { describe, expect, it } from "vitest";
-import { existsSync, readFileSync } from "node:fs";
+import { describe, expect, it, afterAll } from "vitest";
+import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const CHECKLIST_PATH = "docs/operations/private-beta-release-checklist.md";
 const REGISTER_PATH = "docs/operations/founder-decision-register.md";
+const SECURITY_REVIEW_PATH = "docs/operations/private-beta-security-review.md";
 const GATE_SCRIPT = "scripts/release-gate.sh";
 
 // ─── Parser (test-only — bash gate grep/awk checklist trực tiếp) ─────────────
@@ -53,9 +70,15 @@ function parseTableRows(markdown: string): string[][] {
   return rows;
 }
 
-/** Ô đã điền: không rỗng, không "—", không "-". */
+/**
+ * Ô đã điền: không rỗng, không "—"/"-", không placeholder (review fix 2026-10-10
+ * finding 5 — mirror filled() của gate bash: "— (chờ founder)" không là chữ ký).
+ */
 function isFilled(cell: string): boolean {
-  return cell !== "" && cell !== "—" && cell !== "-";
+  if (cell === "" || cell === "—" || cell === "-") return false;
+  if (cell.startsWith("—") || cell.startsWith("-")) return false;
+  if (/chờ|pending|tbd/i.test(cell)) return false;
+  return true;
 }
 
 type ChecklistRow = {
@@ -81,8 +104,20 @@ function parseChecklistRows(markdown: string): ChecklistRow[] {
     }));
 }
 
-/** Hàng chính qua gate? PASS → có; PENDING → không; FOUNDER → chỉ khi sign-off không trống. */
+/** Hàng founder/user-run (Evidence type chứa founder/user-run) — review fix 2026-10-10 finding 2. */
+function isFounderOrUserRun(row: ChecklistRow): boolean {
+  return /founder|user-run/.test(row.evidenceType.toLowerCase());
+}
+
+/**
+ * Hàng chính qua gate? PASS → có; PENDING → không; FOUNDER → chỉ khi sign-off
+ * không trống; hàng founder/user-run → bắt buộc FOUNDER + sign-off thật
+ * (review fix 2026-10-10 finding 2 — PASS không thay được chữ ký).
+ */
 function rowPasses(row: ChecklistRow): boolean {
+  if (isFounderOrUserRun(row)) {
+    return row.status === "FOUNDER" && isFilled(row.signOff);
+  }
   if (row.status === "PASS") return true;
   if (row.status === "PENDING") return false;
   if (row.status === "FOUNDER") return isFilled(row.signOff);
@@ -137,6 +172,10 @@ const MAIN_FIXTURE = [
   "| A-3 | việc C | founder | FD-R9 | FOUNDER | — |",
   "| A-4 | việc D | founder | FD-R9 | FOUNDER | Founder — chấp nhận 2026-10-10 |",
   "| A-5 | việc E | test | `tests/unit/e.test.ts` | WEIRD | — |",
+  // Review fix 2026-10-10 finding 2: hàng user-run flip sang PASS (không chữ ký).
+  "| A-6 | việc F | user-run | drill production | PASS | — |",
+  // Review fix 2026-10-10 finding 5: sign-off placeholder không là chữ ký.
+  "| A-7 | việc G | user-run | drill production | FOUNDER | — (chờ founder) |",
 ].join("\n");
 
 const MIRROR_FIXTURE = [
@@ -150,7 +189,7 @@ const MIRROR_FIXTURE = [
 describe("parser — hàng chính: PASS qua, PENDING trượt, FOUNDER cần sign-off", () => {
   it("parse đúng từng ô của hàng chính", () => {
     const rows = parseChecklistRows(MAIN_FIXTURE);
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(7);
     expect(rows[0]).toEqual({
       ref: "A-1",
       criterion: "việc A",
@@ -168,6 +207,18 @@ describe("parser — hàng chính: PASS qua, PENDING trượt, FOUNDER cần sig
     expect(rowPasses(rows[2]!), "FOUNDER sign-off trống phải trượt").toBe(false);
     expect(rowPasses(rows[3]!), "FOUNDER đã ký phải qua").toBe(true);
     expect(rowPasses(rows[4]!), "status lạ phải trượt (fail-closed)").toBe(false);
+  });
+
+  it("review fix 2026-10-10: hàng founder/user-run flip PASS / sign-off placeholder → trượt", () => {
+    const rows = parseChecklistRows(MAIN_FIXTURE);
+    expect(
+      rowPasses(rows[5]!),
+      "hàng user-run (A-6) flip sang PASS không chữ ký phải trượt — PASS không thay được chữ ký founder",
+    ).toBe(false);
+    expect(
+      rowPasses(rows[6]!),
+      "hàng user-run (A-7) FOUNDER với sign-off placeholder phải trượt — placeholder không là chữ ký",
+    ).toBe(false);
   });
 });
 
@@ -265,6 +316,35 @@ describe("private-beta-release-checklist.md — bảng chính + FD mirror", () =
       expect(row.evidence, `hàng ${row.ref} phải mang FD-R59`).toContain("FD-R59");
     }
   });
+
+  // ── Review fix 2026-10-10 finding 2: hàng founder/user-run không thể machine-pass ──
+
+  it("mọi hàng Evidence type founder/user-run có Status FOUNDER (flip sang PASS = vi phạm)", () => {
+    const founderRows = mainRows.filter((r) => isFounderOrUserRun(r));
+    expect(founderRows.length, "checklist phải có hàng founder/user-run").toBeGreaterThan(0);
+    for (const row of founderRows) {
+      expect(
+        row.status,
+        `hàng ${row.ref} (Evidence type "${row.evidenceType}") phải là FOUNDER — PASS/đổi status không thay được chữ ký founder/user`,
+      ).toBe("FOUNDER");
+    }
+  });
+
+  it("OPS-01..OPS-10 + SEC-01 tồn tại với Status FOUNDER (xoá hàng = vi phạm)", () => {
+    const refs = [
+      "SEC-01",
+      ...Array.from({ length: 10 }, (_, i) => `OPS-${String(i + 1).padStart(2, "0")}`),
+    ];
+    for (const ref of refs) {
+      const row = mainRows.find((r) => r.ref === ref);
+      expect(row, `thiếu hàng ${ref} — xoá hàng founder/user-run không làm gate xanh`).toBeDefined();
+      expect(row!.status, `hàng ${ref} phải là FOUNDER`).toBe("FOUNDER");
+      expect(
+        row!.evidenceType.toLowerCase(),
+        `hàng ${ref} phải là hàng user-run`,
+      ).toContain("user-run");
+    }
+  });
 });
 
 // ─── 4. Wiring — package.json + script tồn tại ──────────────────────────────
@@ -276,5 +356,304 @@ describe("release:gate wiring", () => {
     };
     expect(pkg.scripts["release:gate"]).toBe("bash scripts/release-gate.sh");
     expect(existsSync(`${root}/${GATE_SCRIPT}`), `thiếu ${GATE_SCRIPT}`).toBe(true);
+  });
+});
+
+// ─── 5. Gate script (bash) — fixture fail-closed (review 2026-10-10) ─────────
+//
+// Source THẬT scripts/release-gate.sh (RELEASE_GATE_SOURCED=1 — chỉ định nghĩa
+// hàm, KHÔNG chạy 9 gate) rồi gọi từng check trên fixture file. Mỗi test chứng
+// minh bad case giờ FAIL — gate fail-closed: không có đường nào làm gate xanh
+// mà thiếu chữ ký founder/user thật.
+
+/** Chạy bash: source gate script rồi thực thi snippet; trả exit code + output. */
+function bashGate(
+  snippet: string,
+  env: Record<string, string> = {},
+): { status: number; stdout: string; stderr: string } {
+  const res = spawnSync(
+    "bash",
+    ["-c", `RELEASE_GATE_SOURCED=1 source '${GATE_SCRIPT}'\n${snippet}`],
+    { cwd: root, encoding: "utf8", env: { ...process.env, ...env } },
+  );
+  expect(res.error, `bash không chạy được: ${res.error ?? ""}`).toBeUndefined();
+  return { status: res.status ?? -1, stdout: res.stdout ?? "", stderr: res.stderr ?? "" };
+}
+
+const fixtureDir = mkdtempSync(join(tmpdir(), "release-gate-t9fix-"));
+
+/** Ghi fixture file vào thư mục tạm, trả path tuyệt đối. */
+function fixtureFile(name: string, content: string): string {
+  const file = join(fixtureDir, name);
+  writeFileSync(file, content);
+  return file;
+}
+
+afterAll(() => {
+  rmSync(fixtureDir, { recursive: true, force: true });
+});
+
+// ── 5a. Finding 1 — findings register CRITICAL+OPEN parse theo cột ─────────
+
+describe("gate bash — check_findings_register: CRITICAL+OPEN theo cột (finding 1)", () => {
+  const REGISTER_HEADER = [
+    "## Findings register",
+    "",
+    "| Severity | Status | File | Finding | Recommendation | Blocks launch |",
+    "|---|---|---|---|---|---|",
+  ];
+
+  it("fixture có hàng | CRITICAL | OPEN | … | → check FAIL (regex cũ silent-pass)", () => {
+    const f = fixtureFile(
+      "sec-critical-open.md",
+      [
+        ...REGISTER_HEADER,
+        "| CRITICAL | OPEN | src/x.ts | bad | fix | yes |",
+        "",
+        "**Tổng:** 1 CRITICAL.",
+      ].join("\n"),
+    );
+    const r = bashGate(`check_findings_register '${f}'`);
+    expect(r.status, "hàng CRITICAL+OPEN phải FAIL — không được im lặng qua").toBe(1);
+    expect(r.stderr).toContain("CRITICAL + OPEN");
+  });
+
+  it("fixture sạch (MEDIUM ACCEPTED + LOW OPEN) → check PASS", () => {
+    const f = fixtureFile(
+      "sec-clean.md",
+      [
+        ...REGISTER_HEADER,
+        "| MEDIUM | ACCEPTED | src/lib/actions/admin-identity.ts | FD-R58 | Founder review | no |",
+        "| LOW | OPEN | next.config.ts | CSP Report-Only | flip header | no |",
+      ].join("\n"),
+    );
+    const r = bashGate(`check_findings_register '${f}'`);
+    expect(r.status, "không có CRITICAL+OPEN → PASS").toBe(0);
+  });
+
+  it("section '## Findings register' vắng → FAIL (không silent pass)", () => {
+    const f = fixtureFile(
+      "sec-nosection.md",
+      ["| Severity | Status | File | Finding | Recommendation | Blocks launch |", "|---|---|---|---|---|---|", "| CRITICAL | OPEN | src/x.ts | bad | fix | yes |"].join("\n"),
+    );
+    const r = bashGate(`check_findings_register '${f}'`);
+    expect(r.status, "section vắng phải FAIL").toBe(1);
+    expect(r.stderr).toContain("Findings register");
+  });
+
+  it("findings register THẬT (security review) → PASS (không false-positive)", () => {
+    const r = bashGate(`check_findings_register '${SECURITY_REVIEW_PATH}'`);
+    expect(r.status, "security review thật không có CRITICAL+OPEN → PASS").toBe(0);
+  });
+});
+
+// ── 5b. Finding 2 — pin hàng founder/user-run trong checklist ───────────────
+
+describe("gate bash — gate_release_checklist: pin hàng founder/user-run (finding 2)", () => {
+  const REQ_ENV = { RELEASE_GATE_REQUIRED_FOUNDER_REFS: "OPS-01 OPS-02" };
+
+  /** Fixture checklist nhỏ: 2 hàng user-run bắt buộc + 1 hàng mirror đã quyết. */
+  function checklistFixture(
+    mutate: (rows: string[]) => string[] = (rows) => rows,
+  ): string {
+    const rows = mutate([
+      "| OPS-01 | drill production | user-run | restore-drill --file | FOUNDER | Founder — 2026-10-10 |",
+      "| OPS-02 | access review production | user-run | admin-access-review-prod | FOUNDER | Founder — 2026-10-10 |",
+    ]);
+    return [
+      "| Ref | Criterion | Evidence type | Evidence | Status | Sign-off |",
+      "|---|---|---|---|---|---|",
+      ...rows,
+      "| FD-R1 | mirror item | Đã quyết | 2026-10-10 |",
+    ].join("\n");
+  }
+
+  it("fixture sạch (đủ hàng bắt buộc FOUNDER + ký) → gate PASS", () => {
+    const f = fixtureFile("cl-clean.md", checklistFixture());
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "checklist sạch phải PASS").toBe(0);
+  });
+
+  it("hàng user-run flip sang PASS (không chữ ký) → gate FAIL", () => {
+    const f = fixtureFile(
+      "cl-flip.md",
+      checklistFixture((rows) => [
+        rows[0]!.replace("| FOUNDER | Founder — 2026-10-10 |", "| PASS | Founder — 2026-10-10 |"),
+        rows[1]!,
+      ]),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "flip PASS không chữ ký phải FAIL").toBe(1);
+    expect(r.stderr).toContain("OPS-01");
+    expect(r.stderr).toContain("FOUNDER");
+  });
+
+  it("hàng user-run bị XOÁ → gate FAIL (xoá hàng không làm gate xanh)", () => {
+    const f = fixtureFile("cl-delete.md", checklistFixture((rows) => [rows[1]!]));
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "thiếu hàng bắt buộc phải FAIL").toBe(1);
+    expect(r.stderr).toContain("OPS-01");
+    expect(r.stderr).toContain("thiếu hàng founder/user-run bắt buộc");
+  });
+
+  it("hàng founder/user-run MỚI (ngoài list) flip PASS cũng FAIL (rule theo Evidence type)", () => {
+    const f = fixtureFile(
+      "cl-newrow.md",
+      checklistFixture((rows) => [
+        ...rows,
+        "| OPS-99 | hàng mới | user-run | evidence mới | PASS | — |",
+      ]),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "hàng user-run mới Status PASS phải FAIL").toBe(1);
+    expect(r.stderr).toContain("OPS-99");
+  });
+
+  it("Sign-off placeholder — (chờ founder) trên hàng FOUNDER → gate FAIL (finding 5)", () => {
+    const f = fixtureFile(
+      "cl-placeholder.md",
+      checklistFixture((rows) => [
+        rows[0]!.replace("Founder — 2026-10-10", "— (chờ founder)"),
+        rows[1]!,
+      ]),
+    );
+    const r = bashGate(`gate_release_checklist '${f}'`, REQ_ENV);
+    expect(r.status, "sign-off placeholder không là chữ ký").toBe(1);
+    expect(r.stderr).toContain("OPS-01");
+  });
+});
+
+// ── 5c. Finding 5 — filled() từ chối placeholder ────────────────────────────
+
+describe("gate bash — filled(): placeholder không là đã điền (finding 5)", () => {
+  const PLACEHOLDER_CELLS = [
+    "— (chờ founder)", // placeholder ship của policy-review-record.md:23-28
+    "—",
+    "-",
+    "PENDING",
+    "chờ founder",
+  ];
+  for (const cell of PLACEHOLDER_CELLS) {
+    it(`filled('${cell}') → CHƯA điền (exit ≠ 0)`, () => {
+      const r = bashGate(`filled '${cell}'`);
+      expect(r.status, `ô '${cell}' phải bị từ chối — gate yêu cầu TÊN founder`).not.toBe(0);
+    });
+  }
+
+  it("filled(tên founder thật) → đã điền (exit 0)", () => {
+    const r = bashGate(`filled 'Founder A'`);
+    expect(r.status).toBe(0);
+  });
+});
+
+// ── 5d. Finding 6 — chọn row duyệt khớp version+hash (row mới, không row đầu) ─
+
+describe("gate bash — policy_record_row: chọn row khớp version+hash (finding 6)", () => {
+  const hashA = "a".repeat(64); // v1 (history)
+  const hashB = "b".repeat(64); // v2 (đang ship)
+  const record = fixtureFile(
+    "policy-record.md",
+    [
+      "| Policy | Version | sha256 (scripts/policy-hash.ts) | Reviewer | Reviewed at | Decision | Notes |",
+      "|---|---|---|---|---|---|---|",
+      `| seller_rules | v1 | ${hashA} | — (chờ founder) | — | PENDING | Placeholder (history) |`,
+      `| seller_rules | v2 | ${hashB} | Founder | 2026-10-10 | APPROVED | Đã duyệt |`,
+    ].join("\n"),
+  );
+
+  it("chọn row v2 khớp registry (không phải row v1 đầu tiên của key)", () => {
+    const r = bashGate(`policy_record_row '${record}' seller_rules v2 ${hashB}`);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("v2");
+    expect(r.stdout).toContain("APPROVED");
+    expect(r.stdout, "row v1 PENDING history không được chọn").not.toContain("PENDING");
+  });
+
+  it("không có row khớp version/hash → in rỗng (stale review — gate FAIL ở caller)", () => {
+    const r = bashGate(`policy_record_row '${record}' seller_rules v1 ${hashB}`);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim(), "không khớp → rỗng (caller fail-closed)").toBe("");
+  });
+});
+
+// ── 5e. Finding 5+6 end-to-end — gate_policy_reviews với stub hash ──────────
+
+describe("gate bash — gate_policy_reviews: history row + placeholder reviewer (finding 5+6)", () => {
+  const POLICY_KEYS = [
+    "terms",
+    "privacy",
+    "marketplace_rules",
+    "seller_rules",
+    "community_rules",
+    "safety_guidance",
+  ] as const;
+  const hex = (c: string, n: number) => `${c.repeat(63)}${n}`; // 64 ký tự hex, khác nhau mỗi policy
+  const hashes = POLICY_KEYS.map((_, i) => hex("a", i + 1));
+  // seller_rules = v2 (kịch bản FD-R4 bump v1→v2); các policy khác v1.
+  const stub = fixtureFile(
+    "policy-hash-stub.txt",
+    POLICY_KEYS.map((key, i) => {
+      const version = key === "seller_rules" ? "v2" : "v1";
+      return `${key} ${version} ${hashes[i]} REVIEWED`;
+    }).join("\n") + "\n",
+  );
+
+  /** Fixture record: mọi policy có row APPROVED khớp stub; seller_rules GIỮ row v1 PENDING làm history. */
+  function recordFixture(reviewerFor: (key: string) => string): string {
+    const rows = POLICY_KEYS.map((key, i) => {
+      const version = key === "seller_rules" ? "v2" : "v1";
+      return `| ${key} | ${version} | ${hashes[i]} | ${reviewerFor(key)} | 2026-10-10 | APPROVED | ok |`;
+    });
+    const history = [`| seller_rules | v1 | ${hex("9", 1)} | — (chờ founder) | — | PENDING | Placeholder (history) |`];
+    return [
+      "| Policy | Version | sha256 (scripts/policy-hash.ts) | Reviewer | Reviewed at | Decision | Notes |",
+      "|---|---|---|---|---|---|---|",
+      ...rows.slice(0, 3),
+      ...history,
+      ...rows.slice(3),
+    ].join("\n");
+  }
+
+  it("row v1 PENDING giữ làm history + row v2 APPROVED → gate PASS (duyệt hợp lệ không bị chặn)", () => {
+    const record = fixtureFile("pr-history.md", recordFixture(() => "Founder"));
+    const r = bashGate("gate_policy_reviews", {
+      RELEASE_GATE_POLICY_RECORD: record,
+      RELEASE_GATE_POLICY_HASH_CMD: `cat ${stub}`,
+    });
+    expect(r.status, "row duyệt v2 khớp registry → 6/6 policy qua").toBe(0);
+    expect(r.stdout).toContain("6/6 policy");
+  });
+
+  it("Reviewer = '— (chờ founder)' (Decision APPROVED + date filled) → gate FAIL", () => {
+    const record = fixtureFile(
+      "pr-placeholder.md",
+      recordFixture((key) => (key === "terms" ? "— (chờ founder)" : "Founder")),
+    );
+    const r = bashGate("gate_policy_reviews", {
+      RELEASE_GATE_POLICY_RECORD: record,
+      RELEASE_GATE_POLICY_HASH_CMD: `cat ${stub}`,
+    });
+    expect(r.status, "placeholder reviewer phải FAIL — cần TÊN founder").toBe(1);
+    expect(r.stderr).toContain('policy "terms"');
+    expect(r.stderr).toContain("Reviewer");
+  });
+});
+
+// ── 5f. Drift pin — tập hàng bắt buộc của gate khớp checklist thật ───────────
+
+describe("gate bash — RELEASE_GATE_REQUIRED_FOUNDER_REFS khớp checklist thật (drift pin)", () => {
+  it("default của gate == mọi hàng Evidence type founder/user-run của checklist", () => {
+    const checklist = readDoc(CHECKLIST_PATH);
+    const founderRefs = parseChecklistRows(checklist)
+      .filter((r) => isFounderOrUserRun(r))
+      .map((r) => r.ref);
+    expect(founderRefs.length, "checklist phải có hàng founder/user-run").toBeGreaterThan(0);
+    const r = bashGate(`printf '%s\\n' "$RELEASE_GATE_REQUIRED_FOUNDER_REFS"`);
+    expect(r.status).toBe(0);
+    const gateRefs = r.stdout.trim().split(/\s+/).filter(Boolean);
+    expect(
+      [...gateRefs].sort(),
+      "tập Ref bắt buộc của gate phải == tập hàng founder/user-run của checklist (thêm/bớt hàng mà quên update = FAIL)",
+    ).toEqual([...founderRefs].sort());
   });
 });
