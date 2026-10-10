@@ -23,9 +23,12 @@
  *     không có cách biết content hiện tại đã duyệt hay chưa).
  */
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
+const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../..", import.meta.url));
 const DIR = "migrations/app/20261007T2007_batch4_round4_approved_content_backfill";
 const read = (p: string) => readFileSync(`${root}/${p}`, "utf8");
@@ -57,6 +60,16 @@ const prevMigration = JSON.parse(
 
 const INVARIANT = "backfill-listing-approved-content-at";
 const dataOp = ops.find((o) => o.operationClass === "data");
+
+// Head của migration graph trên disk — dir mới nhất theo timestamp prefix.
+// Ref production phải trỏ vào head này (quy tắc advance-ref cùng commit —
+// Batch 2/4 Task 1, Batch 5 Task 1): mọi migration đã commit nằm trên đường
+// `db migrate --to production` đi qua.
+const headDir = readdirSync(`${root}/migrations/app`)
+  .filter((e) => /^\d{8}T\d{4}_/.test(e))
+  .sort()
+  .at(-1)!;
+const headTo = (JSON.parse(read(`migrations/app/${headDir}/migration.json`)) as { to: string }).to;
 
 describe("migration backfill approvedContentAt — artefact contract (b4-holistic round-4)", () => {
   it("data op tồn tại duy nhất, KHÔNG op schema nào khác (data-only)", () => {
@@ -97,7 +110,55 @@ describe("migration backfill approvedContentAt — artefact contract (b4-holisti
     // header file) — thiếu một trong ba thì backfill KHÔNG BAO GIỜ chạy.
     expect(dataOp!.invariantId).toBe(INVARIANT);
     expect(migrationJson.providedInvariants).toEqual([INVARIANT]);
-    expect(productionRef.hash).toBe(migrationJson.to);
+    // Batch 5 Task 1 đã advance ref production qua migration mới — ref không
+    // còn trỏ THẲNG vào self-edge này mà trỏ vào head mới nhất của graph.
+    // Điều kiện để backfill VẪN CHẠY trên đường tới production là ref tiếp
+    // tục khai báo invariant (dòng dưới): path walk buộc đi qua self-edge
+    // đúng một lần — đã chứng minh `db migrate --show --from @empty --to
+    // production` = 7 migration, gồm round4 backfill + batch5.
     expect(productionRef.invariants).toContain(INVARIANT);
+    expect(productionRef.hash).toBe(headTo);
+  });
+
+  it("production path từ @empty GỒM self-edge backfill (b5-review Task 1 L2 — path walk thật)", async () => {
+    // [b5-review Task 1 L2 — đóng trong Task 11] Khẳng định deploy-risk bằng
+    // CHÍNH path walk của CLI (nguồn chân thực — không tự viết lại thuật toán
+    // findPathWithDecision): `db migrate --show --from @empty --to production`
+    // là offline (graph trên đĩa, KHÔNG kết nối DB — chạy được trong npm test).
+    // Self-edge from == to là đường DUY NHẤT cung cấp invariant — nếu ref
+    // mất khai báo invariant (lỗi `migration ref set` ghi đè invariants: [])
+    // thì round4 backfill rơi khỏi path → test này FAIL ngay (đã từng xảy ra:
+    // commit 194f65a + Task 1 §4.4).
+    const { stdout } = await execFileAsync(
+      "npx",
+      ["prisma", "db", "migrate", "--show", "--from", "@empty", "--to", "production"],
+      { cwd: root, maxBuffer: 16 * 1024 * 1024 },
+    );
+    const line = stdout
+      .split("\n")
+      .filter((l) => l.startsWith("{") && l.includes('"kind":"result"'))
+      .at(-1);
+    expect(line, "prisma --show result line").toBeTruthy();
+    const migrations = (
+      JSON.parse(line!) as {
+        envelope: { result: { migrations: Array<{ dirName: string; from: string; to: string }> } };
+      }
+    ).envelope.result.migrations;
+
+    // path tuyến tính: baseline → b2 → b3 → b4 → holistic → round4 self-edge → batch5
+    expect(migrations.map((m) => m.dirName)).toEqual([
+      "20261003T0448_baseline",
+      "20261006T0209_batch2_identity_security",
+      "20261006T1420_batch3_trust_safety",
+      "20261006T1902_batch4_listing_quality",
+      "20261007T1708_batch4_holistic_review_fixes",
+      "20261007T2007_batch4_round4_approved_content_backfill",
+      "20261007T2208_batch5_search_telemetry",
+    ]);
+    // self-edge: from == to (data-only, không đổi schema)
+    const selfEdge = migrations.find((m) => m.dirName === "20261007T2007_batch4_round4_approved_content_backfill");
+    expect(selfEdge!.from).toBe(selfEdge!.to);
+    // path kết thúc đúng hash ref production (đi qua MỌI migration đã commit)
+    expect(migrations.at(-1)!.to).toBe(productionRef.hash);
   });
 });

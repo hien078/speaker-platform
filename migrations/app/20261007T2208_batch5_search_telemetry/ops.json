@@ -1,0 +1,683 @@
+[
+  {
+    "id": "table.ProductEvent",
+    "label": "Create table \"ProductEvent\"",
+    "summary": "Creates table \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ProductEvent\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ProductEvent\"",
+        "sql": "CREATE TABLE \"public\".\"ProductEvent\" (\n  \"actorPseudonym\" text,\n  \"conversationId\" text,\n  \"id\" text NOT NULL,\n  \"isInternal\" bool DEFAULT false NOT NULL,\n  \"listingId\" text,\n  \"metadata\" json,\n  \"name\" text NOT NULL,\n  \"occurredAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"productModelId\" text,\n  \"provinceCode\" text,\n  \"pseudonymKeyVersion\" text DEFAULT '1' NOT NULL,\n  \"schemaVersion\" text NOT NULL,\n  \"searchSessionId\" text,\n  \"sessionPseudonym\" text,\n  PRIMARY KEY (\"id\")\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ProductEvent\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "table.SearchAlias",
+    "label": "Create table \"SearchAlias\"",
+    "summary": "Creates table \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"SearchAlias\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"SearchAlias\"",
+        "sql": "CREATE TABLE \"public\".\"SearchAlias\" (\n  \"alias\" text NOT NULL,\n  \"brandId\" text,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"id\" text NOT NULL,\n  \"note\" text,\n  \"productModelId\" text,\n  \"target\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"SearchAlias_target_check_4dbecc53\" CHECK (\"target\" IN ('brand', 'model')),\n  CONSTRAINT \"search_alias_target_ids_8672a4d4\" CHECK (((target = 'brand' AND \"brandId\" IS NOT NULL AND \"productModelId\" IS NULL) OR (target = 'model' AND \"productModelId\" IS NOT NULL AND \"brandId\" IS NULL)))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"SearchAlias\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.locationSource",
+    "label": "Add column \"locationSource\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "locationSource",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"locationSource\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "locationSource"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"locationSource\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"locationSource\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"locationSource\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "locationSource"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "column.public.Listing.searchTextNormalized",
+    "label": "Add column \"searchTextNormalized\" to \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "column",
+        "name": "searchTextNormalized",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure column \"searchTextNormalized\" is missing",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "searchTextNormalized"
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add column \"searchTextNormalized\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD COLUMN \"searchTextNormalized\" text"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify column \"searchTextNormalized\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"information_schema\".\"columns\" WHERE (\"table_schema\" = $1 AND \"table_name\" = $2 AND \"column_name\" = $3)) AS \"result\"",
+        "params": [
+          "public",
+          "Listing",
+          "searchTextNormalized"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "checkConstraint.Listing.Listing_locationSource_check_4813b5cf",
+    "label": "Add check constraint \"Listing_locationSource_check_4813b5cf\" on \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "checkConstraint",
+        "name": "Listing_locationSource_check_4813b5cf",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"Listing_locationSource_check_4813b5cf\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_locationSource_check_4813b5cf",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add check constraint \"Listing_locationSource_check_4813b5cf\"",
+        "sql": "ALTER TABLE \"public\".\"Listing\" ADD CONSTRAINT \"Listing_locationSource_check_4813b5cf\" CHECK (\"locationSource\" IN ('seller_declared', 'legacy_mapped', 'unresolved'))"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"Listing_locationSource_check_4813b5cf\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "Listing_locationSource_check_4813b5cf",
+          "public",
+          "\"public\".\"Listing\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "unique.SearchAlias.SearchAlias_alias_target_key",
+    "label": "Add unique constraint on \"SearchAlias\" (alias, target)",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "unique",
+        "name": "SearchAlias_alias_target_key",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure constraint \"SearchAlias_alias_target_key\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_alias_target_key",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add unique constraint \"SearchAlias_alias_target_key\"",
+        "sql": "ALTER TABLE \"public\".\"SearchAlias\" ADD CONSTRAINT \"SearchAlias_alias_target_key\" UNIQUE (\"alias\", \"target\")"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify constraint \"SearchAlias_alias_target_key\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_alias_target_key",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.Listing.listing_search_text_search_90e9bd00",
+    "label": "Create index \"listing_search_text_search_90e9bd00\" on \"Listing\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "listing_search_text_search_90e9bd00",
+        "table": "Listing"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"listing_search_text_search_90e9bd00\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"listing_search_text_search_90e9bd00\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"listing_search_text_search_90e9bd00\"",
+        "sql": "CREATE INDEX \"listing_search_text_search_90e9bd00\" ON \"public\".\"Listing\" USING \"gin\" (to_tsvector('simple', \"searchTextNormalized\"))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"listing_search_text_search_90e9bd00\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"listing_search_text_search_90e9bd00\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ProductEvent.ProductEvent_actorPseudonym_occurredAt_idx_2b704e82",
+    "label": "Create index \"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\" on \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ProductEvent_actorPseudonym_occurredAt_idx_2b704e82",
+        "table": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\"",
+        "sql": "CREATE INDEX \"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\" ON \"public\".\"ProductEvent\" (\"actorPseudonym\", \"occurredAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_actorPseudonym_occurredAt_idx_2b704e82\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ProductEvent.ProductEvent_conversationId_idx_669215a6",
+    "label": "Create index \"ProductEvent_conversationId_idx_669215a6\" on \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ProductEvent_conversationId_idx_669215a6",
+        "table": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ProductEvent_conversationId_idx_669215a6\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_conversationId_idx_669215a6\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ProductEvent_conversationId_idx_669215a6\"",
+        "sql": "CREATE INDEX \"ProductEvent_conversationId_idx_669215a6\" ON \"public\".\"ProductEvent\" (\"conversationId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ProductEvent_conversationId_idx_669215a6\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_conversationId_idx_669215a6\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ProductEvent.ProductEvent_listingId_idx_953decda",
+    "label": "Create index \"ProductEvent_listingId_idx_953decda\" on \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ProductEvent_listingId_idx_953decda",
+        "table": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ProductEvent_listingId_idx_953decda\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_listingId_idx_953decda\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ProductEvent_listingId_idx_953decda\"",
+        "sql": "CREATE INDEX \"ProductEvent_listingId_idx_953decda\" ON \"public\".\"ProductEvent\" (\"listingId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ProductEvent_listingId_idx_953decda\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_listingId_idx_953decda\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ProductEvent.ProductEvent_name_occurredAt_idx_212a4f4e",
+    "label": "Create index \"ProductEvent_name_occurredAt_idx_212a4f4e\" on \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ProductEvent_name_occurredAt_idx_212a4f4e",
+        "table": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ProductEvent_name_occurredAt_idx_212a4f4e\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_name_occurredAt_idx_212a4f4e\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ProductEvent_name_occurredAt_idx_212a4f4e\"",
+        "sql": "CREATE INDEX \"ProductEvent_name_occurredAt_idx_212a4f4e\" ON \"public\".\"ProductEvent\" (\"name\", \"occurredAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ProductEvent_name_occurredAt_idx_212a4f4e\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_name_occurredAt_idx_212a4f4e\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ProductEvent.ProductEvent_searchSessionId_idx_2ab99a8a",
+    "label": "Create index \"ProductEvent_searchSessionId_idx_2ab99a8a\" on \"ProductEvent\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ProductEvent_searchSessionId_idx_2ab99a8a",
+        "table": "ProductEvent"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ProductEvent_searchSessionId_idx_2ab99a8a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_searchSessionId_idx_2ab99a8a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ProductEvent_searchSessionId_idx_2ab99a8a\"",
+        "sql": "CREATE INDEX \"ProductEvent_searchSessionId_idx_2ab99a8a\" ON \"public\".\"ProductEvent\" (\"searchSessionId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ProductEvent_searchSessionId_idx_2ab99a8a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ProductEvent_searchSessionId_idx_2ab99a8a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.SearchAlias.SearchAlias_alias_idx_0aae2ef5",
+    "label": "Create index \"SearchAlias_alias_idx_0aae2ef5\" on \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "SearchAlias_alias_idx_0aae2ef5",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"SearchAlias_alias_idx_0aae2ef5\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_alias_idx_0aae2ef5\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"SearchAlias_alias_idx_0aae2ef5\"",
+        "sql": "CREATE INDEX \"SearchAlias_alias_idx_0aae2ef5\" ON \"public\".\"SearchAlias\" (\"alias\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"SearchAlias_alias_idx_0aae2ef5\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_alias_idx_0aae2ef5\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.SearchAlias.SearchAlias_brandId_idx_02e95397",
+    "label": "Create index \"SearchAlias_brandId_idx_02e95397\" on \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "SearchAlias_brandId_idx_02e95397",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"SearchAlias_brandId_idx_02e95397\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_brandId_idx_02e95397\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"SearchAlias_brandId_idx_02e95397\"",
+        "sql": "CREATE INDEX \"SearchAlias_brandId_idx_02e95397\" ON \"public\".\"SearchAlias\" (\"brandId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"SearchAlias_brandId_idx_02e95397\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_brandId_idx_02e95397\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.SearchAlias.SearchAlias_productModelId_idx_5c4e2620",
+    "label": "Create index \"SearchAlias_productModelId_idx_5c4e2620\" on \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "SearchAlias_productModelId_idx_5c4e2620",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"SearchAlias_productModelId_idx_5c4e2620\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_productModelId_idx_5c4e2620\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"SearchAlias_productModelId_idx_5c4e2620\"",
+        "sql": "CREATE INDEX \"SearchAlias_productModelId_idx_5c4e2620\" ON \"public\".\"SearchAlias\" (\"productModelId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"SearchAlias_productModelId_idx_5c4e2620\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"SearchAlias_productModelId_idx_5c4e2620\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.SearchAlias.SearchAlias_brandId_fkey",
+    "label": "Add foreign key \"SearchAlias_brandId_fkey\" on \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "SearchAlias_brandId_fkey",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"SearchAlias_brandId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_brandId_fkey",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"SearchAlias_brandId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"SearchAlias\"\nADD CONSTRAINT \"SearchAlias_brandId_fkey\"\nFOREIGN KEY (\"brandId\")\nREFERENCES \"public\".\"Brand\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"SearchAlias_brandId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_brandId_fkey",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.SearchAlias.SearchAlias_productModelId_fkey",
+    "label": "Add foreign key \"SearchAlias_productModelId_fkey\" on \"SearchAlias\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "SearchAlias_productModelId_fkey",
+        "table": "SearchAlias"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"SearchAlias_productModelId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_productModelId_fkey",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"SearchAlias_productModelId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"SearchAlias\"\nADD CONSTRAINT \"SearchAlias_productModelId_fkey\"\nFOREIGN KEY (\"productModelId\")\nREFERENCES \"public\".\"ProductModel\" (\"id\")\nON DELETE CASCADE"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"SearchAlias_productModelId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "SearchAlias_productModelId_fkey",
+          "public",
+          "\"public\".\"SearchAlias\""
+        ]
+      }
+    ]
+  }
+]

@@ -98,6 +98,8 @@ DB_PASSWORD=<mật khẩu DB mạnh, sinh bằng openssl rand -hex 16>
 AUTH_SECRET=<sinh bằng openssl rand -hex 32>
 NEXT_PUBLIC_APP_URL=https://loaviet.vn        # domain thật — MoMo IPN cần URL công khai
 CRON_SECRET=<sinh bằng openssl rand -hex 32>  # bảo vệ endpoint cron auto-release
+ADMIN_MFA_ENCRYPTION_KEY=<sinh bằng openssl rand -base64 32>      # key MFA dedicated (Batch 2)
+PRODUCT_EVENT_PSEUDONYM_KEY=<sinh bằng openssl rand -base64 32>   # key pseudonym telemetry dedicated (Batch 5)
 MOMO_PARTNER_CODE=<từ business.momo.vn>
 MOMO_ACCESS_KEY=<từ business.momo.vn>
 MOMO_SECRET_KEY=<từ business.momo.vn>
@@ -133,6 +135,45 @@ docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
   -v "$PWD/founder.json:/app/founder.json:ro" \
   migrate npx tsx scripts/seed-beta-catalog.ts --apply --models /app/founder.json --allow-production
+
+# 5b. Backfill location canonical (BẮT BUỘC sau migration Batch 5 — mọi row
+#     legacy còn locationSource NULL; province filter + trạng thái
+#     seller_declared/legacy_mapped/unresolved chỉ tồn tại sau bước này).
+#     Dry-run TRƯỚC (chỉ đọc + in counts — KHÔNG cần --allow-production; guard
+#     chỉ chặn --apply), rồi --apply --allow-production (script tự từ chối
+#     --apply vào DB non-local khi thiếu cờ — guard từ ĐÍCH, cùng posture seed
+#     ở trên; idempotent — chạy lại 0 row mới):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts            # dry-run (xem counts)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts --apply --allow-production
+#     Rollback nếu cần: script in declaredIds + SQL ở header script (B3).
+
+# 5c. Backfill searchTextNormalized (BẮT BUỘC ngay sau migrate — Batch 5 Task 7
+#     đổi search /listings sang khớp cột searchTextNormalized QUA ĐỊC: trang bỏ
+#     arm full-text trên title, nên MỌI row có searchTextNormalized NULL (toàn bộ
+#     row tạo TRƯỚC Batch 5, kể cả row dev seed) KHÔNG TÌM ĐƯỢC qua ô từ khóa
+#     cho tới khi bước này chạy. Dry-run trước, rồi --apply --allow-production
+#     (cùng guard/posture 5b; idempotent — chạy lại 0 row mới):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts            # dry-run (xem counts)
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --allow-production
+#     STALENESS (S-4): searchTextNormalized nhúng TÊN brand/model nên trôi sau
+#     rename brand/model, sau mergeModelAction (/admin/catalog gộp model — alias
+#     được follow nhưng text các listing cũ KHÔNG tự tính lại), và sau seed
+#     beta catalog. Sửa bằng --recompute-all (tính lại MỌI row — row đã đúng
+#     KHÔNG ghi lại):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --recompute-all --allow-production
+#     Quy trình: chạy --recompute-all sau MỌI lần seed-beta-catalog --apply và
+#     sau MỌI lần sửa/gộp model trong /admin/catalog. Không rollback cần thiết —
+#     cột derived, luôn tính lại được (chạy lại backfill).
 
 # 6. Duyệt model pending trong /admin/catalog (founder) — seed tạo model ở
 #    status "pending"; model CHỈ hiện trong form đăng tin sau khi được duyệt.

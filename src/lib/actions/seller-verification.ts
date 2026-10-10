@@ -19,6 +19,7 @@ import {
   type SellerVerificationStatus,
 } from "@/src/lib/seller-verification-policy";
 import { isProvinceCode } from "@/src/lib/provinces";
+import { recordSellerVerified } from "@/src/lib/telemetry-recorders";
 
 /**
  * SellerVerification workflow (Batch 2 Task 10 — spec §5.3.2/§5.3.3, §4.5,
@@ -408,6 +409,15 @@ export async function reviewSellerVerificationAction(formData: FormData): Promis
       detail: `decision=${decisionParsed.data}`, // typed — KHÔNG PII (spec §4.8)
     });
   });
+
+  // ─── Telemetry (Batch 5 Task 8 — S7) ──────────────────────────────────────
+  // seller_verified: CHỈ khi decision === "verified", SAU atomic claim thành
+  // công (tx đã resolve — corrections #7: emit NGOÀI tx, KHÔNG BAO GIỜ trong
+  // callback). Actor = seller được xác minh (KHÔNG phải admin reviewer).
+  // Fail-open — KHÔNG đổi kết quả action.
+  if (decisionParsed.data === "verified") {
+    await recordSellerVerified({ sellerId: userId });
+  }
 
   const notifyCopy = DECISION_NOTIFY[decisionParsed.data];
   await notify(userId, "security", notifyCopy.title, notifyCopy.body, "/sell/verification");

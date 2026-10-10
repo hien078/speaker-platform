@@ -207,6 +207,21 @@ enum inventory_context {
   used     = "used"      // đã qua sử dụng
 }
 
+// ─── Enums (Batch 5 — location source & search alias, spec §5.9/§5.7) ───
+
+enum listing_location_source {
+  @@type("pg/text@1")
+  seller_declared = "seller_declared" // submission mang mã tỉnh hợp lệ do Batch 4 form ghi (S4)
+  legacy_mapped   = "legacy_mapped"   // backfill khớp qua BẢNG ĐÃ DUYỘT của registry (FD-1) — không phải name-equality (spec §8.3)
+  unresolved      = "unresolved"      // legacy không nằm trong danh sách tên authoritative của registry → KHÔNG đoán (FD-1)
+}
+
+enum search_alias_target {
+  @@type("pg/text@1")
+  brand = "brand"
+  model = "model"
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -299,6 +314,8 @@ model Brand {
 
   listings Listing[]
   models   ProductModel[] @relation("model_brand")
+  // ─── Batch 5 — search alias back-relation (additive, spec §5.7) ───
+  searchAliases SearchAlias[] @relation("alias_brand")
 }
 
 // ─── Tin đăng ───
@@ -354,6 +371,12 @@ model Listing {
   // approved → hiện lại PENDING (admin duyệt lại một lần — fail-closed).
   approvedContentAt     TimestamptzString?
 
+  // ─── Batch 5 (spec §5.9): nguồn của location canonical — cột mã tỉnh thuộc Batch 4 (S3/S4) ───
+  locationSource      listing_location_source? // null = chưa backfill; sau backfill không còn null trên legacy row
+
+  // ─── Batch 5 (spec §5.7): normalized search text — derived, luôn tính lại được ───
+  searchTextNormalized String? // normalizeSearchText(title + brand.name + model.name) — Task 4 duy trì + backfill
+
   @@index([status, createdAt])
   @@index([categoryId])
   @@index([brandId])
@@ -361,6 +384,10 @@ model Listing {
   @@index([price])
   @@fullTextIndex([title], name: "listing_title_search")
   @@fullTextIndex([description], name: "listing_desc_search")
+  // language "simple" ở CẢ HAI phía index + query (S-1) — english stopword/stemmer
+  // làm hỏng text tiếng Việt đã pre-normalize ("loa do" mất "do"); cú pháp PSL
+  // theo .agents/skills/prisma-8/references/contract.md § Full-text search indexes
+  @@fullTextIndex([searchTextNormalized], name: "listing_search_text_search", language: "simple")
 }
 
 model ListingImage {
@@ -715,6 +742,8 @@ model ProductModel {
 
   listings     Listing[]
   priceHistory PriceHistory[]
+  // ─── Batch 5 — search alias back-relation (additive, spec §5.7) ───
+  searchAliases SearchAlias[] @relation("alias_model")
 
   @@index([brandId])
   @@index([categoryId])
@@ -1092,4 +1121,62 @@ model ListingImageUpload {
   createdAt   TimestamptzString @default(now())
 
   @@index([ownerUserId, createdAt])
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Batch 5 — Search, Location & Telemetry (spec §5.7/§5.8/§5.9/§9 Batch 5)
+// Additive-only: không drop/rename/repurpose model/cột/enum value nào đang có.
+// Batch 4 owns provinceLevelCode/communeLevelCode/locationDisplayName;
+// Batch 5 thêm ĐÚNG: Listing.locationSource + Listing.searchTextNormalized
+// (+ full-text index language "simple") + 2 enum + ProductEvent + SearchAlias.
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Product telemetry (Batch 5, spec §5.8 — domain RIÊNG với AuditEvent của Batch 2, S10) ───
+
+model ProductEvent {
+  id             String            @id @default(uuid())
+  name           String            // taxonomy (src/lib/product-events.ts) — registry trong code, KHÔNG phải enum DB
+  schemaVersion  String            // "1" — PRODUCT_EVENT_SCHEMA_VERSION
+  occurredAt     TimestamptzString @default(now())
+  actorPseudonym String?           // HMAC-SHA256(userId, HKDF(PRODUCT_EVENT_PSEUDONYM_KEY, "product-event-actor")) — KHÔNG bao giờ id thô (S-10)
+  sessionPseudonym String?         // HMAC-SHA256(UserSession.id, cùng key) — KHÔNG bao giờ session id thô (S-10:
+                                  //   session id thô join thẳng về userId qua UserSession)
+  pseudonymKeyVersion String       @default("1") // id của key đã ghi — phát hiện rotation (S-11)
+  isInternal     Boolean           @default(false) // internal cohort ∪ adminRole ≠ null, tính LÚC emit (S-12) —
+                                  //   exclusion không phụ thuộc key ổn định qua rotation
+  searchSessionId String?          // uuid do server sinh cho mỗi lần search — khóa join CTR / search→chat (S-14)
+  listingId      String?           // KHÔNG FK: event append-only sống qua vòng đời listing (spec §5.8)
+  productModelId String?           // KHÔNG FK (như trên)
+  conversationId String?          // internal id cho join response metrics — KHÔNG FK (như trên)
+  provinceCode   String?           // mã tỉnh canonical — coarse location (spec §4.8), KHÔNG bao giờ địa chỉ chi tiết
+  metadata       Json?             // allowlisted theo event schema (zod) — KHÔNG PII, KHÔNG query text thô (spec §4.8)
+
+  @@index([name, occurredAt])
+  @@index([actorPseudonym, occurredAt])
+  @@index([searchSessionId])
+  @@index([listingId])
+  @@index([conversationId])
+}
+
+// ─── Search aliases (Batch 5, spec §5.7 — mechanism ở đây, CONTENT thuộc Batch 4/8 seed, A7/S9) ───
+
+model SearchAlias {
+  id             String   @id @default(uuid())
+  alias          String   // dạng CHUẨN HÓA (normalizeSearchText) — khóa tra cứu, vd "soundlink"
+  target         search_alias_target
+  brandId        String?
+  brand          Brand?       @relation("alias_brand", fields: [brandId], references: [id], onDelete: Cascade)
+  productModelId String?
+  productModel   ProductModel? @relation("alias_model", fields: [productModelId], references: [id], onDelete: Cascade)
+  note           String?
+  createdAt      TimestamptzString @default(now())
+
+  @@unique([alias, target])
+  @@index([alias])
+  // target ⇒ id set (corrections item 5): một alias row trỏ đúng MỘT catalog entity
+  // — target=brand ⇒ brandId set & productModelId null; target=model ⇒ ngược lại.
+  // onDelete: Cascade (corrections item 16): alias là dữ liệu phụ sinh theo target —
+  // seed-beta-catalog rollback xóa brand/model không bị Restrict chặn, alias trỏ
+  // id đã chết là rác — cascade dọn theo.
+  @@check(expression: "((target = 'brand' AND \"brandId\" IS NOT NULL AND \"productModelId\" IS NULL) OR (target = 'model' AND \"productModelId\" IS NOT NULL AND \"brandId\" IS NULL))", name: "search_alias_target_ids")
 }

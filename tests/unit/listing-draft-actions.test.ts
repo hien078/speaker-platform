@@ -689,8 +689,18 @@ describe("saveListingDraftAction — draft được phép trước verification"
 
     // (action-level) draft row mang status "draft" — KHÔNG phải pending/approved
     expect(dbState.listings[0]).toMatchObject({ status: "draft" });
-    // (source contract) public listing query lọc approved
-    expect(read("app/listings/page.tsx")).toContain('.where({ status: "approved" })');
+    // (source contract) public listing query lọc approved — RETARGET Batch 5
+    // Task 7 (S-21): app/listings/page.tsx giờ chạy qua seam
+    // SEARCHABLE_LISTING_STATUSES của src/lib/search-query.ts (không còn
+    // .where({ status }) trực tiếp ở trang). Invariant KHÔNG yếu đi: seam pin
+    // "chỉ approved searchable" + drift test liệt kê MỌI giá trị listing_status
+    // từ contract (tests/unit/search-query.test.ts) + trang tiêu thụ seam đó.
+    expect(read("src/lib/search-query.ts")).toContain(
+      'export const SEARCHABLE_LISTING_STATUSES = ["approved"] as const',
+    );
+    expect(read("src/lib/search-query.ts")).toContain("export function isListingSearchable");
+    expect(read("src/lib/search-query.ts")).toContain(".where((l) => l.status.in([...plan.statuses]))");
+    expect(read("app/listings/page.tsx")).toContain("runSearchWithTelemetry");
     // detail page: chỉ render approved trừ owner/admin (gate hiện có)
     expect(read("app/listings/[slug]/page.tsx")).toContain('listing.status !== "approved"');
     // home / model / compare / related — đều approved-only

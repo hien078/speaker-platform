@@ -56,6 +56,22 @@ git pull --ff-only
 docker compose -f docker-compose.prod.yml up -d --build
 # migrate service tự chạy pending migrations (graph → ref 'production') trước app start
 
+# GHI CHÚ LOCK của migration Batch 5 (b5-review Task 1 L3 — beta size OK, bảng
+# LỚN cần cân nhắc): migration chạm bảng Listing ĐANG CÓ bằng 2 op chặn-write
+# (cả hai giữ lock SHARE trong lúc chạy — read vẫn chạy, write trên Listing bị
+# chặn): (a) ADD CHECK constraint CÓ VALIDATE `Listing_locationSource_check`
+# (quét toàn bộ row hiện có để kiểm tra — cột mới toàn NULL nên quét nhanh,
+# nhưng vẫn là full-scan dưới lock), và (b) CREATE INDEX KHÔNG-concurrent
+# `listing_search_text_search` (GIN trên to_tsvector('simple',
+# "searchTextNormalized") — build index chặn write suốt thời gian build).
+# CHECK `search_alias_target_ids` KHÔNG phải mối lo: nó nằm trong createTable
+# của bảng MỚI SearchAlias (rỗng — validate tức thời). Ở quy mô beta (Listing
+# vài nghìn dòng) lock tính bằng mili-giây — service migrate chạy trước app
+# start nên không request nào đợi. Khi Listing vượt ~100k dòng: cân nhắc tách
+# 2 op này ra migration tay (CREATE INDEX CONCURRENTLY + ADD CONSTRAINT ...
+# NOT VALID rồi VALIDATE CONSTRAINT) theo .cursor/skills/prisma-8/references/
+# migrations.md § Author a migration by hand, chạy ngoài giờ cao điểm.
+
 # LẦN ĐẦU sau Batch 4 (bắt buộc): seed beta catalog — category
 # portable_bluetooth_speaker + model chuẩn CHỈ tồn tại qua script này
 # (không có admin action tạo Category; thiếu → /sell/new không có danh mục,
@@ -71,6 +87,38 @@ docker compose -f docker-compose.prod.yml run --rm \
 docker compose -f docker-compose.prod.yml run --rm \
   -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
   migrate npx tsx scripts/seed-beta-catalog.ts --apply --allow-production
+
+# LẦN ĐẦU sau Batch 5 (bắt buộc): backfill location canonical — locationSource
+# cho mọi row legacy (FD-1 qua registry; "Khác"/quận/typo → unresolved KHÔNG đoán).
+# Dry-run trước (chỉ đọc — KHÔNG cần --allow-production), rồi --apply
+# --allow-production (guard từ ĐÍCH như seed ở trên; idempotent):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-location.ts --apply --allow-production
+
+# LẦN ĐẦU sau Batch 5 (bắt buộc, NGAY SAU backfill location): backfill
+# searchTextNormalized — search /listings khớp ĐỘC QUYỀN cột này (Batch 5 Task 7
+# bỏ arm full-text trên title), nên row NULL (toàn bộ row pre-Batch 5, kể cả dev
+# seed) KHÔNG tìm được qua ô từ khóa tới khi chạy xong. Dry-run trước, rồi
+# --apply --allow-production (idempotent):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --allow-production
+
+# SAU MỌI lần seed-beta-catalog --apply hoặc sửa/gộp model trong /admin/catalog
+# (bắt buộc): searchTextNormalized nhúng TÊN brand/model nên merge/rename để lại
+# text STALE trên các listing cũ (mergeModelAction KHÔNG viết lại text) — sửa
+# bằng --recompute-all (row đã đúng không ghi lại; cột derived, không rollback):
+docker compose -f docker-compose.prod.yml run --rm \
+  -v "$PWD/scripts:/app/scripts:ro" -v "$PWD/src:/app/src:ro" \
+  migrate npx tsx scripts/backfill-listing-search-text.ts --apply --recompute-all --allow-production
+
 # rồi duyệt model pending trong /admin/catalog (model chỉ hiện trong form
 # đăng tin sau khi approved) — chi tiết: docs/deployment.md §2.
 

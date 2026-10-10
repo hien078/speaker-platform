@@ -9,6 +9,7 @@ import { auditEventTx, redactDetail } from "@/src/lib/audit-event";
 import { notify } from "@/src/lib/notify";
 import { captureError } from "@/src/lib/observability";
 import { MODERATION_DECISION_REASON_LABELS, SUSPENSION_REASON_LABELS } from "@/src/lib/constants";
+import { recordListingRemoved } from "@/src/lib/telemetry-recorders";
 import {
   SUSPENSION_REASON_CODES,
   SUSPENSION_NOTE_MAX_LENGTH,
@@ -770,6 +771,17 @@ export async function takeDownListingAction(formData: FormData): Promise<void> {
       sessionId: ctx.session.id,
       detail: redactDetail(detailParts.join("; ")),
     });
+  });
+
+  // ─── Telemetry (Batch 5 Task 8 — S7) ──────────────────────────────────────
+  // listing_removed: SAU updateAll thành công (non-zero rows — 0 rows đã throw
+  // LISTING_NOT_TAKEDOWN_ELIGIBLE TRONG tx, action fail → KHÔNG tới đây). Emit
+  // NGOÀI tx (corrections #7 — KHÔNG BAO GIỜ trong db.transaction callback).
+  // Actor = admin. Fail-open — KHÔNG đổi kết quả action.
+  await recordListingRemoved({
+    actorId: ctx.user.id,
+    sessionId: ctx.session.id,
+    listingId,
   });
 
   // 5. Notify seller (best-effort — KHÔNG sống chết với takedown đã commit —

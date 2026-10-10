@@ -15,6 +15,7 @@ import {
   type ReportTargetType,
 } from "@/src/lib/moderation";
 import { captureTargetSnapshot } from "@/src/lib/moderation-snapshot";
+import { recordReportSubmitted } from "@/src/lib/telemetry-recorders";
 
 /**
  * Báo cáo lạm dụng (Batch 3 Task 4 — spec §5.5 report + §5.5.1 evidence +
@@ -54,11 +55,10 @@ import { captureTargetSnapshot } from "@/src/lib/moderation-snapshot";
  *
  * KHÔNG AuditEvent — actor là user thường; AbuseReport + ModerationAction đã
  * ghi actor/action/reason/timestamp (Scope Decisions — AuditEvent dành cho
- * privileged actor, spec §4.6). KHÔNG telemetry (Batch 5 sẽ wire
- * `report_submitted` vào success point của action này — forward seam).
- *
- * Forward seam Batch 5 (Global Constraints): emitProductEvent("report_submitted")
- * sẽ được thêm TẠI success return — Batch 5 không restructure action này.
+ * privileged actor, spec §4.6). Telemetry `report_submitted` (Batch 5 Task 8 —
+ * S7) emit TẠI success point (bên dưới) qua telemetry-recorders — metadata
+ * CHỈ targetType/reasonCode typed (corrections #6: KHÔNG targetId — PII khi
+ * targetType="user"; đích listing đi cột listingId), KHÔNG note text.
  */
 
 export type ReportFormState = { error?: string; success?: string };
@@ -271,8 +271,12 @@ export async function submitReportAction(
     }
   };
 
+  // 6b. HAI success path gộp về MỘT biến outcome (corrections #7 — compute
+  //     result once, emit once): path chính + path retry của retryReportTxOnce.
+  let outcome: ReportFormState;
   try {
     await runReportTx();
+    outcome = { success: REPORT_SUBMITTED_MESSAGE };
   } catch (e) {
     // Capture fail-closed sentinel — tx đã rollback, chưa row nào được viết.
     if (e instanceof Error && e.message === TARGET_VANISHED) {
@@ -282,30 +286,44 @@ export async function submitReportAction(
     // L1 (review fix): case bị đóng concurrent giữa re-read và attach →
     // retry (re-read trong retry thấy case đã đóng → tạo case active mới).
     if (e instanceof Error && e.message === CASE_CLOSED_RACE) {
-      return retryReportTxOnce();
-    }
-
-    // 7. Classify constraint violations NGOÀI tx (sqlState 23505 + constraint
-    //    name — Global Constraints; tx đã bị Postgres abort từ khi violation
-    //    ném ra, KHÔNG có savepoint trong Prisma 8 tx context).
-    if (isUniqueConstraintViolation(e)) {
+      outcome = await retryReportTxOnce();
+    } else if (isUniqueConstraintViolation(e)) {
+      // 7. Classify constraint violations NGOÀI tx (sqlState 23505 + constraint
+      //    name — Global Constraints; tx đã bị Postgres abort từ khi violation
+      //    ném ra, KHÔNG có savepoint trong Prisma 8 tx context).
       const constraint = (e as SqlQueryError).constraint ?? "";
       if (constraint.startsWith("moderation_case_one_active_per_target_reason")) {
         // Concurrent report cùng (target, reason) thắng case create — RETRY
         // toàn bộ tx MỘT lần: re-read trong retry thấy case của người thắng.
-        return retryReportTxOnce();
-      }
-      if (constraint === "AbuseReport_caseId_reporterId_key") {
+        outcome = await retryReportTxOnce();
+      } else if (constraint === "AbuseReport_caseId_reporterId_key") {
         // Concurrent double-submit của chính reporter — tx abort; row của người
         // thắng là row duy nhất được persist (không retry).
         return { error: "REPORT_ALREADY_SUBMITTED" };
+      } else {
+        throw e;
       }
+    } else {
+      // Lỗi DB/infra khác — rethrow (server action error 500, observability bắt).
+      throw e;
     }
-    // Lỗi DB/infra khác — rethrow (server action error 500, observability bắt).
-    throw e;
   }
 
-  // 8. Thành công — KHÔNG tiết lộ trạng thái case/định danh moderator cho
-  //    reporter; KHÔNG auditEvent (Scope Decisions); KHÔNG telemetry (Batch 5).
-  return { success: REPORT_SUBMITTED_MESSAGE };
+  // 8. Thành công (chính hoặc qua retry — HAI success path đã gộp về MỘT biến
+  //    outcome, corrections #7: compute result once, emit once). KHÔNG tiết lộ
+  //    trạng thái case/định danh moderator cho reporter; KHÔNG auditEvent
+  //    (Scope Decisions). Telemetry (Batch 5 Task 8 — S7): report_submitted với
+  //    targetType/reasonCode TYPED (KHÔNG note text; corrections #6: KHÔNG
+  //    targetId trong metadata — đích listing đi cột listingId). Recorder
+  //    fail-open — KHÔNG đổi kết quả action.
+  if (outcome.success) {
+    await recordReportSubmitted({
+      reporterId: user.id,
+      sessionId: user.sessionId,
+      targetType: target,
+      targetId,
+      reasonCode: reason,
+    });
+  }
+  return outcome;
 }

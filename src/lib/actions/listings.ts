@@ -25,8 +25,9 @@ import {
   assertCategoryPublicationAllowed,
   listingRegimeForCategorySlug,
 } from "@/src/lib/beta-categories";
-import { PROVINCE_CODES } from "@/src/lib/provinces";
+import { PROVINCE_CODES, isProvinceCode, resolveLegacyProvince } from "@/src/lib/provinces";
 import { CITIES } from "@/src/lib/constants";
+import { normalizeSearchText } from "@/src/lib/search-normalize";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { auditEvent, auditEventTx } from "@/src/lib/audit-event";
 import {
@@ -358,6 +359,45 @@ const isListingSlugCollision = (e: unknown): boolean =>
   e.constraint != null &&
   e.constraint.startsWith("Listing_slug");
 
+// ─── Batch 5 Task 4 (S-4): searchTextNormalized maintenance ─────────────────────
+
+/**
+ * Tên brand/model cho searchTextNormalized — query CHỈ khi id non-null
+ * (corrections item 13: mock không khai Brand/ProductModel không bị đụng trên
+ * đường legacy không brand/model). Row thiếu (id lạ) → null: gate publication
+ * (assertCanonicalModelValid) chặn id lạ trên đường beta; giá trị chỉ nuôi cột
+ * derived, KHÔNG bao giờ dùng làm authorization.
+ */
+async function loadBrandModelNames(
+  brandId: string | null | undefined,
+  productModelId: string | null | undefined,
+): Promise<[string | null, string | null]> {
+  let brandName: string | null = null;
+  if (brandId != null && brandId !== "") {
+    const brand = await db.orm.public.Brand.first({ id: brandId });
+    if (brand !== null) brandName = brand.name;
+  }
+  let modelName: string | null = null;
+  if (productModelId != null && productModelId !== "") {
+    const model = await db.orm.public.ProductModel.first({ id: productModelId });
+    if (model !== null) modelName = model.name;
+  }
+  return [brandName, modelName];
+}
+
+/**
+ * searchTextNormalized = normalizeSearchText(title + brand.name + model.name)
+ * (src/lib/search-normalize.ts — đơn nguồn chuẩn hóa, Task 3). Cột DERIVED
+ * (S-4): luôn tính lại được — staleness sau brand/model rename/catalog merge
+ * sửa bằng `scripts/backfill-listing-search-text.ts --recompute-all`.
+ */
+const listingSearchText = (
+  title: string,
+  brandName: string | null,
+  modelName: string | null,
+): string => normalizeSearchText([title, brandName ?? "", modelName ?? ""].join(" "));
+
+
 // ─── Actions ──────────────────────────────────────────────────────────────────
 
 export async function createListingAction(
@@ -389,6 +429,12 @@ export async function createListingAction(
     // currentCategorySlug: undefined — tạo mới phải ∈ allowlist (§5.6.1)
   });
   if (blocked) return blocked;
+
+  // ─── Batch 5 Task 4 (S-4): searchTextNormalized — load tên SAU gate (đường bị
+  // chặn không tốn query), CHỈ khi id non-null (corrections item 13 — đường
+  // legacy không brand/model KHÔNG đụng Brand/ProductModel).
+  const [brandName, modelName] = await loadBrandModelNames(input.brandId, input.productModelId);
+  const searchTextNormalized = listingSearchText(input.title, brandName, modelName);
 
   // slug duy nhất — thêm suffix nếu trùng (giữ nguyên hành vi).
   // b4-holistic round-3 (LOW — empty slug): listingSlug KHÔNG bao giờ trả ''
@@ -423,6 +469,13 @@ export async function createListingAction(
         repairHistory: input.repairHistory,
         fulfillmentMethods: fulfillmentJson(input),
         provinceLevelCode: input.provinceLevelCode,
+        // Batch 5 Task 2 (S4/B2): form beta mang mã tỉnh hợp lệ (deriveCity đã
+        // validate qua PROVINCE_CODES) → seller_declared; legacy regime (không
+        // trường province) → null (backfill offline lo phần legacy — KHÔNG suy
+        // mã từ city, KHÔNG thêm CITIES guard — B2).
+        locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
+        // Batch 5 Task 4 (S-4): normalized search text — derived, luôn tính lại được
+        searchTextNormalized,
         communeLevelCode: null, // reserved — Batch 5 populate
         locationDisplayName: input.locationDisplayName,
       });
@@ -527,14 +580,23 @@ export async function saveListingDraftAction(
   // status/brand/category validation sống ở submit gate (assertCanonicalModelValid)
   // — pin bởi integration "model PENDING → submit ?error=MODEL_INVALID (draft
   // GIỮ nguyên)". Typed BRAND_INVALID/MODEL_INVALID — KHÔNG FK 500.
+  // Batch 5 Task 4 (S-4): capture TÊN brand/model từ chính các row load ở đây
+  // (query chỉ chạy khi id non-null — corrections item 13) cho searchTextNormalized.
+  let brandName: string | null = null;
   if (input.brandId) {
     const brand = await db.orm.public.Brand.first({ id: input.brandId });
     if (!brand) return { error: contentErrorText("BRAND_INVALID") };
+    brandName = brand.name;
   }
+  let modelName: string | null = null;
   if (input.productModelId) {
     const model = await db.orm.public.ProductModel.first({ id: input.productModelId });
     if (!model) return { error: contentErrorText("MODEL_INVALID") };
+    modelName = model.name;
   }
+  // Batch 5 Task 4 (S-4): draft cũng mang normalized search text (S5 — cả hai
+  // nhánh create/update dưới đây đều ghi; KHÔNG brand/model → title-only).
+  const searchTextNormalized = listingSearchText(input.title, brandName, modelName);
 
   // ─── Category allowlist (§5.6.1): tạo mới ∈ allowlist; update INTO allowlist ───
   const category = await db.orm.public.Category.first({ id: input.categoryId });
@@ -610,6 +672,11 @@ export async function saveListingDraftAction(
             repairHistory: input.repairHistory,
             fulfillmentMethods: fulfillmentJson(input),
             provinceLevelCode: input.provinceLevelCode,
+            // Batch 5 Task 2 (S4/B2): draft schema bắt buộc province (checkProvinceRequired)
+            // nên nhánh null là unreachable phòng thủ — form beta luôn mang mã.
+            locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
+            // Batch 5 Task 4 (S-4): recompute normalized text theo content MỚI của draft
+            searchTextNormalized,
             locationDisplayName: input.locationDisplayName,
           });
         if (claimed.length === 0) throw new Error("LISTING_CONCURRENT_CHANGE");
@@ -643,6 +710,10 @@ export async function saveListingDraftAction(
           repairHistory: input.repairHistory,
           fulfillmentMethods: fulfillmentJson(input),
           provinceLevelCode: input.provinceLevelCode,
+          // Batch 5 Task 2 (S4/B2) — như create path của createListingAction.
+          locationSource: input.provinceLevelCode != null ? "seller_declared" : null,
+          // Batch 5 Task 4 (S-4): draft mới cũng mang normalized search text
+          searchTextNormalized,
           communeLevelCode: null, // reserved — Batch 5 populate
           locationDisplayName: input.locationDisplayName,
         });
@@ -904,10 +975,25 @@ export async function updateListingAction(
   // resolve target category TỪ DB (trust boundary)
   const category = await db.orm.public.Category.first({ id: input.categoryId });
   if (!category) return { error: "Chọn danh mục" };
+  // Batch 5 Task 4 (S-4): capture TÊN brand từ chính row validation này (block
+  // scope cũ bị bỏ — tên cần cho searchTextNormalized); tên model load CHỈ khi
+  // id non-null (corrections item 13 — mock không có ProductModel không bị đụng
+  // trên đường legacy không model). Row thiếu → null: gate
+  // assertCanonicalModelValid chặn id lạ ngay sau đó; giá trị chỉ nuôi cột derived.
+  let brandName: string | null = null;
   if (input.brandId) {
     const brand = await db.orm.public.Brand.first({ id: input.brandId });
     if (!brand) return { error: "Thương hiệu không hợp lệ" };
+    brandName = brand.name;
   }
+  let modelName: string | null = null;
+  if (input.productModelId) {
+    const model = await db.orm.public.ProductModel.first({ id: input.productModelId });
+    if (model) modelName = model.name;
+  }
+  // Batch 5 Task 4 (S-4): recompute theo content MỚI của form (title/brand/model
+  // đổi → text mới thay text cũ); legacy không brand/model → title-only.
+  const searchTextNormalized = listingSearchText(input.title, brandName, modelName);
 
   // city (cột non-null): beta derive từ province; legacy giữ text form —
   // b4-holistic: bound + validate (CITIES hoặc BẰNG city đang lưu — grandfathered).
@@ -937,6 +1023,30 @@ export async function updateListingAction(
   // đổi chữ THẬT vẫn khác (và vẫn vào review).
   const nl = (s: string | null | undefined): string | null =>
     s == null ? null : s.replace(/\r\n?/g, "\n").trim();
+  // ─── Batch 5 Task 2 (S4/B2 + corrections item 3): locationSource + carry-forward ───
+  // beta regime (form mang province — deriveCity đã validate mã ∈ PROVINCE_CODES)
+  //   → locationSource "seller_declared".
+  // legacy regime (KHÔNG trường province — legacy ListingForm):
+  //   city GIỮ NGUYÊN → carry forward mã + source đang lưu TRƯỚC khi tính
+  //     contentChanged (edit legacy KHÔNG xóa dữ liệu backfill, KHÔNG re-queue
+  //     oan vào pending — corrections item 3);
+  //   city ĐỔI → re-resolve text MỚI qua FD-1 rule (resolveLegacyProvince —
+  //     registry authoritative, KHÔNG đoán): mapped → mã mới + "legacy_mapped";
+  //     unresolved → null + null (backfill offline sẽ mark unresolved sau).
+  const cityUnchanged = nl(listing.city) === city;
+  let effectiveProvince: string | null;
+  let effectiveLocationSource: ListingRow["locationSource"];
+  if (input.provinceLevelCode != null) {
+    effectiveProvince = input.provinceLevelCode;
+    effectiveLocationSource = "seller_declared";
+  } else if (cityUnchanged) {
+    effectiveProvince = listing.provinceLevelCode;
+    effectiveLocationSource = listing.locationSource;
+  } else {
+    const resolved = resolveLegacyProvince(city);
+    effectiveProvince = resolved;
+    effectiveLocationSource = resolved == null ? null : "legacy_mapped";
+  }
   const contentChanged =
     nl(listing.title) !== input.title ||
     nl(listing.description) !== input.description ||
@@ -957,7 +1067,10 @@ export async function updateListingAction(
     nl(listing.repairHistory) !== input.repairHistory ||
     JSON.stringify(listing.fulfillmentMethods ?? null) !==
       JSON.stringify(input.fulfillmentMethods ?? null) ||
-    (listing.provinceLevelCode ?? null) !== (input.provinceLevelCode ?? null) ||
+    // Batch 5 Task 2 (corrections item 3): so với effectiveProvince — carry
+    // forward giữ term này false cho edit legacy không đổi gì (không re-queue
+    // oan); city đổi + re-resolve khác mã cũ vẫn là content change (đúng).
+    (listing.provinceLevelCode ?? null) !== (effectiveProvince ?? null) ||
     nl(listing.locationDisplayName) !== input.locationDisplayName ||
     oldUrls.length !== input.imageUrls.length ||
     oldUrls.some((u, idx) => input.imageUrls[idx] !== u) ||
@@ -1021,7 +1134,11 @@ export async function updateListingAction(
           knownDefects: input.knownDefects,
           repairHistory: input.repairHistory,
           fulfillmentMethods: fulfillmentJson(input),
-          provinceLevelCode: input.provinceLevelCode,
+          provinceLevelCode: effectiveProvince,
+          // Batch 5 Task 2 (S4/B2 + corrections item 3) — block effective-location ở trên
+          locationSource: effectiveLocationSource,
+          // Batch 5 Task 4 (S-4): normalized search text theo content MỚI
+          searchTextNormalized,
           locationDisplayName: input.locationDisplayName,
         });
       if (claimed.length === 0) {
@@ -1183,6 +1300,20 @@ export async function submitListingAction(formData: FormData): Promise<void> {
     return redirect(`/sell/${listing.id}/edit?error=${encodeURIComponent(submitErrorParam(blocked))}`);
   }
 
+  // ─── Batch 5 Task 4 (S-4/corrections item 13): backfill searchTextNormalized ───
+  // Draft Batch-4-era (cột còn NULL — tạo trước Batch 5) → text tính TỪ DB ROW
+  // (title + brand.name + model.name) TRƯỚC tx; đã có → KHÔNG đè (text do
+  // saveListingDraftAction ghi theo content hiện tại). CAS updatedAt của claim
+  // dưới đảm bảo row KHÔNG đổi giữa read và write → text nhất quán với row được claim.
+  let searchTextNormalized: string | null = null;
+  if (listing.searchTextNormalized == null) {
+    const [brandName, modelName] = await loadBrandModelNames(
+      listing.brandId,
+      listing.productModelId,
+    );
+    searchTextNormalized = listingSearchText(listing.title, brandName, modelName);
+  }
+
   // ─── CAS claim draft→pending + audit trong cùng tx (audit sống chết với transition) ───
   // MEDIUM 1: where thêm updatedAt đọc TRƯỚC gate — content đổi tay giữa gate và
   // claim (updatedAt tự bump) → 0 rows. 0 rows → THROW ra khỏi callback,
@@ -1190,9 +1321,20 @@ export async function submitListingAction(formData: FormData): Promise<void> {
   let concurrent = false;
   try {
     await db.transaction(async (tx) => {
+      // Batch 5 Task 2 (S4): draft Batch-4-era (mã do form ghi lúc tạo draft,
+      // locationSource còn null) → đánh dấu seller-declared THEO CẤU TRÚC ngay
+      // lúc chuyển pending; source đã có → KHÔNG đè; mã null → để null (backfill
+      // offline lo). Cùng statement CAS với status/updatedAt — sống chết chung.
+      const declareSource =
+        listing.locationSource == null && isProvinceCode(listing.provinceLevelCode ?? "");
       const claimed = await tx.orm.public.Listing
         .where({ id: listing.id, status: "draft", updatedAt: listing.updatedAt })
-        .updateAll({ status: "pending" });
+        .updateAll({
+          status: "pending",
+          ...(declareSource ? { locationSource: "seller_declared" as const } : {}),
+          // Batch 5 Task 4 (S-4): cùng statement CAS — text chỉ ghi khi cột còn null
+          ...(searchTextNormalized !== null ? { searchTextNormalized } : {}),
+        });
       if (claimed.length === 0) {
         throw new Error("LISTING_CONCURRENT_CHANGE");
       }

@@ -6,6 +6,7 @@ import { isUniqueConstraintViolation } from "@prisma/orm-family-sql/errors";
 import { db } from "@/src/prisma/db.client";
 import { requireCapability } from "@/src/lib/rbac";
 import { auditEvent } from "@/src/lib/audit-event";
+import { recordBetaMembershipActivated } from "@/src/lib/telemetry-recorders";
 
 /**
  * Beta cohort membership — admin grant/suspend (Batch 2 Task 10 — spec §2.1,
@@ -62,6 +63,10 @@ export async function setBetaMembershipAction(formData: FormData): Promise<void>
     userId,
     cohort: cohortParsed.data,
   });
+  // wasActive derive TRƯỚC upsert (corrections #15: action KHÔNG atomic —
+  // existing đọc trước create/update; hai grant chạy đồng thời cùng thấy null
+  // → duplicate events được TOLERATE, không dedup nặng).
+  const wasActive = existing?.status === "active";
 
   let membershipId: string;
   if (existing === null) {
@@ -103,6 +108,15 @@ export async function setBetaMembershipAction(formData: FormData): Promise<void>
     // typed values — KHÔNG PII thô (spec §4.8)
     detail: `cohort=${cohortParsed.data};status=${statusParsed.data}`,
   });
+
+  // ─── Telemetry (Batch 5 Task 8 — S7) ──────────────────────────────────────
+  // beta_membership_activated: CHỈ khi status chuyển sang "active" (và chưa
+  // active trước đó — wasActive derive từ existing?.status, corrections #15).
+  // Actor = member được kích hoạt (KHÔNG phải admin grant). Fail-open —
+  // KHÔNG đổi kết quả action.
+  if (statusParsed.data === "active" && !wasActive) {
+    await recordBetaMembershipActivated({ memberId: userId });
+  }
 
   revalidatePath("/admin/users");
   revalidatePath("/admin/seller-verification");

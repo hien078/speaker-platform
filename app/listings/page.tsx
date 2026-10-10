@@ -1,9 +1,21 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { db } from "@/src/prisma/db.client";
-import { ListingCard, type ListingSort } from "@/src/components/listing-card";
-import { CITIES, CONDITION_LABELS } from "@/src/lib/constants";
-import { websearchToTsquery } from "@prisma/orm-postgres/target/full-text";
-import { Search, SlidersHorizontal, Handshake } from "lucide-react";
+import { ListingCard } from "@/src/components/listing-card";
+import { CONDITION_LABELS } from "@/src/lib/constants";
+import { PROVINCES } from "@/src/lib/provinces";
+import {
+  BETA_PRIMARY_MARKET_PROVINCE,
+  BETA_SECONDARY_MARKET_PROVINCE,
+  betaMarketLabel,
+} from "@/src/lib/location";
+import { getCurrentUser } from "@/src/lib/auth";
+import { clientIpFromHeaders } from "@/src/lib/rate-limit";
+import { isMalformedQuery } from "@/src/lib/search-normalize";
+import { resolveSearchQuery, type SearchResolution } from "@/src/lib/search-resolve";
+import { runSearchWithTelemetry } from "@/src/lib/search-telemetry";
+import { BETA_SPEAKER_CATEGORY_SLUG, sidebarSortSelectValue } from "@/src/lib/search-query";
+import { Search, SlidersHorizontal, Handshake, MapPin } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Chợ loa" };
@@ -13,6 +25,7 @@ type SearchParams = {
   category?: string;
   brand?: string;
   condition?: string;
+  province?: string;
   city?: string;
   min?: string;
   max?: string;
@@ -25,61 +38,95 @@ export default async function ListingsPage({
 }: PageProps<"/listings">) {
   const sp = (await searchParams) as SearchParams;
   const q = sp.q?.trim() ?? "";
-  const exchangeOnly = sp.exchange === "1";
 
   const [categories, brands] = await Promise.all([
     db.orm.public.Category.where({ isActive: true }).orderBy((c) => c.sortOrder.asc()).all(),
     db.orm.public.Brand.orderBy((b) => b.name.asc()).all(),
   ]);
 
-  const category = categories.find((c) => c.slug === sp.category);
-  const brand = brands.find((b) => b.slug === sp.brand);
+  // Một session read — SessionUser mang id + sessionId THÔ (corrections #15 —
+  // KHÔNG lookup session lần hai; emit core tự HMAC, b5-review T6).
+  const user = await getCurrentUser();
 
-  // ─── Query ───
-  let listQuery = db.orm.public.Listing
-    .select(
-      "id", "title", "slug", "price", "condition", "city", "status",
-      "viewCount", "acceptExchange", "negotiable",
-    )
-    .include("images", (i) => i.select("url").orderBy((img) => img.sortOrder.asc()).limit(1))
-    .include("category", (c) => c.select("name"))
-    .include("brand", (b) => b.select("name"))
-    .where({ status: "approved" });
+  // Prefetch (S-8): header next-router-prefetch BỊ PROXY STRIP (Next 16 proxy.md
+  // ~L474 — corrections #14) → guard deterministic là prefetch={false} trên link
+  // kết quả (listing-card.tsx); header check dưới đây là best-effort thêm.
+  const h = await headers();
+  const isPrefetch = h.get("next-router-prefetch") === "1";
+  const ip = clientIpFromHeaders(h);
 
-  if (category) listQuery = listQuery.where({ categoryId: category.id });
-  if (brand) listQuery = listQuery.where({ brandId: brand.id });
-  if (sp.condition && ["new", "open_box", "like_new", "excellent", "good", "fair", "refurbished", "for_parts"].includes(sp.condition)) {
-    listQuery = listQuery.where({ condition: sp.condition as "good" });
-  }
-  if (sp.city) listQuery = listQuery.where({ city: sp.city });
-  if (exchangeOnly) listQuery = listQuery.where({ acceptExchange: true });
-  if (sp.min && Number(sp.min) > 0) listQuery = listQuery.where((l) => l.price.gte(Number(sp.min)));
-  if (sp.max && Number(sp.max) > 0) listQuery = listQuery.where((l) => l.price.lte(Number(sp.max)));
-  if (q) {
-    const tsq = websearchToTsquery(q);
-    listQuery = listQuery.where((l) => l.title.fullTextMatches(tsq));
-  }
+  // Resolution (query text → structured ids — Task 5): chỉ khi query hợp lệ;
+  // browsing → resolution rỗng (KHÔNG đụng db).
+  const resolution: SearchResolution = isMalformedQuery(q)
+    ? { textVariants: [], brandIds: [], productModelIds: [] }
+    : await resolveSearchQuery(q);
 
-  const sort = (["newest", "price_asc", "price_desc", "popular"] as const).includes(sp.sort as ListingSort)
-    ? (sp.sort as ListingSort) : "newest";
-  switch (sort) {
-    case "price_asc": listQuery = listQuery.orderBy((l) => l.price.asc()); break;
-    case "price_desc": listQuery = listQuery.orderBy((l) => l.price.desc()); break;
-    case "popular": listQuery = listQuery.orderBy((l) => l.viewCount.desc()); break;
-    default: listQuery = listQuery.orderBy((l) => l.createdAt.desc());
-  }
+  // Toàn bộ rate-limit/emit/query sống ở runSearchWithTelemetry (S-7) — page
+  // là thin shell: load categories/brands, resolve session, gọi, render.
+  const run = await runSearchWithTelemetry({
+    user: { id: user?.id ?? null, sessionId: user?.sessionId ?? null },
+    isPrefetch,
+    ip,
+    resolution,
+    params: sp,
+    loadedCategories: categories.map((c) => ({ slug: c.slug })),
+    loadedBrands: brands.map((b) => ({ slug: b.slug })),
+  });
 
-  const listings = await listQuery.limit(60).all();
+  const { plan, listings, resultCount, searchSessionId, throttled, eventsEmitted } = run;
+  const exchangeOnly = plan.exchangeOnly;
+
+  // Zero-result recovery (spec §5.7.1): có query/filters mới là "không tìm thấy"
+  // cần recovery — browsing trống là danh mục chưa có tin.
+  const hasAnyFilter =
+    plan.hasQuery ||
+    plan.categorySlug !== null ||
+    plan.brandSlug !== null ||
+    plan.provinceFilter !== null ||
+    plan.condition !== null ||
+    plan.minPrice !== null ||
+    plan.maxPrice !== null ||
+    plan.exchangeOnly;
+
+  // "Xem loa {brand}" — chỉ khi resolution tìm ĐÚNG một brand (Task 5) và brand
+  // đó có trong catalog đã load (link theo slug).
+  const resolvedBrand =
+    resolution.brandIds.length === 1
+      ? (brands.find((b) => b.id === resolution.brandIds[0]) ?? null)
+      : null;
+
+  // S8: link recovery category beta — CHỈ render khi Category row tồn tại
+  // (corrections #14 — seed chưa chạy thì link chết không render).
+  const betaCategory = categories.find((c) => c.slug === BETA_SPEAKER_CATEGORY_SLUG) ?? null;
+
+  // Quick-filter chips primary/secondary market (spec §5.9.1) — nhãn
+  // operational/acquisition ONLY (betaMarketLabel — spec §4.7: location
+  // KHÔNG phải tín hiệu tin cậy, KHÔNG dùng từ ngữ tin cậy/bảo chứng). KHÔNG
+  // relevance effect ngoài filter tường minh.
+  const marketChips = [
+    { code: BETA_PRIMARY_MARKET_PROVINCE, name: PROVINCES.find((p) => p.code === BETA_PRIMARY_MARKET_PROVINCE)?.displayName ?? "" },
+    { code: BETA_SECONDARY_MARKET_PROVINCE, name: PROVINCES.find((p) => p.code === BETA_SECONDARY_MARKET_PROVINCE)?.displayName ?? "" },
+  ];
+  const chipHref = (code: string): string =>
+    `/listings?province=${code}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 lg:px-8">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight">
-            {exchangeOnly ? "Loa sẵn sàng trao đổi" : category ? category.name : "Chợ loa"}
+            {exchangeOnly
+              ? "Loa sẵn sàng trao đổi"
+              : (categories.find((c) => c.slug === plan.categorySlug)?.name ?? "Chợ loa")}
           </h1>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            {listings.length} tin đăng{q && <> khớp “{q}”</>}
+            {throttled ? (
+              "Bạn đang tìm nhanh quá — thử lại sau ít phút."
+            ) : (
+              <>
+                {resultCount} tin đăng{plan.hasQuery && q ? <> khớp “{q}”</> : null}
+              </>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -141,14 +188,37 @@ export default async function ListingsPage({
               </select>
             </div>
 
+            {/* Khu vực — select tỉnh canonical (registry FD-1, value = code);
+                link legacy ?city= vẫn lọc qua FD-1 rule trong describeSearchQuery */}
             <div>
               <label className="label">Khu vực</label>
-              <select name="city" defaultValue={sp.city ?? ""} className="input text-sm">
+              <select name="province" defaultValue={plan.provinceFilter ?? ""} className="input text-sm">
                 <option value="">Tất cả</option>
-                {CITIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                {PROVINCES.map((p) => (
+                  <option key={p.code} value={p.code}>{p.displayName}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Cold-start shortcuts (spec §5.9.1) — nhãn betaMarketLabel,
+                operational/acquisition ONLY (spec §4.7: location KHÔNG bao giờ
+                là tín hiệu tin cậy — KHÔNG dùng từ ngữ tin cậy/bảo chứng) */}
+            <div>
+              <p className="label flex items-center gap-1">
+                <MapPin className="size-3" />
+                {betaMarketLabel()}
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {marketChips.map((chip) => (
+                  <Link
+                    key={chip.code}
+                    href={chipHref(chip.code)}
+                    className={`badge border px-2 py-1 text-[11px] ${plan.provinceFilter === chip.code ? "border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]" : "border-[var(--line)] text-[var(--muted)]"}`}
+                  >
+                    {chip.name}
+                  </Link>
+                ))}
+              </div>
             </div>
 
             <div>
@@ -162,7 +232,23 @@ export default async function ListingsPage({
 
             <div>
               <label className="label">Sắp xếp</label>
-              <select name="sort" defaultValue={sort} className="input text-sm">
+              {/* b5-review fix 1 (MEDIUM): option mặc định (value rỗng — "Phù hợp
+                  nhất") đứng ĐẦU; defaultValue = sidebarSortSelectValue(sp.sort) —
+                  CHỈ sort buyer CHỌN TƯỜNG MINH (4 giá trị UI) mới hiển thị cụ thể.
+                  Trước fix: không có option relevance/default + plan.sort
+                  "relevance" bị remap hiển thị "newest" → MỌI submit sidebar (refine
+                  sau header search HAY gõ thẳng query vào box) gửi sort=newest →
+                  ranking rơi về newest NGẦM sau lần refine đầu. Sau fix: submit
+                  sort='' → describeSearchQuery derive (hasQuery → "relevance",
+                  browsing → "newest") — relevance được GIỮ qua refine, và
+                  search_submitted ghi sort THẬT. Render pin:
+                  tests/unit/listings-page-sort.test.ts. */}
+              <select
+                name="sort"
+                defaultValue={sidebarSortSelectValue(sp.sort)}
+                className="input text-sm"
+              >
+                <option value="">Phù hợp nhất</option>
                 <option value="newest">Mới nhất</option>
                 <option value="price_asc">Giá tăng dần</option>
                 <option value="price_desc">Giá giảm dần</option>
@@ -179,19 +265,51 @@ export default async function ListingsPage({
 
         {/* ═══ Lưới sản phẩm ═══ */}
         <div>
-          {listings.length === 0 ? (
+          {throttled ? (
+            <div className="card grid place-items-center gap-3 p-16 text-center">
+              <span className="text-5xl">⏳</span>
+              <p className="text-lg font-bold">Bạn đang tìm nhanh quá</p>
+              <p className="max-w-sm text-sm text-[var(--muted)]">
+                Thử lại sau ít phút — kết quả tìm kiếm không bị mất, chỉ cần chờ một nhịp.
+              </p>
+            </div>
+          ) : listings.length === 0 ? (
             <div className="card grid place-items-center gap-3 p-16 text-center">
               <span className="text-5xl">🔇</span>
               <p className="text-lg font-bold">Không tìm thấy tin đăng nào</p>
               <p className="max-w-sm text-sm text-[var(--muted)]">
                 Thử bỏ một vài bộ lọc, hoặc quay lại sau — mỗi ngày đều có tin mới được duyệt.
               </p>
-              <Link href="/listings" className="btn-secondary mt-2 text-sm">Xóa bộ lọc</Link>
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                <Link href="/listings" className="btn-secondary text-sm">Xóa bộ lọc</Link>
+                {hasAnyFilter && resolvedBrand && (
+                  <Link href={`/listings?brand=${resolvedBrand.slug}`} className="btn-secondary text-sm">
+                    Xem loa {resolvedBrand.name}
+                  </Link>
+                )}
+                {hasAnyFilter && betaCategory && (
+                  <Link href={`/listings?category=${BETA_SPEAKER_CATEGORY_SLUG}`} className="btn-secondary text-sm">
+                    Xem loa di động
+                  </Link>
+                )}
+              </div>
+              {/* S-6 (§4.2 no-misleading-promise): chỉ render khi event THẬT SỰ
+                  được ghi (eventsEmitted.zeroResult — đọc lại row, không phải
+                  "đã gọi emit") */}
+              {eventsEmitted.zeroResult && (
+                <p className="text-xs text-[var(--muted)]">
+                  Chúng tôi đã ghi nhận nhu cầu này để bổ sung danh mục phù hợp.
+                </p>
+              )}
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
               {listings.map((l) => (
-                <ListingCard key={l.id} listing={l} />
+                <ListingCard
+                  key={l.id}
+                  listing={l}
+                  searchSessionId={searchSessionId ?? undefined}
+                />
               ))}
             </div>
           )}

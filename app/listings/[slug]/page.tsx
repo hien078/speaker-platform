@@ -18,6 +18,11 @@ import {
 } from "@/src/lib/seller-verification-status";
 import { startConversationAction as startChat } from "@/src/lib/actions/chat";
 import { toggleWishlistAction } from "@/src/lib/actions/wishlist";
+import {
+  recordListingView,
+  recordSearchResultClick,
+} from "@/src/lib/telemetry-recorders";
+import { headers } from "next/headers";
 import { ReportDialog } from "@/src/components/report-dialog";
 import {
   MapPin,
@@ -33,8 +38,15 @@ export const dynamic = "force-dynamic";
 
 export default async function ListingDetailPage({
   params,
+  searchParams,
 }: PageProps<"/listings/[slug]">) {
   const { slug } = await params;
+  // searchParams (corrections #15 — thêm + await): ?ss= của link kết quả tìm
+  // kiếm (Task 7) cho click attribution; optional chaining vì route invocation
+  // trong test có thể không truyền searchParams.
+  const sp = await searchParams;
+  const ssRaw = sp?.ss;
+  const ss = typeof ssRaw === "string" && ssRaw !== "" ? ssRaw : null;
   // MỘT session read — user cho owner/wishlist/chat + session.isAdmin cho
   // admin authority của read gate bên dưới (không đọc session hai lần).
   const current = await getSessionFromCookie();
@@ -78,6 +90,38 @@ export default async function ListingDetailPage({
     await db.orm.public.Listing
       .where({ id: listing.id })
       .update({ viewCount: listing.viewCount + 1 });
+  }
+
+  // ─── Telemetry (Batch 5 Task 8 — spec §5.8) ──────────────────────────────
+  // listing_viewed là analytics source of truth (viewCount chỉ là counter hiển
+  // thị — Legacy Migration Decisions); search_result_clicked validate ss binding
+  // trong recorder (S-14 — ss forge/copy KHÔNG chế tạo event). isPrefetch đọc
+  // header BEST-EFFORT (S-8 — Proxy strip internal Flight headers, corrections
+  // #14; deterministic anti-double-count là prefetch={false} của Task 7 trên
+  // link kết quả). Recorder fail-open — telemetry KHÔNG BAO GIỜ phá render.
+  const viewer =
+    current === null
+      ? null
+      : { id: current.user.id, sessionId: current.session.id };
+  const isPrefetch = (await headers()).get("next-router-prefetch") !== null;
+  await recordListingView({
+    listing: {
+      id: listing.id,
+      slug: listing.slug,
+      status: listing.status,
+      sellerId: listing.sellerId,
+      provinceLevelCode: listing.provinceLevelCode,
+    },
+    viewer,
+    isPrefetch,
+    fromSearch: ss !== null,
+  });
+  if (ss !== null) {
+    await recordSearchResultClick({
+      ss,
+      listing: { id: listing.id, provinceLevelCode: listing.provinceLevelCode },
+      viewer,
+    });
   }
 
   const isOwner = user?.id === listing.seller!.id;

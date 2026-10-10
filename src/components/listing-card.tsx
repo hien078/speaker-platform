@@ -20,13 +20,33 @@ export type ListingCardData = {
   brand?: { name: string } | null;
 };
 
-export function ListingCard({ listing, className }: { listing: ListingCardData; className?: string }) {
+export function ListingCard({
+  listing,
+  className,
+  searchSessionId,
+}: {
+  listing: ListingCardData;
+  className?: string;
+  /**
+   * Batch 5 Task 7 (S-8/S-14): id search session do server sinh — có thì href
+   * mang ?ss=<id> cho click attribution (recordSearchResultClick validate ss
+   * tồn tại + listing ∈ result set — Task 8) VÀ prefetch={false} (guard
+   * deterministic chống double-count: header next-router-prefetch bị Proxy
+   * strip — corrections #14). Additive: call site khác không truyền → giữ nguyên.
+   */
+  searchSessionId?: string;
+}) {
   const image = listing.images[0]?.url;
   const isSold = listing.status === "sold";
+  const href =
+    searchSessionId === undefined
+      ? `/listings/${listing.slug}`
+      : `/listings/${listing.slug}?ss=${encodeURIComponent(searchSessionId)}`;
 
   return (
     <Link
-      href={`/listings/${listing.slug}`}
+      href={href}
+      prefetch={searchSessionId === undefined ? undefined : false}
       className={cn(
         "card card-hover group flex flex-col overflow-hidden",
         isSold && "opacity-70",
