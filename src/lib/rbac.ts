@@ -49,7 +49,10 @@ export type Capability =
   | "session.revoke"
   | "admin.role_manage" // step-up (guard thuộc Task 8)
   | "security.config" // step-up (guard thuộc Task 8) — chưa có surface dùng trong Batch 2
-  | "audit.read";
+  | "audit.read"
+  // zero-cost launch Task A — manual contact verification (two-person rule):
+  // admin A mở request, admin B quyết định sau xác nhận out-of-band.
+  | "contact.verify_manual";
 
 /**
  * Ma trận role → capability — ĐÚNG từng ô plan Task 4 (spec §5.4.1).
@@ -75,6 +78,10 @@ export const ROLE_CAPABILITIES: Record<AdminRole, readonly Capability[]> = {
     "admin.role_manage",
     "security.config",
     "audit.read",
+    // zero-cost launch Task A — manual contact verification (founder
+    // 2026-10-12): quyết định verification thủ công thuộc nhóm nhạy cảm
+    // nhất (A5) — super/ops only, moderator/support/analyst fail closed.
+    "contact.verify_manual",
   ],
   operations_admin: [
     "admin.access",
@@ -87,6 +94,7 @@ export const ROLE_CAPABILITIES: Record<AdminRole, readonly Capability[]> = {
     "user.suspend",
     "user.view_basic",
     "session.revoke",
+    "contact.verify_manual",
   ],
   moderator: ["admin.access", "listing.moderate", "report.resolve"],
   support: ["admin.access"],
@@ -166,6 +174,10 @@ export async function requireCapability(cap: Capability): Promise<AdminContext> 
  *   decision (Batch 3 Scope Decisions), reversible by founder ruling.
  * - `pii.export` KHÔNG ở đây vì không được cấp cho ai (A2) — guard sẽ FORBIDDEN
  *   ở requireCapability trước khi đụng step-up.
+ * - `contact.verify_manual` (zero-cost launch Task A): quyết định verification
+ *   thủ công (approve manual contact verification) — A5 đọc NGHIÊM NHẤT:
+ *   "MỘI quyết định verification thủ công đều cần step-up" (cùng nhóm
+ *   seller.verify). Two-person rule (A ≠ B) enforce ở action, KHÔNG ở đây.
  */
 export const STEP_UP_CAPABILITIES: readonly Capability[] = [
   "pii.view_sensitive",
@@ -174,6 +186,7 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
   "seller.verify",
   "seller.verification.revoke",
   "user.suspend",
+  "contact.verify_manual",
 ];
 
 /**
