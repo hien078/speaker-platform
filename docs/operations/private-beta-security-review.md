@@ -369,6 +369,7 @@ cho qua + log.
 | Deal mutation | `src/lib/deal-vocab.ts` — `DEAL_MUTATION_RATE` 20/h/user | `tests/unit/deal-domain.test.ts @DEAL_MUTATION_RATE` |
 | beta invite acceptance | `src/lib/founding-seller-vocab.ts` — landing `BETA_INVITE_LANDING_RATE` 30/10 phút/IP; accept `BETA_INVITE_ACCEPT_RATE` 10/10 phút/user + per-IP; issue `FOUNDING_SELLER_INVITE_RATE` 20/h/admin | `tests/unit/founding-sellers.test.ts @BETA_INVITE_ACCEPT_RATE` |
 | (ngoài spec) block/unblock | `src/lib/moderation-vocab.ts` — `BLOCK_ACTION_RATE_LIMIT` 20/phút/user | `tests/unit/block-actions.test.ts @BLOCK_ACTION_RATE_LIMIT` |
+| (ngoài spec) manual contact verification (2026-10-12) | `src/lib/actions/manual-contact-verification.ts` — `MANUAL_CONTACT_ACTION_RATE` 20/h/admin (bucket chung request/decide/cancel — `src/lib/manual-contact-verification.ts`) | `tests/unit/manual-contact-verification.test.ts @rate limit per admin` |
 
 **Edge layer:** nginx `limit_req` là lớp bù cho RR-1/RR-20 (restart reset,
 single-instance) — **chưa cấu hình** trong block nginx hiện tại (corrections
@@ -497,6 +498,18 @@ cho lần finance re-enable review. Thêm từ corrections item 15:
 `src/lib/actions/reviews.ts:24` (`submitReviewAction` ghi `Review` không có
 finance guard — dormant: cần Order completed, không thể có khi finance off) →
 §Findings register (LOW).
+
+### 6.5 Zero-cost launch Task A (2026-10-12) — two-person manual contact verification
+
+Panel admin "Xác minh liên hệ thủ công" (`/admin/users?u=<id>` — capability
+mới `contact.verify_manual`, super_admin/operations_admin + step-up MFA bắt
+buộc mọi action; `src/lib/actions/manual-contact-verification.ts`) là đường
+zero-cost đánh dấu kênh verified (interim FD-R1/FD-R29/FD-R69 — register note
+2026-10-12). Rủi ro mới (non-blocking — control bù trong ngoặc):
+
+| # | Risk | Control bù |
+|---|---|---|
+| RR-33 | Social engineering operator: kẻ xấu giả danh user qua kênh out-of-band thuyết phục admin duyệt verify kênh mình không sở hữu (proofing out-of-band chưa được founder định nghĩa — FD-R3) | Two-person rule (A mở ≠ B duyệt ≠ subject — requester không tự duyệt được); step-up MFA mọi action; audit `contact.manual_verify_*` (channel/method/decision — KHÔNG giá trị thô) tra `/admin/audit`; TTL 24h + CAS hết hạn tự chuyển `expired`; rate limit 20/h/admin |
 
 ## CSRF — tư thế chống giả mạo yêu cầu xuyên site (posture)
 

@@ -128,32 +128,33 @@ atomic claim (predicate đầy đủ trong tx), token 256-bit không đoán đư
 
 **⚠️ FD-R69 (BLOCKING) — hệ quả của FD-2:** channel binding đòi kênh ĐÃ xác
 minh, nhưng production OTP adapter đang fail-closed (chưa có provider) →
-**không có đường tự xác minh kênh trong production**. Cho tới khi provider
-land (FD-R1), đường DUY NHẤT để người được mời có kênh đã xác minh là **block
-psql thủ công per-user của runbook Batch 2 §6** (`user.email_verified_manual`,
-two-person rule — xem `docs/operations/account-recovery-playbook.md` §4) —
-và **block đó xác minh EMAIL thôi**: nó set `emailVerifiedAt` (chỉ khi đang
-null), KHÔNG bao giờ set `phoneVerifiedAt` (runbook §6). Hệ quả bắt buộc nêu
-thẳng cho concierge:
+**không có đường TỰ xác minh kênh trong production**. **2026-10-12 (zero-cost
+launch Task A — founder, FD-R1/FD-R29): đường CHUẨN tạm thời không tốn phí là
+panel admin "Xác minh liên hệ thủ công"** (`/admin/users?u=<id>` — two-person
+rule: admin A mở request sau khi xác nhận out-of-band, admin B KHÁC duyệt;
+step-up MFA; audited `contact.manual_verify_*`; hash giá trị chuẩn hóa —
+KHÔNG giá trị thô; TTL request 24h; giá trị đổi giữa chừng → `CONTACT_CHANGED`
+refuse). Panel duyệt được **CẢ HAI kênh** (email + phone) — nghĩa là:
 
-- **Chỉ issue invite kênh email; KHÔNG tạo ứng viên `contactChannel=phone`**
-  trong production (`createCandidateAction` cho phép phone —
-  `src/lib/actions/founding-sellers.ts:107` — nhưng invitee phone kẹt mãi ở
-  `INVITE_CHANNEL_UNVERIFIED`, `:477`, vì không đường production nào set
-  `phoneVerifiedAt`).
-- **Seller KHÔNG qua được `phone_verified`** — `submitSellerVerificationAction`
-  chặn với "còn thiếu: xác minh số điện thoại"
-  (`src/lib/seller-verification-policy.ts:245,184`; action
-  `src/lib/actions/seller-verification.ts:199-217`) → checklist
-  `docs/operations/founding-seller-onboarding-checklist.md` giai đoạn 4
-  (`verification_pending`) trở đi **chặn trong production** cho tới FD-R1 —
-  không seller nào được verify/công khai. **LAUNCH BLOCKER.**
-- **KHÔNG tự chế block phone** trong playbook: nếu cần đường phone trước
-  FD-R1, đó là block audited (two-person) riêng do founder duyệt
-  `[FOUNDER DECISION — FD-R1/FD-R69 — BLOCKING]`.
+- **Invite kênh phone giờ CHẤP NHẬN ĐƯỢC** sau khi panel duyệt kênh phone
+  (`phoneVerifiedAt` set → `acceptInviteAction` channel binding pass —
+  `INVITE_CHANNEL_UNVERIFIED` hết).
+- **Seller qua được `phone_verified`** — `submitSellerVerificationAction`
+  thôi chặn khi panel đã duyệt kênh phone → checklist giai đoạn 4 trở đi
+  MỞ trong production (từng người, qua panel — KHÔNG phải tự động).
+- **Block psql runbook Batch 2 §6** (`user.email_verified_manual`) giờ là
+  **break-glass** (email bootstrap khi không vào được admin UI) — chạy panel
+  được thì KHÔNG chạy psql.
 
-Founder quyết: chờ provider, hoặc chấp nhận token possession + giao out-of-band
-là bằng chứng kênh, hoặc chạy block thủ công cho từng người
+**Vẫn đúng cho tới FD-R1 (paid provider):** `/recover` KHÔNG gửi được mã
+(adapter fail-closed bất kể verified state) — xác minh thủ công KHÔNG khôi
+phục mật khẩu; xem `docs/operations/account-recovery-playbook.md` §4.
+**KHÔNG tự chế block phone ngoài panel:** panel là block audited (two-person)
+đã founder duyệt; đường khác = founder decision mới
+`[FOUNDER DECISION — FD-R1/FD-R69 — BLOCKING]`.
+
+Founder quyết (2026-10-12): **interim zero-cost path = two-person manual
+contact verification (panel); paid provider deferred (FD-R1)**
 `[FOUNDER DECISION — FD-R69 — BLOCKING]`.
 
 ## 5. Lifecycle founding seller — cơ chế operator đi kèm (FD-R48)
@@ -240,7 +241,7 @@ prospect → invited → registered → verification_pending → verified
 | FD-R47 | Ngưỡng badge "cần hỗ trợ" 7 ngày (§6) |
 | FD-R48 | Bộ PROVISIONAL: bảng chuyển, reason codes, manually-settable, rate values, caps (§5) — BLOCKING (founder-authored/acknowledgment per FD-3) |
 | FD-R49 | Acknowledge residual risk token trong URL (§3) |
-| FD-R69 | Channel binding vs FD-2 — đường production cho KÊNH EMAIL đã xác minh (§4, runbook §6 email-only); phone không có đường, seller kẹt `phone_verified` (giai đoạn 4 checklist) tới FD-R1 — BLOCKING |
+| FD-R69 | Channel binding vs FD-2 — đường production cho kênh đã xác minh (§4): **2026-10-12 (zero-cost launch Task A): panel admin "Xác minh liên hệ thủ công" (two-person) là đường CHUẨN cho CẢ email + phone** — invite phone chấp nhận được, seller qua được `phone_verified` (giai đoạn 4 checklist) từng người qua panel; runbook §6 psql = break-glass email-only; `/recover` vẫn kẹt tới FD-R1 — BLOCKING |
 | FD-R70 | Admin trong founding cohort: tự mời bị từ chối, admin khác được (§4) |
 | FD-R73 | `invitedFoundingSellers` ever-invited monotonic (§6) |
 
