@@ -109,6 +109,7 @@ const dbState = vi.hoisted(() => ({
   suspensions: [] as Row[],
   verifications: [] as Row[],
   memberships: [] as Row[],
+  acceptances: [] as Row[], // PolicyAcceptance — Task D guard (terms + privacy)
   productEvents: [] as Row[],
 }));
 
@@ -202,6 +203,8 @@ vi.mock("@/src/prisma/db.client", () => {
           // Batch 6 D2 — §7.8 seller-side eligibility (deal.ts đọc FRESH)
           SellerVerification: makeModel(dbState.verifications),
           BetaCohortMembership: makeModel(dbState.memberships),
+          // Task D — guard assertCurrentPoliciesAccepted đọc fresh
+          PolicyAcceptance: makeModel(dbState.acceptances),
           // Batch 5 — emit core ghi row THẬT vào mock (key stubbed)
           ProductEvent: makeModel(dbState.productEvents),
         },
@@ -211,6 +214,7 @@ vi.mock("@/src/prisma/db.client", () => {
 });
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { startConversationAction } from "@/src/lib/actions/chat";
 
 // ─── Fixtures — Batch 6 verified-seller + approved-listing shape ──────────────
@@ -361,6 +365,25 @@ const login = (user: FixtureUser): void => {
 
 const eventsNamed = (name: string): Row[] => dbState.productEvents.filter((e) => e["name"] === name);
 
+/**
+ * Row chấp nhận terms + privacy ở version HIỆN HÀNH của registry — Task D
+ * fixture migration (founder 2026-10-12): startConversationAction giờ có
+ * guard assertCurrentPoliciesAccepted; mọi fixture bắt đầu hội thoại qua
+ * action cần actor đã đồng ý. Case âm sống ở policy-acceptance.test.ts.
+ * KHÔNG assertion nào đổi.
+ */
+const seedPolicyAcceptance = (userId: string): void => {
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${userId}-${key}`,
+      userId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: "2026-10-12T00:00:00.000Z",
+    });
+  }
+};
+
 const TEST_KEY = Buffer.alloc(32, 7).toString("base64");
 
 const seedBase = (): void => {
@@ -371,6 +394,7 @@ const seedBase = (): void => {
   dbState.suspensions.length = 0;
   dbState.verifications.length = 0;
   dbState.memberships.length = 0;
+  dbState.acceptances.length = 0;
   dbState.productEvents.length = 0;
   dbState.users.push({ ...BUYER }, { ...SELLER }, { ...SELLER2 });
   dbState.listings.push({ ...LISTING }, { ...LISTING2 });
@@ -378,6 +402,10 @@ const seedBase = (): void => {
   // Seller ĐỦ §7.8 mặc định (D2) — happy path/create branch đi qua guard Batch 6.
   dbState.verifications.push({ ...SELLER_VERIFICATION });
   dbState.memberships.push({ ...SELLER_MEMBERSHIP });
+  // Task D — mọi actor fixture đã đồng ý terms + privacy (guard không over-block).
+  seedPolicyAcceptance(BUYER.id);
+  seedPolicyAcceptance(SELLER.id);
+  seedPolicyAcceptance(SELLER2.id);
   // BUYER KHÔNG có membership mặc định — mỗi case tự seed (gate là đối tượng test).
 };
 

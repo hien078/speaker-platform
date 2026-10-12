@@ -9,6 +9,7 @@ import { verifyAdminMfaCode } from "@/src/lib/admin-mfa";
 import { auditEvent } from "@/src/lib/audit-event";
 import { checkRateLimit, clientIpFromHeaders } from "@/src/lib/rate-limit";
 import { safeNextPath } from "@/src/lib/redirect";
+import { recordPolicyAcceptance } from "@/src/lib/policy-acceptance";
 
 /** 10 lần / 10 phút / IP cho login + register (chống brute-force / spam tài khoản) */
 const AUTH_RULE = { limit: 10, windowMs: 10 * 60_000 };
@@ -80,7 +81,7 @@ const registerSchema = z.object({
   role: z.enum(["buyer", "seller"]).default("buyer"),
 });
 
-export type AuthFormState = { error?: string; mfaRequired?: boolean };
+export type AuthFormState = { error?: string; mfaRequired?: boolean; code?: string };
 
 export async function registerAction(
   _prev: AuthFormState,
@@ -104,22 +105,44 @@ export async function registerAction(
   const { name, email, password, phone, role } = parsed.data;
   const emailNormalized = email.toLowerCase();
 
+  // ─── Consent terms + privacy (zero-cost launch Task D — founder decision
+  // 2026-10-12): checkbox bắt buộc phía client (auth-form.tsx) CHỈ là UX —
+  // server reject tường minh khi thiếu (Nghị định 13/2023/NĐ-CP mong đợi
+  // explicit consent; Terms draft "dùng = chấp nhận" KHÔNG đủ). Typed error
+  // code POLICY_CONSENT_REQUIRED — form giữ input (React 19 manual dispatch).
+  if (formData.get("acceptPolicies") !== "on") {
+    return {
+      error: "Bạn phải đồng ý với Điều khoản sử dụng và Chính sách quyền riêng tư để tạo tài khoản.",
+      code: "POLICY_CONSENT_REQUIRED",
+    };
+  }
+
   const existing = await db.orm.public.User.where({ email: emailNormalized }).first();
   if (existing) {
     return { error: "Email này đã được đăng ký. Bạn thử đăng nhập xem." };
   }
 
   const passwordHash = await hashPassword(password);
-  const user = await db.orm.public.User.create({
-    name,
-    email: emailNormalized,
-    passwordHash,
-    phone: phone || null,
-    role,
+  // ─── MỘT tx: User + Cart + PolicyAcceptance(terms, privacy) ──────────────
+  // Task D: ghi nhận đồng ý terms + privacy TRONG CÙNG transaction tạo user
+  // (cơ chế Batch 2 PolicyAcceptance qua recordPolicyAcceptance — version từ
+  // registry). User KHÔNG BAO GIỜ tồn tại mà thiếu row đồng ý: lỗi bất kỳ
+  // trong tx (vd 23505 concurrent) → rollback toàn bộ → KHÔNG user mồ côi.
+  // Cart chuyển vào cùng tx (trước đây là await riêng — cùng cải thiện atomic).
+  const user = await db.transaction(async (tx) => {
+    const u = await tx.orm.public.User.create({
+      name,
+      email: emailNormalized,
+      passwordHash,
+      phone: phone || null,
+      role,
+    });
+    // tạo giỏ hàng riêng cho user
+    await tx.orm.public.Cart.create({ userId: u.id });
+    await recordPolicyAcceptance(tx, u.id, "terms");
+    await recordPolicyAcceptance(tx, u.id, "privacy");
+    return u;
   });
-
-  // tạo giỏ hàng riêng cho user
-  await db.orm.public.Cart.create({ userId: user.id });
 
   await createSession(user.id);
   // quay về trang đang xem nếu có ?next= — chỉ path nội bộ (chống open redirect)

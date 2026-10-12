@@ -15,11 +15,13 @@
  *     true CHỈ khi cả sáu REVIEWED — fixture-driven (Review Focus 1).
  *  5. unreviewedPolicies liệt kê đúng các policy DRAFT.
  *  6. policyContentHash = sha256 hex của nội dung shipped, ổn định qua lần gọi.
- *  7. Mọi content module khớp hợp đồng placeholder (§4.11 — Review Focus 2):
- *     heading DRAFT + banner cơ chế + marker [nội dung chờ founder]; KHÔNG
- *     prose tự soạn — riêng safety_guidance được thêm 6 điểm §6.4 + dòng §5.2
- *     (spec-sourced, bản dịch Batch 6) — ghim BẰNG EQUALITY chặt (không chỉ
- *     presence — review fix).
+ *  7. Mọi content module khớp hợp đồng BẢN NHÁP (founder yêu cầu 2026-10-12
+ *     Claude soạn bản nháp thay placeholder — vẫn DRAFT-NOT-REVIEWED, chờ
+ *     founder duyệt): heading "(BẢN NHÁP — chờ founder duyệt)" + blockquote
+ *     nháp; không còn marker placeholder; safety_guidance chứa nguyên văn 6
+ *     điểm §6.4 + dòng §5.2 (bản dịch Batch 6). Hợp đồng placeholder cũ
+ *     (equality chặt, cấm mục/list) đã thay vì nó ghim văn bản placeholder vốn
+ *     được thiết kế để bị thay thế.
  *  8. Trang policy: banner DRAFT có điều kiện, KHÔNG dangerouslySetInnerHTML,
  *     generateStaticParams phủ POLICY_KEYS, key lạ → notFound(), công khai
  *     (không auth, không db); nhánh REVIEWED trung tính — flag registry
@@ -239,25 +241,26 @@ describe("scripts/policy-hash.ts --check — format <key> <version> <sha256> <st
   );
 });
 
-// ─── 7. Content modules — hợp đồng placeholder (§4.11 — Review Focus 2) ──────
+// ─── 7. Content modules — hợp đồng bản nháp (founder yêu cầu 2026-10-12) ────
 
-describe("content modules — hợp đồng placeholder DRAFT-NOT-REVIEWED (§4.11)", () => {
-  it("mọi content module: heading DRAFT + banner cơ chế + marker chờ founder", () => {
+/** Blockquote bắt buộc ở đầu mỗi bản nháp (yêu cầu founder 2026-10-12). */
+const DRAFT_NOTICE =
+  "> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.";
+
+describe("content modules — hợp đồng bản nháp DRAFT-NOT-REVIEWED (chờ founder duyệt)", () => {
+  it("mọi content module: heading BẢN NHÁP + blockquote nháp, không còn marker placeholder", () => {
     for (const key of POLICY_KEYS) {
       const body = policyContent(key);
-      // heading mở đầu: "# <title> (DRAFT-NOT-REVIEWED)"
+      // heading mở đầu: "# <title> (BẢN NHÁP — chờ founder duyệt)"
       expect(
-        body.startsWith(`# ${POLICIES[key].title} (DRAFT-NOT-REVIEWED)`),
-        `${key}: mở đầu bằng heading DRAFT`,
+        body.startsWith(`# ${POLICIES[key].title} (BẢN NHÁP — chờ founder duyệt)\n\n${DRAFT_NOTICE}\n`),
+        `${key}: mở đầu bằng heading BẢN NHÁP + blockquote nháp`,
       ).toBe(true);
-      // banner cơ chế: founder soạn và duyệt — FD-3, spec §4.11
-      expect(body).toContain("BẢN DỰ THẢO — CHƯA ĐƯỢC DUYỆT");
-      expect(body).toContain("founder soạn và duyệt");
-      expect(body).toContain("FD-3");
-      expect(body).toContain("§4.11");
-      // marker chờ founder
-      expect(body).toContain("[nội dung chờ founder");
-      expect(body).toContain(key);
+      // placeholder cũ đã được thay toàn bộ
+      expect(body).not.toContain("[nội dung chờ founder");
+      expect(body).not.toContain("DRAFT-NOT-REVIEWED");
+      // registry vẫn chưa duyệt — bản nháp KHÔNG tự flip status
+      expect(POLICIES[key].status).toBe("DRAFT-NOT-REVIEWED");
     }
   });
 
@@ -270,40 +273,12 @@ describe("content modules — hợp đồng placeholder DRAFT-NOT-REVIEWED (§4.
     }
   });
 
-  it("năm policy KHÔNG phải safety_guidance: không prose §6.4, không mục con, không list", () => {
-    for (const key of POLICY_KEYS) {
-      if (key === "safety_guidance") continue;
-      const body = policyContent(key);
-      for (const point of SAFETY_64_POINTS) {
-        expect(body, `${key}: không chứa điểm §6.4 "${point}"`).not.toContain(point);
-      }
-      expect(body, `${key}: không chứa dòng §5.2`).not.toContain(SAFETY_52_LINE);
-      // không section skeleton (## …), không danh sách đánh dấu
-      expect(body).not.toContain("\n## ");
-      expect(body).not.toContain("\n- ");
-      expect(body).not.toContain("\n* ");
-      expect(body).not.toContain("\n1. ");
+  it("safety_guidance: chứa nguyên văn 6 điểm §6.4 (dạng list) + dòng §5.2", () => {
+    const body = policyContent("safety_guidance");
+    for (const point of SAFETY_64_POINTS) {
+      expect(body).toContain(`\n- ${point}\n`);
     }
-  });
-
-  it("safety_guidance: body ĐÚNG heading + banner + marker + 6 điểm §6.4 + dòng §5.2 — không prose thừa", () => {
-    // §4.11: ngoại lệ duy nhất cho placeholder là thành phần spec-sourced
-    // (6 điểm §6.4 + dòng §5.2). Equality chặt — mọi dòng implementer thêm
-    // vào là vi phạm; founder text thay thế TOÀN BỘ khi duyệt (hash đổi).
-    const expected =
-      [
-        `# ${POLICIES.safety_guidance.title} (DRAFT-NOT-REVIEWED)`,
-        "",
-        "> ⚠️ BẢN DỰ THẢO — CHƯA ĐƯỢC DUYỆT. Nội dung pháp lý do founder soạn và duyệt",
-        "> (FD-3, spec §4.11) — bản này chưa có hiệu lực cho phiên bản beta.",
-        "",
-        "[nội dung chờ founder — safety_guidance]",
-        "",
-        ...SAFETY_64_POINTS.map((p) => `- ${p}`),
-        "",
-        SAFETY_52_LINE,
-      ].join("\n") + "\n";
-    expect(policyContent("safety_guidance")).toBe(expected);
+    expect(body).toContain(`\n${SAFETY_52_LINE}\n`);
   });
 });
 

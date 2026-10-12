@@ -66,6 +66,7 @@ vi.mock("next/headers", () => ({
 import { db } from "../../src/prisma/db.client";
 import { SESSION_COOKIE, createSession, getSessionFromCookie } from "../../src/lib/session";
 import { resetRateLimits } from "../../src/lib/rate-limit";
+import { POLICIES } from "../../src/lib/policy-registry";
 import { resetTotpReplayProtection, enrollAdminMfa } from "../../src/lib/admin-mfa";
 import { hotpCode } from "../../src/lib/totp";
 import { checkSellerPublicationRequirements } from "../../src/lib/seller-verification-policy";
@@ -91,6 +92,17 @@ async function mkUser(role: "buyer" | "seller", over?: Record<string, unknown>):
     ...over,
   });
   created.users.push(u.id);
+  // Task D fixture migration (founder 2026-10-12): startConversationAction +
+  // chat POST giờ có guard assertCurrentPoliciesAccepted (terms + privacy) —
+  // mọi user fixture đã đồng ý ở version registry (row cascade theo user khi
+  // dọn). Case âm sống ở policy-acceptance.test.ts (integration).
+  for (const policyKey of ["terms", "privacy"] as const) {
+    await db.orm.public.PolicyAcceptance.create({
+      userId: u.id,
+      policyKey,
+      policyVersion: POLICIES[policyKey].version,
+    });
+  }
   return u.id;
 }
 

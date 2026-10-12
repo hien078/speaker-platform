@@ -7,6 +7,10 @@ import { assertCanStartConversation } from "@/src/lib/moderation";
 import { checkRateLimit } from "@/src/lib/rate-limit";
 import { assertListingSellerInteractable, CONVERSATION_START_RATE } from "@/src/lib/deal";
 import { assertBuyerBetaChatAccess } from "@/src/lib/beta-access";
+import {
+  assertCurrentPoliciesAccepted,
+  POLICY_ACCEPTANCE_REQUIRED_ERROR,
+} from "@/src/lib/policy-acceptance";
 import { recordConversationStarted } from "@/src/lib/telemetry-recorders";
 
 /** Bắt đầu (hoặc mở lại) hội thoại với seller về một tin đăng */
@@ -78,6 +82,24 @@ export async function startConversationAction(formData: FormData): Promise<void>
   // throw BETA_MEMBERSHIP_REQUIRED → server action error (fail closed — KHÔNG
   // redirect vào hội thoại chết, KHÔNG tạo row). Policy tắt → no-op (D3).
   await assertBuyerBetaChatAccess(user.id);
+
+  // ─── Task D (founder decision 2026-10-12): consent terms + privacy ────────
+  // Guard CUỐI cùng trước khi tạo row (mọi guard eligibility riêng của hành vi
+  // cụ thể đã chạy): user chưa đồng ý terms + privacy ở version hiện hành →
+  // KHÔNG tạo Conversation. Void form action KHÔNG có error surface → redirect
+  // /account/policies (trang đồng ý — KHÔNG throw 500; pattern typed-redirect
+  // b4-holistic round-3). redirect() NGOÀI catch (Global Constraints).
+  let policyBlocked = false;
+  try {
+    await assertCurrentPoliciesAccepted(user.id);
+  } catch (e) {
+    if (e instanceof Error && e.message === POLICY_ACCEPTANCE_REQUIRED_ERROR) {
+      policyBlocked = true;
+    } else {
+      throw e; // lỗi infra/db — fail closed VISIBLE, KHÔNG masquerade
+    }
+  }
+  if (policyBlocked) redirect("/account/policies");
 
   const convo = await db.orm.public.Conversation.create({
     listingId,

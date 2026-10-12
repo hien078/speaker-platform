@@ -1,0 +1,440 @@
+[
+  {
+    "id": "table.ManualContactVerification",
+    "label": "Create table \"ManualContactVerification\"",
+    "summary": "Creates table \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"ManualContactVerification\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"ManualContactVerification\"",
+        "sql": "CREATE TABLE \"public\".\"ManualContactVerification\" (\n  \"channel\" text NOT NULL,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"decidedAt\" timestamptz,\n  \"decidedById\" text,\n  \"expiresAt\" timestamptz NOT NULL,\n  \"id\" text NOT NULL,\n  \"method\" text NOT NULL,\n  \"note\" text,\n  \"requestedAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"requestedById\" text,\n  \"status\" text DEFAULT 'requested' NOT NULL,\n  \"targetHash\" text NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"ManualContactVerification_channel_check_d360ded9\" CHECK (\"channel\" IN ('email', 'phone')),\n  CONSTRAINT \"ManualContactVerification_method_check_57528128\" CHECK (\"method\" IN ('phone_call', 'in_person', 'video_call', 'other')),\n  CONSTRAINT \"ManualContactVerification_status_check_0bb6ca3a\" CHECK (\"status\" IN ('requested', 'approved', 'rejected', 'cancelled', 'expired'))\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"ManualContactVerification\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_decidedById_idx_8194d55f",
+    "label": "Create index \"ManualContactVerification_decidedById_idx_8194d55f\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_decidedById_idx_8194d55f",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_decidedById_idx_8194d55f\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_decidedById_idx_8194d55f\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_decidedById_idx_8194d55f\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_decidedById_idx_8194d55f\" ON \"public\".\"ManualContactVerification\" (\"decidedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_decidedById_idx_8194d55f\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_decidedById_idx_8194d55f\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_expiresAt_idx_6b6b8c10",
+    "label": "Create index \"ManualContactVerification_expiresAt_idx_6b6b8c10\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_expiresAt_idx_6b6b8c10",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_expiresAt_idx_6b6b8c10\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_expiresAt_idx_6b6b8c10\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_expiresAt_idx_6b6b8c10\" ON \"public\".\"ManualContactVerification\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_expiresAt_idx_6b6b8c10\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_requestedById_idx_f9a56c66",
+    "label": "Create index \"ManualContactVerification_requestedById_idx_f9a56c66\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_requestedById_idx_f9a56c66",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_requestedById_idx_f9a56c66\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_requestedById_idx_f9a56c66\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_requestedById_idx_f9a56c66\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_requestedById_idx_f9a56c66\" ON \"public\".\"ManualContactVerification\" (\"requestedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_requestedById_idx_f9a56c66\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_requestedById_idx_f9a56c66\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_status_requestedAt_idx_27ce3e29",
+    "label": "Create index \"ManualContactVerification_status_requestedAt_idx_27ce3e29\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_status_requestedAt_idx_27ce3e29",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_status_requestedAt_idx_27ce3e29\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_status_requestedAt_idx_27ce3e29\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_status_requestedAt_idx_27ce3e29\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_status_requestedAt_idx_27ce3e29\" ON \"public\".\"ManualContactVerification\" (\"status\", \"requestedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_status_requestedAt_idx_27ce3e29\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_status_requestedAt_idx_27ce3e29\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_userId_channel_idx_c26a97e9",
+    "label": "Create index \"ManualContactVerification_userId_channel_idx_c26a97e9\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_userId_channel_idx_c26a97e9",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_userId_channel_idx_c26a97e9\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_userId_channel_idx_c26a97e9\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_userId_channel_idx_c26a97e9\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_userId_channel_idx_c26a97e9\" ON \"public\".\"ManualContactVerification\" (\"userId\", \"channel\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_userId_channel_idx_c26a97e9\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_userId_channel_idx_c26a97e9\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.ManualContactVerification_userId_idx_a489d58a",
+    "label": "Create index \"ManualContactVerification_userId_idx_a489d58a\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "ManualContactVerification_userId_idx_a489d58a",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"ManualContactVerification_userId_idx_a489d58a\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_userId_idx_a489d58a\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"ManualContactVerification_userId_idx_a489d58a\"",
+        "sql": "CREATE INDEX \"ManualContactVerification_userId_idx_a489d58a\" ON \"public\".\"ManualContactVerification\" (\"userId\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"ManualContactVerification_userId_idx_a489d58a\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"ManualContactVerification_userId_idx_a489d58a\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.ManualContactVerification.manual_contact_one_requested_5d8a2516",
+    "label": "Create index \"manual_contact_one_requested_5d8a2516\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "manual_contact_one_requested_5d8a2516",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"manual_contact_one_requested_5d8a2516\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"manual_contact_one_requested_5d8a2516\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"manual_contact_one_requested_5d8a2516\"",
+        "sql": "CREATE UNIQUE INDEX \"manual_contact_one_requested_5d8a2516\" ON \"public\".\"ManualContactVerification\" (\"userId\", \"channel\") WHERE ((\"status\" = 'requested'))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"manual_contact_one_requested_5d8a2516\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"manual_contact_one_requested_5d8a2516\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ManualContactVerification.ManualContactVerification_userId_fkey",
+    "label": "Add foreign key \"ManualContactVerification_userId_fkey\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ManualContactVerification_userId_fkey",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ManualContactVerification_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_userId_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ManualContactVerification_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ManualContactVerification\"\nADD CONSTRAINT \"ManualContactVerification_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ManualContactVerification_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_userId_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ManualContactVerification.ManualContactVerification_requestedById_fkey",
+    "label": "Add foreign key \"ManualContactVerification_requestedById_fkey\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ManualContactVerification_requestedById_fkey",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ManualContactVerification_requestedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_requestedById_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ManualContactVerification_requestedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ManualContactVerification\"\nADD CONSTRAINT \"ManualContactVerification_requestedById_fkey\"\nFOREIGN KEY (\"requestedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ManualContactVerification_requestedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_requestedById_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.ManualContactVerification.ManualContactVerification_decidedById_fkey",
+    "label": "Add foreign key \"ManualContactVerification_decidedById_fkey\" on \"ManualContactVerification\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "ManualContactVerification_decidedById_fkey",
+        "table": "ManualContactVerification"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"ManualContactVerification_decidedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_decidedById_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"ManualContactVerification_decidedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"ManualContactVerification\"\nADD CONSTRAINT \"ManualContactVerification_decidedById_fkey\"\nFOREIGN KEY (\"decidedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"ManualContactVerification_decidedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "ManualContactVerification_decidedById_fkey",
+          "public",
+          "\"public\".\"ManualContactVerification\""
+        ]
+      }
+    ]
+  }
+]

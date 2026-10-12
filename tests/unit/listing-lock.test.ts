@@ -351,6 +351,7 @@ vi.mock("@/src/prisma/db.client", () => {
 // ─── Imports (SAU mock) ──────────────────────────────────────────────────────
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { SESSION_COOKIE } from "@/src/lib/session";
 import { db } from "@/src/prisma/db.client";
 import {
@@ -410,6 +411,19 @@ const seedPolicyRows = (sellerId: string): void => {
     policyVersion: "v1",
     acceptedAt: new Date().toISOString(),
   });
+  // Task D fixture migration (founder 2026-10-12): update-into-review + toggle
+  // publish giờ có guard assertCurrentPoliciesAccepted (terms + privacy) —
+  // seed thêm hai row account-policy ở version registry cho actor. Case âm
+  // sống ở policy-acceptance.test.ts. KHÔNG assertion nào đổi.
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${sellerId}-${key}`,
+      userId: sellerId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
   dbState.memberships.push({
     id: `bcm-${dbState.memberships.length + 1}`,
     userId: sellerId,

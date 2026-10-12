@@ -113,6 +113,7 @@ const dbState = vi.hoisted(() => ({
   suspensions: [] as Row[],
   verifications: [] as Row[],
   memberships: [] as Row[],
+  acceptances: [] as Row[], // PolicyAcceptance — Task D guard (terms + privacy)
   uploads: [] as Row[],
   notifications: [] as Row[],
   productEvents: [] as Row[],
@@ -265,6 +266,8 @@ vi.mock("@/src/prisma/db.client", () => {
           // Batch 6 D2 — §7.8 seller-side eligibility (deal.ts đọc FRESH)
           SellerVerification: makeModel(dbState.verifications),
           BetaCohortMembership: makeModel(dbState.memberships),
+          // Task D — guard assertCurrentPoliciesAccepted đọc fresh
+          PolicyAcceptance: makeModel(dbState.acceptances),
           // Batch 4 — chat image ownership (route POST)
           ListingImageUpload: makeModel(dbState.uploads),
           Notification: makeModel(dbState.notifications),
@@ -277,6 +280,7 @@ vi.mock("@/src/prisma/db.client", () => {
 });
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { actorPseudonymFor, sessionPseudonymFor } from "@/src/lib/product-events";
 import { captureError } from "@/src/lib/observability";
 import { startConversationAction } from "@/src/lib/actions/chat";
@@ -496,6 +500,25 @@ const setMembership = (over: Row): void => {
   Object.assign(row, over);
 };
 
+/**
+ * Row chấp nhận terms + privacy ở version HIỆN HÀNH của registry — Task D
+ * fixture migration (founder 2026-10-12): startConversationAction (create
+ * branch) + POST /api/chat/[id] (sender) giờ có guard
+ * assertCurrentPoliciesAccepted; mọi fixture đi qua cần actor đã đồng ý.
+ * Case âm sống ở policy-acceptance.test.ts. KHÔNG assertion nào đổi.
+ */
+const seedPolicyAcceptance = (userId: string): void => {
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${userId}-${key}`,
+      userId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: "2026-10-12T00:00:00.000Z",
+    });
+  }
+};
+
 const seedBase = (): void => {
   dbState.users.length = 0;
   dbState.listings.length = 0;
@@ -505,6 +528,7 @@ const seedBase = (): void => {
   dbState.suspensions.length = 0;
   dbState.verifications.length = 0;
   dbState.memberships.length = 0;
+  dbState.acceptances.length = 0;
   dbState.uploads.length = 0;
   dbState.notifications.length = 0;
   dbState.productEvents.length = 0;
@@ -516,6 +540,10 @@ const seedBase = (): void => {
   // B7 Task 6 fixture migration (corrections #17): buyer ĐỦ §2.1 mặc định —
   // create branch đi qua guard buyer-side (sau SELLER_MEMBERSHIP).
   dbState.memberships.push({ ...BUYER_MEMBERSHIP });
+  // Task D fixture migration: mọi actor fixture đã đồng ý terms + privacy.
+  seedPolicyAcceptance(BUYER.id);
+  seedPolicyAcceptance(SELLER.id);
+  seedPolicyAcceptance(THIRD.id);
 };
 
 const TEST_KEY = Buffer.alloc(32, 7).toString("base64");

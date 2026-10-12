@@ -2,6 +2,7 @@ import { db } from "@/src/prisma/db.client";
 import { getCurrentUser } from "@/src/lib/auth";
 import { rateLimitRequest, checkRateLimit, tooManyRequestsResponse } from "@/src/lib/rate-limit";
 import { assertCanSendMessage, CHAT_SEND_RATE_LIMIT } from "@/src/lib/moderation";
+import { assertCurrentPoliciesAccepted } from "@/src/lib/policy-acceptance";
 import { recordBuyerFirstMessage, recordFirstResponse } from "@/src/lib/telemetry-recorders";
 import { captureError } from "@/src/lib/observability";
 import { SqlQueryError } from "@prisma/orm-family-sql/errors";
@@ -89,12 +90,24 @@ export async function POST(
   if (!limited.allowed) return tooManyRequestsResponse(limited.retryAfterSec);
   try {
     await assertCanSendMessage(user.id, recipientId);
+    // ─── Task D (founder decision 2026-10-12): consent terms + privacy ──────
+    // Guard CUỐI cùng trước Message.create (sau participant + rate limit +
+    // suspension/block): sender chưa đồng ý terms + privacy ở version hiện
+    // hành → KHÔNG gửi tin. Typed error → 403 JSON cho client hiển thị banner
+    // (ChatWindow) — KHÔNG 500.
+    await assertCurrentPoliciesAccepted(user.id);
   } catch (e) {
-    // CHỈ hai typed guard error → 403 với code cho client hiển thị banner.
+    // CHỈ typed guard error → 403 với code cho client hiển thị banner.
     // Lỗi DB/infra khác PHẢI rethrow (Next trả 500, observability bắt) —
     // đúm bọc thành 403 vừa sai semantics vừa leak message nội bộ ra JSON.
     const message = e instanceof Error ? e.message : String(e);
-    if (message !== "CHAT_BLOCKED" && message !== "ACCOUNT_SUSPENDED") throw e;
+    if (
+      message !== "CHAT_BLOCKED" &&
+      message !== "ACCOUNT_SUSPENDED" &&
+      message !== "POLICY_ACCEPTANCE_REQUIRED"
+    ) {
+      throw e;
+    }
     return Response.json({ error: message }, { status: 403 });
   }
 

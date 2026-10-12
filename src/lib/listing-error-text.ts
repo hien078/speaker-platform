@@ -77,6 +77,13 @@ export const SUBMIT_ERROR_TEXT: Record<string, string> = {
   LOCATION_DISPLAY_INVALID: "Khu vực hiển thị quá dài (tối đa 120 ký tự)",
   LISTING_HAS_ORDERS: "Tin đang có đơn hàng liên quan — không thể thao tác",
   LISTING_MODERATION_LOCKED: "Tin đang bị khóa bởi kiểm duyệt — không thể thao tác",
+  // Task D (founder 2026-10-12): guard consent terms + privacy (create/submit/
+  // publish/update-resubmit listing) — banner /sell/my + /sell/[id]/edit render
+  // text trung tính; trang render LINK /account/policies riêng cho code này
+  // (app/sell/my/page.tsx + app/sell/[id]/edit/page.tsx — text map không mang
+  // được link nên banner special-case).
+  POLICY_ACCEPTANCE_REQUIRED:
+    "Bạn cần đồng ý với Điều khoản sử dụng và Chính sách quyền riêng tư của LoaViet trước khi đăng hoặc gửi duyệt tin",
 };
 
 /**

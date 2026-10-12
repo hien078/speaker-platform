@@ -91,11 +91,19 @@ support).
 
 ## 4. Phương án cuối cùng out-of-band (Batch 2 A3 — last resort)
 
+> **2026-10-12 (zero-cost launch Task A):** panel admin "Xác minh liên hệ thủ công"
+> (`/admin/users?u=<id>` — two-person rule, audited `contact.manual_verify_*`)
+> là đường CHUẨN đánh dấu kênh verified cho MỤC ĐÍCH INVITE/VERIFICATION
+> (concierge §4, FD-R69). **Panel KHÔNG khôi phục quyền truy cập:** nó chỉ set
+> `emailVerifiedAt`/`phoneVerifiedAt` — `/recover` VẪN không gửi được mã cho tới
+> FD-R1 (adapter fail-closed bất kể verified state — §1.3). Mọi cảnh báo "bước 4
+> KHÔNG chạy được trong production" bên dưới VẪN ĐÚNG NGUYÊN VẸN với panel.
+
 **Khi nào:** người dùng mất MỌI kênh đã xác minh (email + phone) — recovery
 tự phục vụ chỉ chạy qua kênh đã verified (§1.3), nên không còn đường tự phục
-vụ. Block §6 cũng là **đường production DUY NHẤT để người được mời (invitee)
-có KÊNH EMAIL đã xác minh cho tới khi provider OTP land (FD-2/FD-R69)** — xem
-`docs/operations/concierge-onboarding-playbook.md` §4. **Block này set
+vụ. Block §6 cũng là **đường break-glass cho KÊNH EMAIL đã xác minh khi không
+vào được admin UI** (đường chuẩn 2026-10-12 là panel — xem
+`docs/operations/concierge-onboarding-playbook.md` §4). **Block này set
 `emailVerifiedAt` thôi** (runbook §6 — `UPDATE "User" SET
 "emailVerifiedAt" = now()` chỉ khi đang null): KHÔNG set `phoneVerifiedAt`,
 và KHÔNG làm `/recover` gửi được mã (§1.3 — delivery vẫn throw).
@@ -164,10 +172,10 @@ two-person rule). Support KHÔNG can thiệp MFA admin — xem
 
 | Mục | Ghi chú |
 |---|---|
-| FD-R1 | Provider OTP production — điều kiện để §1 (tự phục vụ) VÀ §4 bước 4 chạy được trong production; chưa land thì không kênh nào xác minh được, `/recover` không gửi được mã, seller không qua được `phone_verified` (LAUNCH BLOCKER) — BLOCKING (FD-2) |
+| FD-R1 | Provider OTP production — điều kiện để §1 (tự phục vụ) VÀ §4 bước 4 chạy được trong production. Panel two-person (2026-10-12, zero-cost Task A) đã mở đường xác minh kênh (invite/seller — concierge §4), nhưng `/recover` VẪN không gửi được mã cho tới khi provider land (LAUNCH BLOCKER) — BLOCKING (FD-2) |
 | FD-R2 | Ô Scoped RBAC cho support/moderator (§3) — BLOCKING |
 | FD-R3 | Proofing out-of-band cho đường thủ công §4 — BLOCKING |
-| FD-R69 | Block §6 (email-only) là đường production duy nhất cho KÊNH EMAIL đã xác minh tới khi FD-R1 land (§4); kênh phone không có đường — invite phone + seller verification chặn tới FD-R1 — BLOCKING |
+| FD-R69 | Đã quyết (founder 2026-10-12, zero-cost Task A): panel two-person manual contact verification là đường CHUẨN cho CẢ HAI kênh (email + phone — §4 note); block §6 psql chỉ còn break-glass email-only; invite phone + seller verification không còn chặn tới FD-R1 — BLOCKING (chờ sign-off release checklist) |
 
 Liên quan chéo: `docs/operations/concierge-onboarding-playbook.md` §4
 (FD-R69), `docs/operations/incident-playbook.md` §4 (nghi ngờ chiếm tài

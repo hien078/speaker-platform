@@ -34,9 +34,9 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'656449ac938c323b314580d07a280025d021e4694f6158f1b086ec2edf7b0fec'>;
+  StorageHashBase<'ec3fc69d14672b04241aed700fe7abb6014c2308ca51188228b1b05ed28142e5'>;
 export type ExecutionHash =
-  ExecutionHashBase<'6394ae163dbf462f17f2ea45663f5703b3736277f32c3c00bf767fc00357e3fd'>;
+  ExecutionHashBase<'c6d7ade5b53e17328171934252ca30a715dad8fdf5d91c3da1de57e89e8cbfd4'>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
 
@@ -520,6 +520,22 @@ export type FieldOutputTypes = {
       readonly ownerUserId: CodecTypes['pg/text@1']['output'];
       readonly storageKey: CodecTypes['pg/text@1']['output'];
       readonly width: CodecTypes['pg/int4@1']['output'];
+    };
+    readonly ManualContactVerification: {
+      readonly channel: 'email' | 'phone';
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly id: CodecTypes['pg/text@1']['output'];
+      readonly method: 'phone_call' | 'in_person' | 'video_call' | 'other';
+      readonly note: CodecTypes['pg/text@1']['output'] | null;
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+      readonly targetHash: CodecTypes['pg/text@1']['output'];
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly userId: CodecTypes['pg/text@1']['output'];
     };
     readonly Message: {
       readonly body: CodecTypes['pg/text@1']['output'];
@@ -1111,6 +1127,22 @@ export type FieldInputTypes = {
       readonly storageKey: CodecTypes['pg/text@1']['input'];
       readonly width: CodecTypes['pg/int4@1']['input'];
     };
+    readonly ManualContactVerification: {
+      readonly channel: 'email' | 'phone';
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly id: CodecTypes['pg/text@1']['input'];
+      readonly method: 'phone_call' | 'in_person' | 'video_call' | 'other';
+      readonly note: CodecTypes['pg/text@1']['input'] | null;
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+      readonly targetHash: CodecTypes['pg/text@1']['input'];
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly userId: CodecTypes['pg/text@1']['input'];
+    };
     readonly Message: {
       readonly body: CodecTypes['pg/text@1']['input'];
       readonly conversationId: CodecTypes['pg/text@1']['input'];
@@ -1701,6 +1733,22 @@ export type StorageColumnTypes = {
       readonly storageKey: CodecTypes['pg/text@1']['output'];
       readonly width: CodecTypes['pg/int4@1']['output'];
     };
+    readonly ManualContactVerification: {
+      readonly channel: 'email' | 'phone';
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly id: CodecTypes['pg/text@1']['output'];
+      readonly method: 'phone_call' | 'in_person' | 'video_call' | 'other';
+      readonly note: CodecTypes['pg/text@1']['output'] | null;
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+      readonly targetHash: CodecTypes['pg/text@1']['output'];
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly userId: CodecTypes['pg/text@1']['output'];
+    };
     readonly Message: {
       readonly body: CodecTypes['pg/text@1']['output'];
       readonly conversationId: CodecTypes['pg/text@1']['output'];
@@ -2290,6 +2338,22 @@ export type StorageColumnInputTypes = {
       readonly ownerUserId: CodecTypes['pg/text@1']['input'];
       readonly storageKey: CodecTypes['pg/text@1']['input'];
       readonly width: CodecTypes['pg/int4@1']['input'];
+    };
+    readonly ManualContactVerification: {
+      readonly channel: 'email' | 'phone';
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly id: CodecTypes['pg/text@1']['input'];
+      readonly method: 'phone_call' | 'in_person' | 'video_call' | 'other';
+      readonly note: CodecTypes['pg/text@1']['input'] | null;
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+      readonly targetHash: CodecTypes['pg/text@1']['input'];
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly userId: CodecTypes['pg/text@1']['input'];
     };
     readonly Message: {
       readonly body: CodecTypes['pg/text@1']['input'];
@@ -2965,6 +3029,26 @@ export namespace Models {
     owner: public_User;
     readonly [RelationKeys]?: 'owner';
   };
+  export type public_ManualContactVerification = {
+    channel: 'email' | 'phone';
+    createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+    decidedById: CodecTypes['pg/text@1']['output'] | null;
+    expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    id: CodecTypes['pg/text@1']['output'];
+    method: 'phone_call' | 'in_person' | 'video_call' | 'other';
+    note: CodecTypes['pg/text@1']['output'] | null;
+    requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    requestedById: CodecTypes['pg/text@1']['output'] | null;
+    status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired';
+    targetHash: CodecTypes['pg/text@1']['output'];
+    updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    userId: CodecTypes['pg/text@1']['output'];
+    decidedBy: public_User | null;
+    requestedBy: public_User | null;
+    user: public_User;
+    readonly [RelationKeys]?: 'decidedBy' | 'requestedBy' | 'user';
+  };
   export type public_Message = {
     body: CodecTypes['pg/text@1']['output'];
     conversationId: CodecTypes['pg/text@1']['output'];
@@ -3320,6 +3404,9 @@ export namespace Models {
     foundingSellerCandidate: public_FoundingSellerCandidate | null;
     imageUploads: public_ListingImageUpload[];
     listings: public_Listing[];
+    manualContactVerifications: public_ManualContactVerification[];
+    manualContactVerificationsDecided: public_ManualContactVerification[];
+    manualContactVerificationsRequested: public_ManualContactVerification[];
     moderationActions: public_ModerationAction[];
     notifications: public_Notification[];
     offersMade: public_Offer[];
@@ -3364,6 +3451,9 @@ export namespace Models {
       | 'foundingSellerCandidate'
       | 'imageUploads'
       | 'listings'
+      | 'manualContactVerifications'
+      | 'manualContactVerificationsDecided'
+      | 'manualContactVerificationsRequested'
       | 'moderationActions'
       | 'notifications'
       | 'offersMade'
@@ -3477,6 +3567,7 @@ export declare const models: {
     Listing: Models.public_Listing;
     ListingImage: Models.public_ListingImage;
     ListingImageUpload: Models.public_ListingImageUpload;
+    ManualContactVerification: Models.public_ManualContactVerification;
     Message: Models.public_Message;
     ModerationAction: Models.public_ModerationAction;
     ModerationCase: Models.public_ModerationCase;
@@ -5631,6 +5722,171 @@ type ContractBase = Omit<
                     readonly namespaceId: 'public' & NamespaceId;
                     readonly tableName: 'ListingImageUpload';
                     readonly columns: readonly ['ownerUserId'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+              ];
+            };
+            readonly ManualContactVerification: {
+              columns: {
+                readonly channel: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly createdAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                };
+                readonly decidedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: true;
+                };
+                readonly decidedById: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly expiresAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                };
+                readonly id: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly method: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly note: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly requestedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                };
+                readonly requestedById: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly status: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'pg/text@1', 'requested'>;
+                  };
+                };
+                readonly targetHash: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly updatedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                };
+                readonly userId: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+              };
+              primaryKey: { readonly columns: readonly ['id'] };
+              uniques: readonly [];
+              indexes: readonly [
+                {
+                  readonly name: 'ManualContactVerification_decidedById_idx_8194d55f';
+                  readonly prefix: 'ManualContactVerification_decidedById_idx';
+                  readonly columns: readonly ['decidedById'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'ManualContactVerification_expiresAt_idx_6b6b8c10';
+                  readonly prefix: 'ManualContactVerification_expiresAt_idx';
+                  readonly columns: readonly ['expiresAt'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'ManualContactVerification_requestedById_idx_f9a56c66';
+                  readonly prefix: 'ManualContactVerification_requestedById_idx';
+                  readonly columns: readonly ['requestedById'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'ManualContactVerification_status_requestedAt_idx_27ce3e29';
+                  readonly prefix: 'ManualContactVerification_status_requestedAt_idx';
+                  readonly columns: readonly ['status', 'requestedAt'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'ManualContactVerification_userId_channel_idx_c26a97e9';
+                  readonly prefix: 'ManualContactVerification_userId_channel_idx';
+                  readonly columns: readonly ['userId', 'channel'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'ManualContactVerification_userId_idx_a489d58a';
+                  readonly prefix: 'ManualContactVerification_userId_idx';
+                  readonly columns: readonly ['userId'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'manual_contact_one_requested_5d8a2516';
+                  readonly prefix: 'manual_contact_one_requested';
+                  readonly columns: readonly ['userId', 'channel'];
+                  readonly where: '("status" = \'requested\')';
+                  readonly unique: true;
+                },
+              ];
+              foreignKeys: readonly [
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'ManualContactVerification';
+                    readonly columns: readonly ['userId'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'ManualContactVerification';
+                    readonly columns: readonly ['requestedById'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'ManualContactVerification';
+                    readonly columns: readonly ['decidedById'];
                   };
                   readonly target: {
                     readonly namespaceId: 'public' & NamespaceId;
@@ -8205,6 +8461,24 @@ type ContractBase = Omit<
                 'archived',
               ];
             };
+            readonly manual_contact_channel: {
+              readonly kind: 'valueSet';
+              readonly values: readonly ['email', 'phone'];
+            };
+            readonly manual_contact_method: {
+              readonly kind: 'valueSet';
+              readonly values: readonly ['phone_call', 'in_person', 'video_call', 'other'];
+            };
+            readonly manual_contact_status: {
+              readonly kind: 'valueSet';
+              readonly values: readonly [
+                'requested',
+                'approved',
+                'rejected',
+                'cancelled',
+                'expired',
+              ];
+            };
             readonly model_status: {
               readonly kind: 'valueSet';
               readonly values: readonly ['approved', 'pending', 'merged'];
@@ -8410,6 +8684,10 @@ type ContractBase = Omit<
     readonly ListingImageUpload: {
       readonly namespace: 'public' & NamespaceId;
       readonly model: 'ListingImageUpload';
+    };
+    readonly ManualContactVerification: {
+      readonly namespace: 'public' & NamespaceId;
+      readonly model: 'ManualContactVerification';
     };
     readonly Message: { readonly namespace: 'public' & NamespaceId; readonly model: 'Message' };
     readonly ModerationAction: {
@@ -10473,6 +10751,130 @@ type ContractBase = Omit<
               };
             };
           };
+          readonly ManualContactVerification: {
+            readonly fields: {
+              readonly channel: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly decidedAt: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly decidedById: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly expiresAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly method: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly note: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly requestedAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly requestedById: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly status: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly targetHash: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly updatedAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly userId: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+            };
+            readonly relations: {
+              readonly decidedBy: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['decidedById'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+              readonly requestedBy: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['requestedById'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+              readonly user: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: false;
+                readonly on: {
+                  readonly localFields: readonly ['userId'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'ManualContactVerification';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly channel: { readonly column: 'channel' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly decidedAt: { readonly column: 'decidedAt' };
+                readonly decidedById: { readonly column: 'decidedById' };
+                readonly expiresAt: { readonly column: 'expiresAt' };
+                readonly id: { readonly column: 'id' };
+                readonly method: { readonly column: 'method' };
+                readonly note: { readonly column: 'note' };
+                readonly requestedAt: { readonly column: 'requestedAt' };
+                readonly requestedById: { readonly column: 'requestedById' };
+                readonly status: { readonly column: 'status' };
+                readonly targetHash: { readonly column: 'targetHash' };
+                readonly updatedAt: { readonly column: 'updatedAt' };
+                readonly userId: { readonly column: 'userId' };
+              };
+            };
+          };
           readonly Message: {
             readonly fields: {
               readonly body: {
@@ -12507,6 +12909,39 @@ type ContractBase = Omit<
                   readonly targetFields: readonly ['sellerId'];
                 };
               };
+              readonly manualContactVerifications: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'ManualContactVerification';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['userId'];
+                };
+              };
+              readonly manualContactVerificationsDecided: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'ManualContactVerification';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['decidedById'];
+                };
+              };
+              readonly manualContactVerificationsRequested: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'ManualContactVerification';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['requestedById'];
+                };
+              };
               readonly moderationActions: {
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
@@ -13271,6 +13706,32 @@ type ContractBase = Omit<
               { readonly name: 'archived'; readonly value: 'archived' },
             ];
           };
+          readonly manual_contact_channel: {
+            readonly codecId: 'pg/text@1';
+            readonly members: readonly [
+              { readonly name: 'email'; readonly value: 'email' },
+              { readonly name: 'phone'; readonly value: 'phone' },
+            ];
+          };
+          readonly manual_contact_method: {
+            readonly codecId: 'pg/text@1';
+            readonly members: readonly [
+              { readonly name: 'phone_call'; readonly value: 'phone_call' },
+              { readonly name: 'in_person'; readonly value: 'in_person' },
+              { readonly name: 'video_call'; readonly value: 'video_call' },
+              { readonly name: 'other'; readonly value: 'other' },
+            ];
+          };
+          readonly manual_contact_status: {
+            readonly codecId: 'pg/text@1';
+            readonly members: readonly [
+              { readonly name: 'requested'; readonly value: 'requested' },
+              { readonly name: 'approved'; readonly value: 'approved' },
+              { readonly name: 'rejected'; readonly value: 'rejected' },
+              { readonly name: 'cancelled'; readonly value: 'cancelled' },
+              { readonly name: 'expired'; readonly value: 'expired' },
+            ];
+          };
           readonly model_status: {
             readonly codecId: 'pg/text@1';
             readonly members: readonly [
@@ -13719,6 +14180,23 @@ type ContractBase = Omit<
           readonly ref: {
             readonly entry: 'ListingImageUpload';
             readonly field: 'id';
+            readonly namespace: 'public';
+          };
+        },
+        {
+          readonly onCreate: { readonly id: 'uuidv4'; readonly kind: 'generator' };
+          readonly ref: {
+            readonly entry: 'ManualContactVerification';
+            readonly field: 'id';
+            readonly namespace: 'public';
+          };
+        },
+        {
+          readonly onCreate: { readonly id: 'timestampNow'; readonly kind: 'generator' };
+          readonly onUpdate: { readonly id: 'timestampNow'; readonly kind: 'generator' };
+          readonly ref: {
+            readonly entry: 'ManualContactVerification';
+            readonly field: 'updatedAt';
             readonly namespace: 'public';
           };
         },

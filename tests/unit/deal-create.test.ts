@@ -49,6 +49,10 @@
  * Notification/ProductEvent/User) với transaction + partial unique index
  * THẬT của Deal.create. `@/src/lib/moderation` (Batch 3 guards) GIỮ BẢN THẬT
  * bọc spy — hành vi thật đọc store mock, call observable (delegation pin).
+ * Task D fixture migration (founder 2026-10-12): createDealAction giờ có guard
+ * CUỐI cùng assertCurrentPoliciesAccepted (terms + privacy) — mock thêm model
+ * PolicyAcceptance + seed row chấp nhận cho BUYER ở version registry (v1);
+ * case ÂM của guard sống ở policy-acceptance.test.ts. KHÔNG assertion nào đổi.
  * `@/src/lib/product-events` GIỮ BẢN THẬT bọc spy: emit core THẬT validate
  * schema (mở rộng cùng commit) + ghi row vào store mock (corrections #10),
  * spy chụp trạng thái tx lúc gọi (pin emission SAU tx — S1).
@@ -125,6 +129,7 @@ const dbState = vi.hoisted(() => ({
   blocks: [] as Row[],
   verifications: [] as Row[],
   memberships: [] as Row[],
+  acceptances: [] as Row[], // PolicyAcceptance — Task D guard (terms + privacy)
   notifications: [] as Row[],
   events: [] as Row[], // ProductEvent rows — emit core THẬT ghi vào đây
   calls: [] as string[], // mọi terminal op — pin "zero db calls"
@@ -346,6 +351,12 @@ vi.mock("@/src/prisma/db.client", () => {
       createdAt: NOW,
       updatedAt: NOW,
     })),
+    // Task D — guard assertCurrentPoliciesAccepted đọc fresh qua
+    // PolicyAcceptance.first({userId, policyKey, policyVersion}).
+    PolicyAcceptance: makeModel(dbState.acceptances, () => ({
+      id: `pa-${dbState.acceptances.length + 1}`,
+      acceptedAt: NOW,
+    })),
     Notification: notificationModel,
     ProductEvent: makeModel(dbState.events, () => ({
       id: `pe-${dbState.events.length + 1}`,
@@ -406,6 +417,7 @@ import { resetRateLimits } from "@/src/lib/rate-limit";
 import { assertCanStartConversation } from "@/src/lib/moderation";
 import { emitProductEvent } from "@/src/lib/product-events";
 import { captureError } from "@/src/lib/observability";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { revalidatePath } from "next/cache";
 import { createDealAction } from "@/src/lib/actions/deals";
 
@@ -507,6 +519,26 @@ function seedBuyerMembership(): void {
   });
 }
 
+/**
+ * Row chấp nhận terms + privacy ở version HIỆN HÀNH của registry — Task D
+ * fixture migration: guard assertCurrentPoliciesAccepted (cuối createDealAction)
+ * đọc fresh PolicyAcceptance.first theo (userId, policyKey, policyVersion);
+ * mọi fixture tạo Deal qua action cần buyer đã đồng ý. Case âm (chưa đồng ý →
+ * POLICY_ACCEPTANCE_REQUIRED) sống ở policy-acceptance.test.ts + form render
+ * test. KHÔNG assertion nào đổi.
+ */
+function seedPolicyAcceptance(userId: string = BUYER.id): void {
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${userId}-${key}`,
+      userId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: "2026-10-12T00:00:00.000Z",
+    });
+  }
+}
+
 function dealForm(over: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("listingId", "listing-1");
@@ -525,6 +557,7 @@ const resetStores = () => {
     dbState.blocks,
     dbState.verifications,
     dbState.memberships,
+    dbState.acceptances,
     dbState.notifications,
     dbState.events,
     dbState.calls,
@@ -550,6 +583,7 @@ beforeEach(() => {
   seedConversation("listing-1", BUYER.id);
   seedSellerEligibility(SELLER.id);
   seedBuyerMembership(); // B7 Task 6 fixture migration (corrections #17)
+  seedPolicyAcceptance(); // Task D fixture migration (founder 2026-10-12)
 });
 
 afterEach(() => {

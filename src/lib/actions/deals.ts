@@ -24,6 +24,7 @@ import {
 } from "@/src/lib/deal";
 import { emitProductEvent } from "@/src/lib/product-events";
 import { assertBuyerBetaChatAccess } from "@/src/lib/beta-access";
+import { assertCurrentPoliciesAccepted } from "@/src/lib/policy-acceptance";
 import { notify } from "@/src/lib/notify";
 import { captureError } from "@/src/lib/observability";
 
@@ -83,6 +84,11 @@ const DEAL_CREATE_GUARD_ERROR_CODES = [
   "SELLER_MEMBERSHIP_INACTIVE", // assertListingSellerInteractable — D2
   "BETA_MEMBERSHIP_REQUIRED", // assertBuyerBetaChatAccess — B7 Task 6 (§2.1/§7.8)
   "DEAL_CONVERSATION_REQUIRED", // requireDealConversation — §5.2
+  // Task D (founder 2026-10-12): buyer chưa đồng ý terms + privacy ở version
+  // hiện hành — guard CUỐI cùng trước requireDealConversation (mọi eligibility
+  // riêng của Deal đã check xong); form map → thông báo trung tính + link
+  // /account/policies (deal-create-form.tsx).
+  "POLICY_ACCEPTANCE_REQUIRED", // assertCurrentPoliciesAccepted — Task D
 ] as const;
 
 /** Thông báo thành công — mechanics only, KHÔNG promise language (§4.2/Q9). */
@@ -154,6 +160,12 @@ export async function createDealAction(
     // participation KHÔNG bị gate trên membership (blocking a member's
     // confirmation would strand the bilateral record).
     await assertBuyerBetaChatAccess(user.id);
+    // ─── Task D (founder decision 2026-10-12): consent terms + privacy ──────
+    // Guard CUỐI cùng của creation (sau mọi eligibility Batch 3/6/7): buyer
+    // chưa đồng ý terms + privacy ở version hiện hành → KHÔNG tạo Deal.
+    // Typed error trong allowlist trên → form state; lỗi infra/db rethrow
+    // (fail closed — KHÔNG masquerade).
+    await assertCurrentPoliciesAccepted(user.id);
     convo = await requireDealConversation(listing.id, user.id);
   } catch (e) {
     if (

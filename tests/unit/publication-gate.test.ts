@@ -366,6 +366,7 @@ vi.mock("@/src/lib/listing-publication", async (importOriginal) => {
 });
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { SESSION_COOKIE } from "@/src/lib/session";
 import {
   createListingAction,
@@ -429,6 +430,19 @@ const seedPolicyRows = (sellerId: string, over?: { membershipStatus?: string; ve
     policyVersion: "v1",
     acceptedAt: new Date().toISOString(),
   });
+  // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
+  // review/toggle-publish listing giờ có guard assertCurrentPoliciesAccepted
+  // (terms + privacy) — seed thêm hai row account-policy ở version registry
+  // cho actor. Case âm sống ở policy-acceptance.test.ts. KHÔNG assertion nào đổi.
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${sellerId}-${key}`,
+      userId: sellerId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
   dbState.memberships.push({
     id: `bcm-${dbState.memberships.length + 1}`,
     userId: sellerId,

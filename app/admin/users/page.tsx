@@ -7,6 +7,15 @@ import { setBetaMembershipAction } from "@/src/lib/actions/beta-cohort";
 import { revokeAllUserSessionsAction } from "@/src/lib/actions/admin-identity";
 import { suspendUserAction, liftSuspensionAction } from "@/src/lib/actions/moderation";
 import { SUSPENSION_REASON_CODES, SUSPENSION_NOTE_MAX_LENGTH, type SuspensionReasonCode } from "@/src/lib/moderation-vocab";
+import { maskContact } from "@/src/lib/founding-seller-vocab";
+import {
+  MANUAL_CONTACT_CHANNEL_LABELS,
+  MANUAL_CONTACT_METHOD_LABELS,
+} from "@/src/lib/manual-contact-verification";
+import {
+  ManualContactVerificationPanel,
+  type ManualContactChannelView,
+} from "@/src/components/manual-contact-verification-forms";
 import { Users, UsersRound, BadgeCheck, Search, History, Ban, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -61,6 +70,9 @@ export default async function AdminUsersPage({
   const canRevokeSessions = capabilitiesOf(admin.user.adminRole).includes("session.revoke");
   const canManageCohort = capabilitiesOf(admin.user.adminRole).includes("beta_cohort.manage");
   const canSuspend = capabilitiesOf(admin.user.adminRole).includes("user.suspend");
+  // zero-cost launch Task A — panel manual contact verification (convenience;
+  // action tự requireCapabilityWithStepUp("contact.verify_manual")).
+  const canVerifyManual = capabilitiesOf(admin.user.adminRole).includes("contact.verify_manual");
   const sp = (await searchParams) as { q?: string; role?: string; u?: string };
   const q = sp.q?.trim() ?? "";
   // corrections #27: ?u=<userId> — tra cứu EXACT theo id (link từ console beta
@@ -70,7 +82,19 @@ export default async function AdminUsersPage({
   const role = sp.role && ROLE_LABELS[sp.role] ? (sp.role as UserRole) : undefined;
 
   let query = db.orm.public.User
-    .select("id", "name", "email", "phone", "role", "city", "isVerifiedSeller", "createdAt")
+    .select(
+      "id",
+      "name",
+      "email",
+      "phone",
+      "role",
+      "city",
+      "isVerifiedSeller",
+      "createdAt",
+      // zero-cost launch Task A — panel manual contact verification đọc trạng thái verified
+      "emailVerifiedAt",
+      "phoneVerifiedAt",
+    )
     .orderBy((u) => u.createdAt.desc())
     .limit(100);
 
@@ -88,7 +112,18 @@ export default async function AdminUsersPage({
     const like = `%${q}%`;
     const byName = await db.orm.public.User
       .where((u) => u.name.ilike(like))
-      .select("id", "name", "email", "phone", "role", "city", "isVerifiedSeller", "createdAt")
+      .select(
+        "id",
+        "name",
+        "email",
+        "phone",
+        "role",
+        "city",
+        "isVerifiedSeller",
+        "createdAt",
+        "emailVerifiedAt",
+        "phoneVerifiedAt",
+      )
       .all();
     const seen = new Set(users.map((u) => u.id));
     users = [...users, ...byName.filter((u) => !seen.has(u.id))];
@@ -129,6 +164,73 @@ export default async function AdminUsersPage({
       };
     }),
   );
+
+  // zero-cost launch Task A — panel "Xác minh liên hệ thủ công" cho user đang
+  // xem (?u= — corrections #27 exact id). Chỉ build khi viewer giữ
+  // contact.verify_manual (convenience; action tự guard). maskContact chạy
+  // SERVER-SIDE — client chỉ nhận giá trị đã mask (§4.8/§7.6 KHÔNG bao giờ
+  // giá trị đầy đủ đến client). Row requested quá hạn không hiện (expired
+  // on read — request mới flip nó sang 'expired' trong tx của mình).
+  let manualContactChannels: ManualContactChannelView[] = [];
+  if (uid && canVerifyManual) {
+    const subject = users.find((u) => u.id === uid) ?? null;
+    if (subject !== null) {
+      const nowIso = new Date().toISOString();
+      const openRequests = await db.orm.public.ManualContactVerification
+        .where({ userId: uid })
+        .where((v) => v.status.eq("requested"))
+        .where((v) => v.expiresAt.gt(nowIso))
+        .all();
+      const requesterIds = [
+        ...new Set(openRequests.map((r) => r.requestedById).filter((id): id is string => id !== null)),
+      ];
+      const requesters = requesterIds.length
+        ? await db.orm.public.User.select("id", "name").where((u) => u.id.in(requesterIds)).all()
+        : [];
+      const requesterName = (id: string | null): string | null =>
+        id === null ? null : requesters.find((r) => r.id === id)?.name ?? null;
+      // nowMs qua new Date() (không Date.now() — react-hooks/purity precedent
+      // app/admin/analytics/page.tsx:386-388)
+      const nowMs = new Date().getTime();
+      manualContactChannels = (["email", "phone"] as const).map((channel) => {
+        const open = openRequests.find((r) => r.channel === channel) ?? null;
+        const requestedAt = open?.requestedAt ?? null;
+        const ageHours =
+          requestedAt === null
+            ? null
+            : Math.max(0, Math.round((nowMs - Date.parse(requestedAt)) / 3_600_000));
+        return {
+          channel,
+          channelLabel: MANUAL_CONTACT_CHANNEL_LABELS[channel],
+          maskedValue: maskContact(
+            channel,
+            channel === "email" ? subject.email : subject.phone,
+          ),
+          verified:
+            channel === "email" ? subject.emailVerifiedAt !== null : subject.phoneVerifiedAt !== null,
+          verifiedAt:
+            channel === "email"
+              ? subject.emailVerifiedAt === null
+                ? null
+                : formatDateShort(subject.emailVerifiedAt)
+              : subject.phoneVerifiedAt === null
+                ? null
+                : formatDateShort(subject.phoneVerifiedAt),
+          openRequest: open === null
+            ? null
+            : {
+                id: open.id,
+                method: open.method,
+                methodLabel: MANUAL_CONTACT_METHOD_LABELS[open.method],
+                requestedAt: formatDateShort(open.requestedAt),
+                ageLabel: ageHours === null ? "" : ageHours < 1 ? "vừa mở" : `${ageHours} giờ trước`,
+                isRequester: open.requestedById === admin.user.id,
+                requesterName: requesterName(open.requestedById),
+              },
+        };
+      });
+    }
+  }
 
   return (
     <div>
@@ -405,6 +507,16 @@ export default async function AdminUsersPage({
           </tbody>
         </table>
       </div>
+      {/* zero-cost launch Task A — panel manual contact verification cho user
+          đang xem (?u=). isSubject: admin hiện tại là người được xác minh —
+          panel vẫn render (trạng thái đọc được) nhưng MỘT TỪ form disable. */}
+      {uid && canVerifyManual && manualContactChannels.length > 0 && (
+        <ManualContactVerificationPanel
+          subjectId={uid}
+          isSubject={uid === admin.user.id}
+          channels={manualContactChannels}
+        />
+      )}
     </div>
   );
 }

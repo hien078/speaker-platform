@@ -92,6 +92,10 @@
       "model": "ListingImageUpload",
       "namespace": "public"
     },
+    "ManualContactVerification": {
+      "model": "ManualContactVerification",
+      "namespace": "public"
+    },
     "Message": {
       "model": "Message",
       "namespace": "public"
@@ -495,6 +499,65 @@
               {
                 "name": "archived",
                 "value": "archived"
+              }
+            ]
+          },
+          "manual_contact_channel": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "email",
+                "value": "email"
+              },
+              {
+                "name": "phone",
+                "value": "phone"
+              }
+            ]
+          },
+          "manual_contact_method": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "phone_call",
+                "value": "phone_call"
+              },
+              {
+                "name": "in_person",
+                "value": "in_person"
+              },
+              {
+                "name": "video_call",
+                "value": "video_call"
+              },
+              {
+                "name": "other",
+                "value": "other"
+              }
+            ]
+          },
+          "manual_contact_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "requested",
+                "value": "requested"
+              },
+              {
+                "name": "approved",
+                "value": "approved"
+              },
+              {
+                "name": "rejected",
+                "value": "rejected"
+              },
+              {
+                "name": "cancelled",
+                "value": "cancelled"
+              },
+              {
+                "name": "expired",
+                "value": "expired"
               }
             ]
           },
@@ -4164,6 +4227,224 @@
               "table": "ListingImageUpload"
             }
           },
+          "ManualContactVerification": {
+            "fields": {
+              "channel": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "manual_contact_channel",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "decidedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "decidedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "method": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "manual_contact_method",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "note": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "requestedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "requestedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "manual_contact_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "targetHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "decidedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "decidedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "requestedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "requestedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "channel": {
+                  "column": "channel"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "decidedAt": {
+                  "column": "decidedAt"
+                },
+                "decidedById": {
+                  "column": "decidedById"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "method": {
+                  "column": "method"
+                },
+                "note": {
+                  "column": "note"
+                },
+                "requestedAt": {
+                  "column": "requestedAt"
+                },
+                "requestedById": {
+                  "column": "requestedById"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "targetHash": {
+                  "column": "targetHash"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "ManualContactVerification"
+            }
+          },
           "Message": {
             "fields": {
               "body": {
@@ -7459,6 +7740,51 @@
                 },
                 "to": {
                   "model": "Listing",
+                  "namespace": "public"
+                }
+              },
+              "manualContactVerifications": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "ManualContactVerification",
+                  "namespace": "public"
+                }
+              },
+              "manualContactVerificationsDecided": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "decidedById"
+                  ]
+                },
+                "to": {
+                  "model": "ManualContactVerification",
+                  "namespace": "public"
+                }
+              },
+              "manualContactVerificationsRequested": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "requestedById"
+                  ]
+                },
+                "to": {
+                  "model": "ManualContactVerification",
                   "namespace": "public"
                 }
               },
@@ -11338,6 +11664,248 @@
                 }
               ]
             },
+            "ManualContactVerification": {
+              "checks": [
+                {
+                  "expression": "\"channel\" IN ('email', 'phone')",
+                  "name": "ManualContactVerification_channel_check_d360ded9",
+                  "prefix": "ManualContactVerification_channel_check"
+                },
+                {
+                  "expression": "\"method\" IN ('phone_call', 'in_person', 'video_call', 'other')",
+                  "name": "ManualContactVerification_method_check_57528128",
+                  "prefix": "ManualContactVerification_method_check"
+                },
+                {
+                  "expression": "\"status\" IN ('requested', 'approved', 'rejected', 'cancelled', 'expired')",
+                  "name": "ManualContactVerification_status_check_0bb6ca3a",
+                  "prefix": "ManualContactVerification_status_check"
+                }
+              ],
+              "columns": {
+                "channel": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "manual_contact_channel",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "decidedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "decidedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "method": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "manual_contact_method",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "note": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "requestedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "requestedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "requested"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "manual_contact_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "targetHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ManualContactVerification"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "requestedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ManualContactVerification"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "decidedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "ManualContactVerification"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "decidedById"
+                  ],
+                  "name": "ManualContactVerification_decidedById_idx_8194d55f",
+                  "prefix": "ManualContactVerification_decidedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "expiresAt"
+                  ],
+                  "name": "ManualContactVerification_expiresAt_idx_6b6b8c10",
+                  "prefix": "ManualContactVerification_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "requestedById"
+                  ],
+                  "name": "ManualContactVerification_requestedById_idx_f9a56c66",
+                  "prefix": "ManualContactVerification_requestedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status",
+                    "requestedAt"
+                  ],
+                  "name": "ManualContactVerification_status_requestedAt_idx_27ce3e29",
+                  "prefix": "ManualContactVerification_status_requestedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "channel"
+                  ],
+                  "name": "ManualContactVerification_userId_channel_idx_c26a97e9",
+                  "prefix": "ManualContactVerification_userId_channel_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "ManualContactVerification_userId_idx_a489d58a",
+                  "prefix": "ManualContactVerification_userId_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "channel"
+                  ],
+                  "name": "manual_contact_one_requested_5d8a2516",
+                  "prefix": "manual_contact_one_requested",
+                  "unique": true,
+                  "where": "(\"status\" = 'requested')"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
+            },
             "Message": {
               "columns": {
                 "body": {
@@ -14848,6 +15416,32 @@
                 "archived"
               ]
             },
+            "manual_contact_channel": {
+              "kind": "valueSet",
+              "values": [
+                "email",
+                "phone"
+              ]
+            },
+            "manual_contact_method": {
+              "kind": "valueSet",
+              "values": [
+                "phone_call",
+                "in_person",
+                "video_call",
+                "other"
+              ]
+            },
+            "manual_contact_status": {
+              "kind": "valueSet",
+              "values": [
+                "requested",
+                "approved",
+                "rejected",
+                "cancelled",
+                "expired"
+              ]
+            },
             "model_status": {
               "kind": "valueSet",
               "values": [
@@ -15037,10 +15631,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "656449ac938c323b314580d07a280025d021e4694f6158f1b086ec2edf7b0fec"
+    "storageHash": "ec3fc69d14672b04241aed700fe7abb6014c2308ca51188228b1b05ed28142e5"
   },
   "execution": {
-    "executionHash": "6394ae163dbf462f17f2ea45663f5703b3736277f32c3c00bf767fc00357e3fd",
+    "executionHash": "c6d7ade5b53e17328171934252ca30a715dad8fdf5d91c3da1de57e89e8cbfd4",
     "mutations": {
       "defaults": [
         {
@@ -15387,6 +15981,32 @@
           "ref": {
             "entry": "ListingImageUpload",
             "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ManualContactVerification",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "ManualContactVerification",
+            "field": "updatedAt",
             "namespace": "public"
           }
         },

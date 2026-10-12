@@ -9,6 +9,7 @@ import {
   type ListingFormState,
 } from "@/src/lib/actions/listings";
 import { ImagePicker } from "@/src/components/image-picker";
+import { PolicyAcceptanceNotice } from "@/src/components/policy-acceptance-notice";
 import { cn, formatVND } from "@/src/lib/utils";
 import {
   Banknote,
@@ -277,10 +278,17 @@ export function PortableListingForm({
         <span className="font-medium">{STEP_TITLES[step - 1]}</span>
       </div>
 
-      {state.error && (
-        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
-          {state.error}
-        </p>
+      {/* Task D (founder 2026-10-12): guard consent terms + privacy từ chối
+          create/update-resubmit — render notice trung tính + link /account/policies
+          (KHÔNG code thô); các lỗi khác giữ banner text thường. */}
+      {state.error === "POLICY_ACCEPTANCE_REQUIRED" ? (
+        <PolicyAcceptanceNotice />
+      ) : (
+        state.error && (
+          <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
+            {state.error}
+          </p>
+        )
       )}
       {lastIntent === "draft" && state.ok === true && (
         <p className="rounded-lg border border-[var(--green)]/35 bg-[var(--green-soft)] px-3.5 py-2.5 text-sm text-[var(--green)]">
