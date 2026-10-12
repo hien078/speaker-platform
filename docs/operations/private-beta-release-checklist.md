@@ -103,31 +103,31 @@
 | FD | Item | Decision (founder) | Date |
 |---|---|---|---|
 | FD-R1 | Provider OTP production (FD-2): tới khi có provider KHÔNG kênh nào verify được trong production → `/recover` không gửi được mã, invite acceptance cần kênh verified (FD-R69), seller kẹt `phone_verified` → không seller nào qua verification/publish được — LAUNCH BLOCKER | PENDING | — |
-| FD-R2 | RBAC `Scoped`/`Exceptional + audited`/`Limited` cells (moderator/support/ops capabilities — fail-closed defaults ship) | PENDING | — |
+| FD-R2 | RBAC `Scoped`/`Exceptional + audited`/`Limited` cells (moderator/support/ops capabilities — fail-closed defaults ship) | Chấp nhận mặc định fail-closed (chỉ quyền đang ship); xem lại sau beta (founder, chat) | 2026-10-12 |
 | FD-R3 | Out-of-band (admin-assisted) account recovery identity proofing requirements (manual fallback cần founder acknowledgment) | PENDING | — |
 | FD-R4 | Seller Rules review + version tension: bump `v1`→`v2` trong commit duyệt của founder (G3(d)) + row APPROVED trong `policy-review-record.md` | PENDING | — |
-| FD-R6 | Moderation sanction policy (manual-only, indefinite until lifted; existing-conversation question = FD-R53) | PENDING | — |
-| FD-R7 | Retention & deletion policy (moderation evidence, `ProductEvent`, `Deal`/`DealStatusHistory`; account-deletion interaction FD-R45) | PENDING | — |
-| FD-R8 | Appeal decision workflow + listing restore (con đường un-`remove` duy nhất) + notification gap | PENDING | — |
-| FD-R11 | Moderator conflict-of-interest / recusal policy (deny ships fail-closed) | PENDING | — |
+| FD-R6 | Moderation sanction policy (manual-only, indefinite until lifted; existing-conversation question = FD-R53) | Chấp nhận mặc định: xử phạt thủ công, hiệu lực tới khi gỡ; chưa có bảng mức phạt — xem lại sau beta (founder, chat) | 2026-10-12 |
+| FD-R7 | Retention & deletion policy (moderation evidence, `ProductEvent`, `Deal`/`DealStatusHistory`; account-deletion interaction FD-R45) | Tạm thời: lưu dữ liệu trong thời gian cần cho vận hành/an toàn/pháp lý; chưa xoá tự động; chốt kỳ hạn cụ thể trước khi mở rộng (xem lại sau 3 tháng) (founder, chat) | 2026-10-12 |
+| FD-R8 | Appeal decision workflow + listing restore (con đường un-`remove` duy nhất) + notification gap | Chấp nhận mặc định: tiếp nhận kháng nghị thủ công qua trang kháng nghị; admin xử lý thủ công; xem lại sau beta (founder, chat) | 2026-10-12 |
+| FD-R11 | Moderator conflict-of-interest / recusal policy (deny ships fail-closed) | Chấp nhận mặc định: người kiểm duyệt có liên quan không được xử lý (từ chối fail-closed) (founder, chat) | 2026-10-12 |
 | FD-R12 | Sanction-taxonomy reason vocabularies (founder-authored — PROVISIONAL (A8) markers) | PENDING | — |
 | FD-R14 | Condition-grade user-facing definitions + `product_condition` vs `inventoryContext` overlap | PENDING | — |
 | FD-R15 | Photo-checklist requiredness per slot/condition (8 guidance, ≥1 image rule) | PENDING | — |
-| FD-R16 | Canonical model list — founder supplies + approves via `/admin/catalog` (implementer không soạn) | PENDING | — |
-| FD-R17 | Orphaned upload retention/expiry (quota 60/24h, grace 7 ngày, RR-24) | PENDING | — |
-| FD-R20 | Attribution/response window values (`listing_to_chat_v1`, `seller_response_rate_v1`, `successful_match_rate_v1`, `repeat_user_rate_v1`) | PENDING | — |
-| FD-R21 | `successful_match` reconciliation rule cho mismatched bilateral outcomes | PENDING | — |
-| FD-R23 | "Quality listing" definition (ops-set count — gates §12.1-04) | PENDING | — |
-| FD-R24 | Alias catalog content (mechanism ships empty/founder-reviewed) | PENDING | — |
+| FD-R16 | Canonical model list — founder supplies + approves via `/admin/catalog` (implementer không soạn) | Gác lại: chưa cung cấp danh sách model; model là trường tuỳ chọn, seller vẫn đăng tin được; bổ sung qua /admin/catalog sau (founder, chat) | 2026-10-12 |
+| FD-R17 | Orphaned upload retention/expiry (quota 60/24h, grace 7 ngày, RR-24) | Chấp nhận mặc định: quota 60/24h, grace 7 ngày; ảnh mồ côi giữ nguyên tới khi chốt chính sách (xem lại sau 3 tháng) (founder, chat) | 2026-10-12 |
+| FD-R20 | Attribution/response window values (`listing_to_chat_v1`, `seller_response_rate_v1`, `successful_match_rate_v1`, `repeat_user_rate_v1`) | Gác lại: dashboard hiển thị trạng thái chờ định nghĩa; chốt cửa sổ tính sau khi có dữ liệu beta (founder, chat) | 2026-10-12 |
+| FD-R21 | `successful_match` reconciliation rule cho mismatched bilateral outcomes | Gác lại: kết quả lệch giữa hai bên được ghi nhận, chưa đối soát; chốt quy tắc sau beta (founder, chat) | 2026-10-12 |
+| FD-R23 | "Quality listing" definition (ops-set count — gates §12.1-04) | Gác lại: chưa định nghĩa "tin chất lượng"; dùng số đếm do ops đặt; chốt sau (founder, chat) | 2026-10-12 |
+| FD-R24 | Alias catalog content (mechanism ships empty/founder-reviewed) | Gác lại: catalog từ đồng nghĩa để trống; tìm kiếm vẫn chạy; bổ sung sau (founder, chat) | 2026-10-12 |
 | FD-R28 | §6.4/§5.2 safety copy legal review (policy document `safety_guidance` awaits review) | PENDING | — |
 | FD-R29 | Invitation delivery channel (out-of-band; platform delivery blocked tới FD-R1) | PENDING | — |
-| FD-R30 | Buyer cohort acquisition approval (§12.1 gate — broader buyer invitations) | PENDING | — |
-| FD-R33 | Buyer-side conversation gating default ON (`BETA_CHAT_REQUIRES_ACTIVE_MEMBERSHIP`, `BETA_CHAT_ALLOWED_COHORTS` incl. `internal`) — founder acknowledgment | PENDING | — |
+| FD-R30 | Buyer cohort acquisition approval (§12.1 gate — broader buyer invitations) | Chưa mời buyer rộng: chỉ cấp private_beta_buyer thủ công cho nhóm nhỏ; quyết định mở rộng khi đủ nguồn hàng (founder, chat) | 2026-10-12 |
+| FD-R33 | Buyer-side conversation gating default ON (`BETA_CHAT_REQUIRES_ACTIVE_MEMBERSHIP`, `BETA_CHAT_ALLOWED_COHORTS` incl. `internal`) — founder acknowledgment | Chấp nhận mặc định: giữ cổng beta cho buyer BẬT (founder, chat) | 2026-10-12 |
 | FD-R34 | Sáu policy texts (Terms, Privacy, Marketplace Rules, Seller Rules, Community Rules, Safety Guidance) — founder-authored, hash-recorded — CENTRAL LAUNCH BLOCKER | PENDING | — |
-| FD-R48 | Batch 7 S9 provisional set (transition table, reason codes, rates 20/h + 10/10 min + 30/10 min/IP, cookie TTL 15 min, caps 4000/200, verified-channel binding reading) | PENDING | — |
+| FD-R48 | Batch 7 S9 provisional set (transition table, reason codes, rates 20/h + 10/10 min + 30/10 min/IP, cookie TTL 15 min, caps 4000/200, verified-channel binding reading) | Chấp nhận bộ mặc định Batch 7 (bảng chuyển trạng thái, lý do, rate 20/h + 10/10 phút + 30/10 phút/IP, cookie 15 phút, giới hạn 4000/200) (founder, chat) | 2026-10-12 |
 | FD-R50 | Placeholder moderation copy (suspend/takedown notification wording, appeal-page copy, reason labels) | PENDING | — |
-| FD-R59 | §12 critical-E2E: chấp nhận posture (action-level unit + real-DB integration, ký + ngày) HOẶC commission Playwright batch cho 2 flow | PENDING | — |
-| FD-R62 | Seller-verification decision×reason-code compatibility map (PROVISIONAL) + `needs_review` semantics | PENDING | — |
+| FD-R59 | §12 critical-E2E: chấp nhận posture (action-level unit + real-DB integration, ký + ngày) HOẶC commission Playwright batch cho 2 flow | Chấp nhận mức kiểm thử hiện có (unit + integration trên DB thật); chưa làm E2E trình duyệt — xem lại trước khi mở rộng (founder, chat) | 2026-10-12 |
+| FD-R62 | Seller-verification decision×reason-code compatibility map (PROVISIONAL) + `needs_review` semantics | Chấp nhận bảng lý do xét duyệt seller PROVISIONAL làm mặc định; xem lại sau beta (founder, chat) | 2026-10-12 |
 | FD-R68 | PROVISIONAL product copy ngoài moderation (deal labels, D12 neutral CTA, buyer-gate copy, invite/console texts, form errors, notify labels, deal price note) | PENDING | — |
 | FD-R69 | Verified-channel binding vs FD-2: production invite acceptance unreachable — quyết: đợi provider (FD-R1), hoặc token possession + out-of-band delivery, hoặc runbook §6 per-user (email-only; phone stall tới FD-R1) | PENDING | — |
 
