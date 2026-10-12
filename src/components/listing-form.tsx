@@ -7,6 +7,7 @@ import {
   type ListingFormState,
 } from "@/src/lib/actions/listings";
 import { ImagePicker } from "@/src/components/image-picker";
+import { PolicyAcceptanceNotice } from "@/src/components/policy-acceptance-notice";
 import { formatVND } from "@/src/lib/utils";
 import { LoaderCircle, Banknote } from "lucide-react";
 
@@ -197,10 +198,17 @@ export function ListingForm({
         </label>
       </div>
 
-      {state.error && (
-        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
-          {state.error}
-        </p>
+      {/* Task D (founder 2026-10-12): guard consent terms + privacy từ chối
+          create/update-resubmit — notice trung tính + link /account/policies
+          (KHÔNG code thô); các lỗi khác giữ banner text thường. */}
+      {state.error === "POLICY_ACCEPTANCE_REQUIRED" ? (
+        <PolicyAcceptanceNotice />
+      ) : (
+        state.error && (
+          <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2.5 text-sm text-[var(--red)]">
+            {state.error}
+          </p>
+        )
       )}
 
       <div className="rounded-lg bg-[var(--paper)] p-3 text-xs leading-relaxed text-[var(--ink-2)]">

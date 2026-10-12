@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
+import Link from "next/link";
 import { cn, timeAgo } from "@/src/lib/utils";
 import { ReportDialog } from "@/src/components/report-dialog";
 import { Send, LoaderCircle, CheckCheck } from "lucide-react";
@@ -28,6 +29,10 @@ export function ChatWindow({
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Task D (founder 2026-10-12): sender chưa đồng ý terms + privacy → route
+  // 403 POLICY_ACCEPTANCE_REQUIRED → banner trung tính + link /account/policies
+  // (KHÔNG im lặng — trước fix lỗi này bị nuốt, tin "gửi" mà không tới).
+  const [policyNotice, setPolicyNotice] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
 
@@ -66,13 +71,31 @@ export function ChatWindow({
     const body = text.trim();
     if (!body || sending) return;
     setSending(true);
+    setPolicyNotice(false);
     setText("");
     try {
-      await fetch(`/api/chat/${conversationId}`, {
+      const res = await fetch(`/api/chat/${conversationId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body }),
       });
+      if (!res.ok) {
+        // Task D: 403 POLICY_ACCEPTANCE_REQUIRED → banner + link (KHÔNG 500,
+        // KHÔNG im lặng). Các lỗi 403 khác (block/đình chỉ) composer đã bị
+        // disable theo trang; lỗi 4xx khác giữ nguyên hành vi im lặng cũ.
+        let code: string | null = null;
+        try {
+          const json = (await res.json()) as { error?: unknown };
+          if (typeof json.error === "string") code = json.error;
+        } catch {
+          /* body không phải JSON — giữ code null */
+        }
+        if (code === "POLICY_ACCEPTANCE_REQUIRED") {
+          setPolicyNotice(true);
+        }
+        // Gửi thất bại → trả lại nội dung vừa gõ (không đè nếu user đã gõ tiếp).
+        setText((t) => t || body);
+      }
       await poll();
     } finally {
       setSending(false);
@@ -153,6 +176,22 @@ export function ChatWindow({
           {sending ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
         </button>
       </form>
+
+      {/* Task D: sender chưa đồng ý terms + privacy (403 POLICY_ACCEPTANCE_REQUIRED
+          từ route) — thông báo trung tính + đường đồng ý, KHÔNG 500/im lặng. */}
+      {policyNotice && (
+        <p className="border-t border-[var(--line)] bg-[var(--red-soft)] px-4 py-3 text-xs leading-relaxed text-[var(--red)]">
+          Bạn cần đồng ý với Điều khoản sử dụng và Chính sách quyền riêng tư của LoaViet
+          trước khi gửi tin nhắn.{" "}
+          <Link
+            href="/account/policies"
+            className="font-semibold text-[var(--red)] underline underline-offset-2 hover:opacity-80"
+          >
+            Xem và đồng ý tại trang tài khoản
+          </Link>
+          .
+        </p>
+      )}
     </div>
   );
 }

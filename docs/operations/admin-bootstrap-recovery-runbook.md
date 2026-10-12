@@ -258,6 +258,14 @@ hash bằng key mới. KHÔNG cần reset MFA.
 
 ## 6. Khôi phục tài khoản NGƯỜI DÙNG ngoài band (Ambiguity A3 — last resort)
 
+> **2026-10-12 (zero-cost launch Task A — FD-R1/FD-R29):** đường CHUẨN để đánh dấu
+> kênh liên hệ đã verified giờ là **panel admin "Xác minh liên hệ thủ công"**
+> (`/admin/users?u=<id>` — two-person rule: admin A mở request, admin B khác
+> duyệt; audited `contact.manual_verify_*`; step-up MFA; hash giá trị chuẩn hóa,
+> KHÔNG giá trị thô) — xem `docs/operations/concierge-onboarding-playbook.md` §4.
+> Block psql dưới đây giữ làm **break-glass** (email bootstrap khi không vào được
+> admin UI) — chạy panel được thì KHÔNG chạy psql.
+
 Người dùng mất MỌI kênh đã xác minh (email + phone) không thể tự phục vụ —
 recovery chỉ chạy qua kênh đã verified (spec §7.7, chống chiếm tài khoản qua SIM
 tái sử dụng/email cũ). Phương án cuối cùng (audited, two-person rule — proofing
@@ -397,6 +405,7 @@ SELECT "createdAt", "action", "reason", "detail"
 | Đổi/gỡ role qua UI | `admin.role_set` | reason code operator chọn | detail `from=… to=…` (`to=none` = gỡ); sống chết cùng tx thu hồi session |
 | Xoá MFA qua psql (§3) | `admin.mfa_reset_manual` | `manual_last_resort` | ghi tay TRONG tx mutation (two-person) |
 | Verified email qua psql (§6) | `user.email_verified_manual` | `manual_out_of_band` | ghi tay TRONG tx mutation (two-person) |
+| Xác minh liên hệ qua panel (2026-10-12) | `contact.manual_verify_requested` / `_approved` / `_rejected` / `_cancelled` | — | two-person rule (A mở, B khác duyệt); detail ids/channel/method/decision — KHÔNG giá trị thô; step-up MFA bắt buộc |
 | Login admin bằng mã khôi phục | `admin.mfa_recovery_code_used` | `login_recovery_code` / `step_up_recovery_code` | mã đánh dấu `usedAt` (single-use) |
 | Sinh lại mã khôi phục (UI) | `admin.mfa_recovery_codes_regenerated` | factor | detail `count=10` |
 | Step-up | `admin.step_up` | factor (`totp`/`recovery_code`) | |

@@ -105,6 +105,7 @@ const dbState = vi.hoisted(() => ({
   blocks: [] as Row[],
   verifications: [] as Row[],
   memberships: [] as Row[],
+  acceptances: [] as Row[], // PolicyAcceptance — Task D guard (terms + privacy)
   notifications: [] as Row[],
   events: [] as Row[], // ProductEvent rows — emit core THẬT ghi vào đây
 }));
@@ -260,6 +261,11 @@ vi.mock("@/src/prisma/db.client", () => {
       createdAt: NOW,
       updatedAt: NOW,
     })),
+    // Task D — guard assertCurrentPoliciesAccepted đọc fresh
+    PolicyAcceptance: makeModel(dbState.acceptances, () => ({
+      id: `pa-${dbState.acceptances.length + 1}`,
+      acceptedAt: NOW,
+    })),
     Notification: makeModel(dbState.notifications, () => ({
       id: `notif-${dbState.notifications.length + 1}`,
       readAt: null,
@@ -308,6 +314,7 @@ vi.mock("@/src/lib/product-events", async (importOriginal) => {
 // ─── Imports (sau mock — vitest hoist vi.mock lên trước) ──────────────────────
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { emitProductEvent } from "@/src/lib/product-events";
 import { createDealAction, markDealOutcomeAction } from "@/src/lib/actions/deals";
 
@@ -396,6 +403,25 @@ function seedBuyerMembership(over: Row = {}): void {
   });
 }
 
+/**
+ * Row chấp nhận terms + privacy ở version HIỆN HÀNH của registry — Task D
+ * fixture migration (founder 2026-10-12): createDealAction giờ có guard CUỐI
+ * cùng assertCurrentPoliciesAccepted; mọi fixture tạo Deal qua action cần
+ * buyer đã đồng ý. Case âm sống ở policy-acceptance.test.ts. KHÔNG
+ * assertion nào đổi.
+ */
+function seedPolicyAcceptance(userId: string): void {
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${userId}-${key}`,
+      userId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: "2026-10-12T00:00:00.000Z",
+    });
+  }
+}
+
 /** Deal open đã tồn tại (seed trực tiếp — marking KHÔNG qua createDealAction). */
 function seedOpenDeal(over: Row = {}): Row {
   const row: Row = {
@@ -443,6 +469,7 @@ const resetStores = () => {
     dbState.blocks,
     dbState.verifications,
     dbState.memberships,
+    dbState.acceptances,
     dbState.notifications,
     dbState.events,
   ]) {
@@ -460,6 +487,7 @@ beforeEach(() => {
   seedListing();
   seedConversation("listing-1", BUYER.id);
   seedSellerEligibility(SELLER.id);
+  seedPolicyAcceptance(BUYER.id); // Task D fixture migration (founder 2026-10-12)
   // BUYER KHÔNG có membership mặc định — mỗi case tự seed (gate là đối tượng test).
 });
 

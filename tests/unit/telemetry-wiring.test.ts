@@ -489,6 +489,7 @@ vi.mock("@/src/prisma/db.client", async () => {
 // ─── Imports — modules THẬT + modules dưới test ──────────────────────────────
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
+import { POLICIES } from "@/src/lib/policy-registry";
 import { SESSION_COOKIE } from "@/src/lib/session";
 import { db } from "@/src/prisma/db.client"; // db mock in-memory (seam fail-open test)
 import { actorPseudonymFor, sessionPseudonymFor } from "@/src/lib/product-events";
@@ -739,6 +740,25 @@ const postMessage = (convoId: string, body: string): Promise<Response> =>
 const eventsNamed = (name: string): Row[] =>
   dbState.productEvents.filter((e) => e["name"] === name);
 
+/**
+ * Row chấp nhận terms + privacy ở version HIỆN HÀNH của registry — Task D
+ * fixture migration (founder 2026-10-12): startConversationAction + chat
+ * POST giờ có guard assertCurrentPoliciesAccepted; mọi fixture đi qua cần
+ * actor đã đồng ý. Case âm sống ở policy-acceptance.test.ts. KHÔNG
+ * assertion nào đổi.
+ */
+const seedPolicyAcceptance = (userId: string): void => {
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${userId}-${key}`,
+      userId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: "2026-10-12T00:00:00.000Z",
+    });
+  }
+};
+
 const resetStores = (): void => {
   for (const arr of Object.values(dbState)) {
     if (Array.isArray(arr)) arr.length = 0;
@@ -761,6 +781,10 @@ beforeEach(() => {
   captureErrorMock.mockClear();
   // Base: user thường (fixture auth) + admin ops (rbac login) + catalog rows.
   dbState.users.push({ ...BUYER }, { ...SELLER }, { ...ADMIN_OPS }, { ...VERIFIED_SELLER });
+  // Task D fixture migration: BUYER + SELLER (actor của startConversationAction
+  // + chat POST) đã đồng ý terms + privacy — guard không over-block.
+  seedPolicyAcceptance(BUYER.id);
+  seedPolicyAcceptance(SELLER.id);
   dbState.categories.push({ ...CATEGORY });
   dbState.brands.push({ ...BRAND });
   dbState.models.push({ ...MODEL });

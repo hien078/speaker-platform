@@ -180,10 +180,10 @@ deleteAll trực tiếp (listings.ts:1468 — belt-and-suspenders sau cascade) �
 | `PriceHistory` | **createListingAction** listings.ts:491, **updateListingAction** reprice listings.ts:1187, submit/publish listings.ts:1349, **mergeModelAction** catalog.ts:132 — luồng listing/catalog bình thường → CRITICAL mỗi lần đăng tin = alert fatigue (review fix 1); writer finance: orders.ts:390 recordSoldPrices :384 (đã guard) |
 | `Cart` | **registerAction** auth.ts:122, **finishLogin** auth.ts:139 — luồng auth (mỗi user mới 1 Cart) |
 | `Review` | **submitReviewAction** reviews.ts:21 — KHÔNG finance guard (ghi Review cho đơn completed) — **finding cho security review Task 8** |
-| 33 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2); AbuseReport, ModerationCase, ModerationEvidence, ModerationAction, UserBlock, UserSuspension, Appeal (Batch 3 trust & safety), ListingImageUpload (Batch 4 upload ownership); ProductEvent, SearchAlias (Batch 5 telemetry/search — emitProductEvent src/lib/product-events.ts, seed-search-aliases.ts), Deal, DealStatusHistory (Batch 6 Deal — src/lib/actions/deals.ts), FoundingSellerCandidate, BetaInviteToken (Batch 7 cohort ops — src/lib/actions/founding-sellers.ts) — không FK tới bảng finance, không phải ranh giới tài chính |
+| 34 bảng còn lại | User, Category, Brand, Listing, ListingImage, Conversation, Message, AdminAuditLog, WishlistItem, ProductModel, Notification, UserSession, OtpCode, SellerVerification, BetaCohortMembership, PolicyAcceptance, AdminMfa, AdminRecoveryCode, AuditEvent — domain identity/catalog/moderation/audit (Batch 2); AbuseReport, ModerationCase, ModerationEvidence, ModerationAction, UserBlock, UserSuspension, Appeal (Batch 3 trust & safety), ListingImageUpload (Batch 4 upload ownership); ProductEvent, SearchAlias (Batch 5 telemetry/search — emitProductEvent src/lib/product-events.ts, seed-search-aliases.ts), Deal, DealStatusHistory (Batch 6 Deal — src/lib/actions/deals.ts), FoundingSellerCandidate, BetaInviteToken (Batch 7 cohort ops — src/lib/actions/founding-sellers.ts), ManualContactVerification (zero-cost launch Task A — src/lib/actions/manual-contact-verification.ts) — không FK tới bảng finance, không phải ranh giới tài chính |
 
 Tổng (merge fix Wave 0): **9 finance-only + 3 cascade-affected (= 12 monitored,
-không đổi) + 36 non-finance = 48 model contract** — drift test
+không đổi) + 37 non-finance = 49 model contract** — drift test
 (`tests/unit/ops-alerts.test.ts`) assert đủ 3 lớp phủ mọi model.
 
 ### Cơ chế watermark
@@ -272,6 +272,9 @@ các nhánh "re-verify after Batch N" đã được đóng trên cây merge Batc
   — sáu model Batch 5–7 đều **non-finance** (không FK tới bảng finance; evidence:
   `tests/integration/batch6-migration.test.ts` +
   `batch7-migration.test.ts` assert không op id nào khớp finance regex).
+- Zero-cost launch Task A `ManualContactVerification` — **non-finance** (FK duy
+  nhất là User Restrict; evidence: `tests/integration/manual-contact-verification-migration.test.ts`
+  assert không op id nào khớp finance regex).
 - Batch 5 PII-guard source-scan: Batch 5 không xuất module shape-scan dùng
   chung — ops-alerts giữ bộ shape scan riêng trong test (duplicate có drift
   pin, không import được module server-only — Global Constraints).

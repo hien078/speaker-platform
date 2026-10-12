@@ -386,7 +386,8 @@ vi.mock("@/src/prisma/db.client", () => {
 // ─── Imports (sau mock — vitest hoist vi.mock lên trước) ──────────────────────
 
 import { resetRateLimits } from "@/src/lib/rate-limit";
-import { SESSION_COOKIE } from "@/src/lib/session";
+import { POLICIES } from "@/src/lib/policy-registry";
+import { SESSION_COOKIE } from "@/src/lib/session";;
 import { checkSellerPublicationRequirements } from "@/src/lib/seller-verification-policy";
 import { assertListingPublishable } from "@/src/lib/listing-publication";
 import { listingPublicationInputFromRow } from "@/src/lib/actions/helpers";
@@ -477,6 +478,19 @@ const seedPolicyRows = (
     policyVersion: "v1",
     acceptedAt: new Date().toISOString(),
   });
+  // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
+  // review/toggle-publish listing giờ có guard assertCurrentPoliciesAccepted
+  // (terms + privacy) — seed thêm hai row account-policy ở version registry
+  // cho actor. Case âm sống ở policy-acceptance.test.ts. KHÔNG assertion nào đổi.
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${sellerId}-${key}`,
+      userId: sellerId,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
   dbState.memberships.push({
     id: `bcm-${dbState.memberships.length + 1}`,
     userId: sellerId,
@@ -713,6 +727,19 @@ const seedBase = (): void => {
   // Cả hai seller đủ 8 yêu cầu (membership ACTIVE mặc định — case suspend tự flip).
   seedPolicyRows(SELLER.id);
   seedPolicyRows(SELLER2.id);
+  // Task D fixture migration (founder 2026-10-12): BUYER (actor của C3
+  // startConversationAction + D3 createDealAction — case no-over-block) cũng
+  // đã đồng ý terms + privacy ở version registry. Case âm sống ở
+  // policy-acceptance.test.ts. KHÔNG assertion nào đổi.
+  for (const key of ["terms", "privacy"] as const) {
+    dbState.acceptances.push({
+      id: `pa-${BUYER.id}-${key}`,
+      userId: BUYER.id,
+      policyKey: key,
+      policyVersion: POLICIES[key].version,
+      acceptedAt: new Date().toISOString(),
+    });
+  }
 };
 
 beforeEach(() => {

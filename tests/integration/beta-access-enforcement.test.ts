@@ -67,6 +67,7 @@ vi.mock("next/headers", () => ({
 import { db } from "../../src/prisma/db.client";
 import { SESSION_COOKIE, createSession } from "../../src/lib/session";
 import { resetRateLimits } from "../../src/lib/rate-limit";
+import { POLICIES } from "../../src/lib/policy-registry";
 import { startConversationAction } from "../../src/lib/actions/chat";
 import { createDealAction, markDealOutcomeAction } from "../../src/lib/actions/deals";
 import { setBetaMembershipAction } from "../../src/lib/actions/beta-cohort";
@@ -89,6 +90,17 @@ async function mkUser(role: "buyer" | "seller" | "admin", over?: { adminRole?: s
     ...(over?.adminRole ? { adminRole: over.adminRole as "operations_admin" } : {}),
   });
   created.users.push(u.id);
+  // Task D fixture migration (founder 2026-10-12): startConversationAction +
+  // createDealAction giờ có guard assertCurrentPoliciesAccepted (terms +
+  // privacy) — mọi user fixture đã đồng ý ở version registry (row cascade
+  // theo user khi dọn). Case âm sống ở policy-acceptance.test.ts (integration).
+  for (const policyKey of ["terms", "privacy"] as const) {
+    await db.orm.public.PolicyAcceptance.create({
+      userId: u.id,
+      policyKey,
+      policyVersion: POLICIES[policyKey].version,
+    });
+  }
   return u.id;
 }
 

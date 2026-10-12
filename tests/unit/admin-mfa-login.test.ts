@@ -506,6 +506,10 @@ describe("requireCapabilityWithStepUp — step-up gate (spec §5.4.2)", () => {
         // Batch 3 (A9): đình chỉ user = "destructive account action" (spec
         // §5.4.2) — đọc chặn platform participation qua actor-side guards.
         "user.suspend",
+        // zero-cost launch Task A: quyết định verification thủ công (approve
+        // manual contact verification) — cùng nhóm nhạy cảm nhất của A5
+        // ("MỌI quyết định verification thủ công đều cần step-up").
+        "contact.verify_manual",
       ].sort(),
     );
   });

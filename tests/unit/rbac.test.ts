@@ -114,6 +114,8 @@ const ALL_CAPS: Capability[] = [
   "admin.role_manage",
   "security.config",
   "audit.read",
+  // zero-cost launch Task A — manual contact verification (two-person rule)
+  "contact.verify_manual",
 ];
 
 // Ma trận kỳ vọng — ĐÚNG từng ô plan Task 4 (spec §5.4.1). Ô "—" trong spec
@@ -135,6 +137,10 @@ const EXPECTED: Record<Capability, Record<AdminRole, boolean>> = {
   "admin.role_manage": { super_admin: true, operations_admin: false, moderator: false, support: false, analyst: false },
   "security.config": { super_admin: true, operations_admin: false, moderator: false, support: false, analyst: false },
   "audit.read": { super_admin: true, operations_admin: false, moderator: false, support: false, analyst: false },
+  // zero-cost launch Task A — manual contact verification: super/ops only
+  // (two-person rule cần admin A ≠ admin B — moderator/support KHÔNG được
+  // chạm kênh verified của user; analyst read-only fail closed A2).
+  "contact.verify_manual": { super_admin: true, operations_admin: true, moderator: false, support: false, analyst: false },
 };
 
 beforeEach(() => {
