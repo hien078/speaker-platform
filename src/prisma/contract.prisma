@@ -262,6 +262,33 @@ enum beta_invite_channel {
   phone = "phone"
 }
 
+// ─── Enums (zero-cost launch Task A — manual contact verification) ───
+
+enum manual_contact_channel {
+  @@type("pg/text@1")
+  email = "email" // kênh trùng hệ emailVerifiedAt (spec §5.3)
+  phone = "phone" // kênh trùng hệ phoneVerifiedAt (spec §5.3)
+}
+
+enum manual_contact_method {
+  @@type("pg/text@1")
+  phone_call = "phone_call"   // gọi điện ra số máy chủ
+  in_person  = "in_person"    // gặp mặt (concierge / sự kiện)
+  video_call = "video_call"   // gọi video nhìn mặt + đọc giá trị
+  other      = "other"         // kênh khác — note bắt buộc giải thích
+}
+
+enum manual_contact_status {
+  @@type("pg/text@1")
+  requested = "requested" // admin A đã mở — chờ admin B quyết định
+  approved  = "approved"   // admin B đã duyệt — verifiedAt được set (nếu chưa)
+  rejected  = "rejected"   // admin B từ chối — KHÔNG set verifiedAt
+  cancelled = "cancelled"  // admin A tự hủy trước khi có quyết định
+  // expired: giá trị reserved — read-path coi row requested quá expiresAt là
+  // expired (tính theo expiresAt, KHÔNG cron — cùng triết lý OtpCode Batch 2)
+  expired = "expired"
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -332,6 +359,10 @@ model User {
   foundingSellerCandidate     FoundingSellerCandidate?  @relation("founding_seller_candidate_user")
   betaInvitesIssuedBy         BetaInviteToken[]         @relation("beta_invite_issued_by")
   foundingCandidatesAssigned  FoundingSellerCandidate[] @relation("founding_seller_candidate_operator")
+  // ─── zero-cost launch Task A — manual contact verification relations (additive — KHÔNG cột mới trên User) ───
+  manualContactVerifications          ManualContactVerification[] @relation("manual_contact_verification_user")
+  manualContactVerificationsRequested ManualContactVerification[] @relation("manual_contact_verification_requester")
+  manualContactVerificationsDecided  ManualContactVerification[] @relation("manual_contact_verification_decider")
 
   @@index([role])
 }
@@ -1355,4 +1386,41 @@ model BetaInviteToken {
   // (Batch 6 Deal precedent) — cột camelCase PHẢI trong quote (corrections item 5:
   // unquoted consumedAt folds thành consumedat trong Postgres → index chết im).
   @@index([candidateId], where: "(\"consumedAt\" IS NULL AND \"revokedAt\" IS NULL)", unique: true, name: "beta_invite_one_active")
+}
+
+// ─── Manual contact verification (zero-cost launch Task A — two-person rule) ───
+// Founder 2026-10-12 (FD-R1/FD-R29): chưa có paid OTP provider — admin A mở
+// request, admin B quyết định sau khi xác nhận out-of-band (gọi điện/gặp mặt/
+// video). KHÔNG đụng verification-delivery.ts (OTP adapter production vẫn
+// fail-closed). targetHash là HMAC-SHA256 hex của giá trị ĐÃ CHUẨN HÓA
+// (normalizeEmail/normalizePhone) qua hkdfKey("manual-contact-target") —
+// KHÔNG BAO GIỜ lưu giá trị thô (note cũng đã qua redactDetail tại write time).
+
+model ManualContactVerification {
+  id            String                 @id @default(uuid())
+  userId        String
+  user          User                   @relation("manual_contact_verification_user", fields: [userId], references: [id], onDelete: Restrict) // explicit Restrict: row verification là audit trail — sống qua mọi product flow; KHÔNG cascade
+  channel       manual_contact_channel
+  targetHash    String // HMAC-SHA256 hex (hkdfKey("manual-contact-target")) của giá trị CHUẨN HÓA lúc request — decide so lại hash: giá trị đổi giữa chừng → CONTACT_CHANGED
+  method        manual_contact_method
+  note          String? // ≤1000 chars — validate ở action layer; đã qua redactDetail tại write time (KHÔNG raw email/phone)
+  status        manual_contact_status  @default(requested)
+  requestedById String? // nullable + SetNull: row sống qua admin deletion (Batch 3 UserSuspension precedent)
+  requestedBy   User?                  @relation("manual_contact_verification_requester", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedAt   TimestamptzString      @default(now())
+  decidedById   String? // nullable + SetNull — admin B (≠ A, ≠ subject)
+  decidedBy     User?                  @relation("manual_contact_verification_decider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt     TimestamptzString?
+  expiresAt     TimestamptzString // requestedAt + 24h — read-path coi row requested quá hạn là expired (no cron)
+  createdAt     TimestamptzString      @default(now())
+  updatedAt     temporal.updatedAtString()
+
+  @@index([userId, channel])
+  @@index([status, requestedAt])
+  @@index([expiresAt])
+  // MỘT row requested duy nhất per (userId, channel) — đóng race double-request;
+  // row approved/rejected/cancelled/expired được GIỮ làm audit trail. where: là SQL
+  // string (Batch 6 Deal precedent) — cột camelCase PHẢI trong quote (corrections
+  // item 5: unquoted folds trong Postgres → index chết im).
+  @@index([userId, channel], where: "(\"status\" = 'requested')", unique: true, name: "manual_contact_one_requested")
 }

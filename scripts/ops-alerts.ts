@@ -185,6 +185,10 @@ export const NON_FINANCE_TABLES = [
   "DealStatusHistory",
   "FoundingSellerCandidate",
   "BetaInviteToken",
+  // zero-cost launch Task A — manual contact verification: writer chính là
+  // src/lib/actions/manual-contact-verification.ts (admin A request / admin B
+  // decide); FK duy nhất là User (Restrict) — không FK tới bảng finance.
+  "ManualContactVerification",
 ] as const;
 
 /** Monitored set = finance-only ∪ cascade-affected (12 bảng — SQL + watermark). */

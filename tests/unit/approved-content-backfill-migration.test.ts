@@ -169,6 +169,9 @@ describe("migration backfill approvedContentAt — artefact contract (b4-holisti
         "20261007T2208_batch5_search_telemetry",
         "20261008T0237_batch6_chat_deal",
         "20261008T1130_batch7_cohort_operations",
+        // zero-cost launch Task A (append-only pin — cùng precedent Batch 6/7
+        // corrections item 3: ref production advance qua migration mới)
+        "20261012T0000_manual_contact_verification",
       ]);
       // self-edge: from == to (data-only, không đổi schema)
       const selfEdge = migrations.find((m) => m.dirName === "20261007T2007_batch4_round4_approved_content_backfill");

@@ -626,6 +626,18 @@ describe("phân loại finance table theo writer (grep-verified) — mọi model
     }
   });
 
+  it("ManualContactVerification (zero-cost launch Task A) NON-FINANCE — writer là manual-contact-verification.ts, không FK tới bảng finance", () => {
+    // Writer: src/lib/actions/manual-contact-verification.ts (request/decide/
+    // cancel — requireCapabilityWithStepUp("contact.verify_manual"), KHÔNG
+    // finance guard vì không phải ranh giới tài chính). FK duy nhất → User
+    // (Restrict/SetNull) — không FK tới bảng finance nào (evidence:
+    // tests/integration/manual-contact-verification-migration.test.ts assert
+    // không op id nào khớp finance regex). Quy tắc thường trực §6
+    // monitoring-signals.md: model mới được phân loại trong CHÍNH batch thêm nó.
+    expect(FINANCE_TABLES).not.toContain("ManualContactVerification");
+    expect(NON_FINANCE_TABLES).toContain("ManualContactVerification");
+  });
+
   it("OTP_MAX_ATTEMPTS khớp src/lib/otp.ts (server-only — tsx không import được)", () => {
     const otpSrc = read("src/lib/otp.ts");
     const match = otpSrc.match(/export const OTP_MAX_ATTEMPTS = (\d+)/);
