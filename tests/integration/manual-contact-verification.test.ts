@@ -207,6 +207,77 @@ async function openRequest(
 
 type FormState = { error?: string; success?: string };
 
+// ─── Interleave helper (fix review #2 — change commit GIỮA read và write) ──────
+
+/** Tx context của db.transaction — cùng shape src/lib/audit-event.ts. */
+type PgTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * "Contact đổi giữa read và write của approve tx" KHÔNG thể tạo bằng cách đổi
+ * TRƯỚC khi gọi action — subject-read của approve branch sẽ thấy giá trị mới,
+ * hash check bắt ở READ time (section 3 đã cover). Helper này monkey-patch
+ * db.transaction (singleton — action import cùng instance): tx được bọc
+ * proxy mà `orm.public.User.first` ĐẦU TIÊN (subject-read của approve branch)
+ * resolve xong sẽ chạy `interleave` qua POOL (db.orm — connection KHÁC,
+ * commit ngay; READ COMMITTED: statement write của approve tx sẽ thấy row
+ * mới) TRƯỚC khi action chạy updateAll — mô phỏng đúng profile.ts CAS commit
+ * giữa read và write, không cần đồng hồ. One-shot: re-read trong 0-row
+ * handler KHÔNG kích lại. Trả về restore — LUÔN gọi trong finally.
+ */
+function interleaveAfterSubjectRead(interleave: () => Promise<void>): () => void {
+  const real = db.transaction.bind(db);
+  let armed = true;
+  db.transaction = (async (fn: (tx: PgTx) => PromiseLike<unknown>) =>
+    real(async (tx) => {
+      if (!armed) return fn(tx);
+      armed = false;
+      let fired = false;
+      const proxied = new Proxy(tx, {
+        get(target, prop) {
+          const value = Reflect.get(target, prop, target);
+          if (prop !== "orm") return typeof value === "function" ? value.bind(target) : value;
+          const orm = value as Record<string, unknown>;
+          return new Proxy(orm, {
+            get(t, p) {
+              const v = Reflect.get(t, p, t);
+              if (p !== "public") return typeof v === "function" ? v.bind(t) : v;
+              const pub = v as Record<string, unknown>;
+              return new Proxy(pub, {
+                get(t2, p2) {
+                  const v2 = Reflect.get(t2, p2, t2);
+                  if (p2 !== "User") return typeof v2 === "function" ? v2.bind(t2) : v2;
+                  const user = v2 as {
+                    first: (...args: unknown[]) => Promise<unknown>;
+                  };
+                  return new Proxy(user, {
+                    get(t3, p3) {
+                      if (p3 !== "first") {
+                        const v3 = Reflect.get(t3, p3, t3);
+                        return typeof v3 === "function" ? v3.bind(t3) : v3;
+                      }
+                      return async (...args: unknown[]) => {
+                        const row = await user.first(...args);
+                        if (!fired) {
+                          fired = true;
+                          await interleave();
+                        }
+                        return row;
+                      };
+                    },
+                  });
+                },
+              });
+            },
+          });
+        },
+      });
+      return fn(proxied as PgTx);
+    })) as unknown as typeof db.transaction;
+  return () => {
+    db.transaction = real as unknown as typeof db.transaction;
+  };
+}
+
 // dọn đúng dữ liệu test mình tạo (DB scratch — nhưng vẫn dọn sạch theo ref),
 // thứ tự ngược FK: ManualContactVerification (userId Restrict) TRƯỚC User;
 // BetaInviteToken (candidateId Restrict) TRƯỚC FoundingSellerCandidate.
@@ -765,5 +836,159 @@ d("manual contact verification — audit rows (§4.6/§4.8)", () => {
     expect(requested.actorId).toBe(adminA);
     expect(approvedEv.actorId).toBe(adminB);
     expect(approvedEv.detail).toContain("decision=approve");
+  });
+});
+
+// ─── 10. Approve GHI phone chuẩn hóa — uniqueness không bypass bởi dạng thô ───
+
+d("manual contact verification — approve chuẩn hóa phone (fix review #1)", () => {
+  it(
+    "hai tài khoản số thô cùng giá trị (\"+84912345678\" / \"0912 345 678\") → approve 1 GHI chuẩn hóa, approve 2 PHONE_ALREADY_VERIFIED",
+    async () => {
+      // X/Y giữ dạng THÔ như registerAction lưu (auth.ts KHÔNG chuẩn hóa —
+      // schema chỉ trim/max 20): cùng một số 0912345678 dưới hai dạng khác nhau.
+      const x = await mkSubject({ phone: "+84912345678" });
+      const y = await mkSubject({ phone: "0912 345 678" });
+      const adminA = await mkAdmin();
+      const adminB = await mkAdmin("operations_admin");
+
+      // ── X: A request → B approve → phone lưu CHUẨN HÓA (dạng thô không còn)
+      const tokenA = await loginAs(adminA);
+      await stepUpCurrentSession(adminA);
+      const reqX = await openRequest(tokenA, x.id, "phone");
+      expect(reqX.state.error, JSON.stringify(reqX.state)).toBeUndefined();
+      await loginAs(adminB);
+      await stepUpCurrentSession(adminB);
+      const approvedX = await decideManualContactVerificationAction(
+        {},
+        fd({ verificationId: reqX.rowId!, decision: "approve" }),
+      );
+      expect(approvedX.error, JSON.stringify(approvedX)).toBeUndefined();
+      const xRow = await db.orm.public.User.first({ id: x.id });
+      expect(xRow!.phone).toBe("0912345678"); // CHUẨN HÓA — "+84..." không còn
+      expect(xRow!.phoneVerifiedAt).not.toBeNull();
+      const rowX = await db.orm.public.ManualContactVerification.first({ id: reqX.rowId! });
+      expect(rowX!.status).toBe("approved");
+
+      // ── Y (cùng số, dạng thô khác): A request → B approve →
+      //    PHONE_ALREADY_VERIFIED — owner lookup where({ phone: "0912345678" })
+      //    BẮT ĐƯỢC X (đã lưu chuẩn hóa). Trước fix: X giữ "+84912345678" →
+      //    lookup lỡ X → HAI tài khoản cùng một số verified.
+      const tokenA2 = await loginAs(adminA);
+      await stepUpCurrentSession(adminA);
+      const reqY = await openRequest(tokenA2, y.id, "phone");
+      expect(reqY.state.error, JSON.stringify(reqY.state)).toBeUndefined();
+      await loginAs(adminB);
+      await stepUpCurrentSession(adminB);
+      const approvedY = await decideManualContactVerificationAction(
+        {},
+        fd({ verificationId: reqY.rowId!, decision: "approve" }),
+      );
+      expect(approvedY.error).toBe("PHONE_ALREADY_VERIFIED");
+      const yRow = await db.orm.public.User.first({ id: y.id });
+      expect(yRow!.phoneVerifiedAt).toBeNull(); // KHÔNG merge — số là của X
+      expect(yRow!.phone).toBe("0912 345 678"); // KHÔNG bị đè bởi quyết định bị từ chối
+      const rowY = await db.orm.public.ManualContactVerification.first({ id: reqY.rowId! });
+      expect(rowY!.status).toBe("requested"); // tx abort — claim rollback
+      expect(rowY!.decidedById).toBeNull();
+    },
+  );
+});
+
+// ─── 11. CAS chặn change commit GIỮA read và write của approve tx ─────────────
+
+d("manual contact verification — contact đổi giữa read và write (fix review #2)", () => {
+  it("phone: profile CAS commit giữa subject-read và write → CONTACT_CHANGED, KHÔNG verify, request + audit rollback", async () => {
+    const subject = await mkSubject();
+    const adminA = await mkAdmin();
+    const adminB = await mkAdmin("operations_admin");
+    const newPhone = vnPhone();
+
+    const tokenA = await loginAs(adminA);
+    await stepUpCurrentSession(adminA);
+    const req = await openRequest(tokenA, subject.id, "phone");
+    expect(req.state.error).toBeUndefined();
+
+    await loginAs(adminB);
+    await stepUpCurrentSession(adminB);
+
+    // Subject "submit profile edit" ĐÚNG LÚC approve tx đang giữa read và
+    // write: profile.ts CAS trên stored phone → phone mới + phoneVerifiedAt
+    // reset, COMMIT (pool — connection khác) trước khi approve chạy updateAll.
+    const restore = interleaveAfterSubjectRead(async () => {
+      await db.orm.public.User.where({ id: subject.id }).updateAll({
+        phone: newPhone,
+        phoneVerifiedAt: null,
+      });
+    });
+    let decided: FormState;
+    try {
+      decided = await decideManualContactVerificationAction(
+        {},
+        fd({ verificationId: req.rowId!, decision: "approve" }),
+      );
+    } finally {
+      restore();
+    }
+    expect(decided.error).toBe("CONTACT_CHANGED");
+
+    // Số mới (chưa từng out-of-band) KHÔNG bị verify; profile change NGUYÊN
+    // VẸN — approve KHÔNG clobber (CAS 0 row → tx abort).
+    const subjectRow = await db.orm.public.User.first({ id: subject.id });
+    expect(subjectRow!.phone).toBe(newPhone);
+    expect(subjectRow!.phoneVerifiedAt).toBeNull();
+    // Request + audit rollback (cùng tx abort — KHÔNG fire-after-commit).
+    const row = await db.orm.public.ManualContactVerification.first({ id: req.rowId! });
+    expect(row!.status).toBe("requested");
+    expect(row!.decidedById).toBeNull();
+    const approvedAudits = await db.orm.public.AuditEvent
+      .where({ subjectId: subject.id })
+      .where((e) => e.action.in(["contact.manual_verify_approved"]))
+      .all();
+    expect(approvedAudits).toHaveLength(0);
+  });
+
+  it("email: đổi giữa subject-read và write → CONTACT_CHANGED, KHÔNG verify, request + audit rollback", async () => {
+    const subject = await mkSubject();
+    const adminA = await mkAdmin();
+    const adminB = await mkAdmin("operations_admin");
+    const newEmail = `${uid()}@moved.test`;
+
+    const tokenA = await loginAs(adminA);
+    await stepUpCurrentSession(adminA);
+    const req = await openRequest(tokenA, subject.id, "email");
+    expect(req.state.error).toBeUndefined();
+
+    await loginAs(adminB);
+    await stepUpCurrentSession(adminB);
+
+    const restore = interleaveAfterSubjectRead(async () => {
+      await db.orm.public.User.where({ id: subject.id }).updateAll({
+        email: newEmail,
+        emailVerifiedAt: null,
+      });
+    });
+    let decided: FormState;
+    try {
+      decided = await decideManualContactVerificationAction(
+        {},
+        fd({ verificationId: req.rowId!, decision: "approve" }),
+      );
+    } finally {
+      restore();
+    }
+    expect(decided.error).toBe("CONTACT_CHANGED");
+
+    const subjectRow = await db.orm.public.User.first({ id: subject.id });
+    expect(subjectRow!.email).toBe(newEmail); // change sống — approve KHÔNG clobber
+    expect(subjectRow!.emailVerifiedAt).toBeNull(); // KHÔNG verify email chưa từng out-of-band
+    const row = await db.orm.public.ManualContactVerification.first({ id: req.rowId! });
+    expect(row!.status).toBe("requested");
+    expect(row!.decidedById).toBeNull();
+    const approvedAudits = await db.orm.public.AuditEvent
+      .where({ subjectId: subject.id })
+      .where((e) => e.action.in(["contact.manual_verify_approved"]))
+      .all();
+    expect(approvedAudits).toHaveLength(0);
   });
 });

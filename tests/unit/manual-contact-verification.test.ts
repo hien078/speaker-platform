@@ -188,6 +188,34 @@ describe("source contract — src/lib/actions/manual-contact-verification.ts", (
     expect(src()).toMatch(/emailVerifiedAt\.isNull\(\)|phoneVerifiedAt\.isNull\(\)/);
   });
 
+  it("approve phone branch: CAS trên RAW value đọc trong tx + GHI dạng CHUẨN HÓA (fix review #1 — uniqueness không bypass bởi dạng thô)", () => {
+    // updateAll match CHỈ khi row vẫn giữ đúng raw value vừa hash-check —
+    // phone ĐÃ VERIFIED được GHI thành currentTarget (chuẩn hóa) để owner
+    // lookup where({ phone }) của lần approve/OTP-confirm sau không bị lỡ
+    // bởi dạng thô ("+84912345678" / "0912 345 678") còn sót từ signup.
+    expect(src()).toMatch(/\.where\(\{ id: subject\.id, phone: subject\.phone \}\)/);
+    expect(src()).toMatch(/updateAll\(\{ phone: currentTarget, phoneVerifiedAt: nowIso \}\)/);
+  });
+
+  it("approve email branch: CAS trên email đọc trong tx (fix review #2 — email đổi giữa read/write không bị verify)", () => {
+    expect(src()).toMatch(/\.where\(\{ id: subject\.id, email: subject\.email \}\)/);
+    expect(src()).toMatch(/updateAll\(\{ emailVerifiedAt: nowIso \}\)/);
+  });
+
+  it("CAS 0 row → re-read INSIDE tx → idempotent no-op (verified cùng giá trị) HOẶC CONTACT_CHANGED (fix review #2)", () => {
+    // 0 row = giá trị đổi giữa read/write (CONTACT_CHANGED — tx abort, claim +
+    // audit rollback) HOẶC ai đó đã verify CÙNG giá trị chuẩn hóa (idempotent
+    // no-op — KHÔNG đè timestamp).
+    expect(src()).toMatch(/claimedPhone\.length === 0/);
+    expect(src()).toMatch(/claimedEmail\.length === 0/);
+    expect(src()).toMatch(
+      /recheck\.phoneVerifiedAt === null \|\| recheck\.phone !== currentTarget/,
+    );
+    expect(src()).toMatch(
+      /recheck\.emailVerifiedAt === null \|\| recheck\.email !== subject\.email/,
+    );
+  });
+
   it("two-person rule: quyết định ≠ requester ≠ subject — typed errors riêng từng vai", () => {
     expect(src()).toContain("SAME_PERSON_FORBIDDEN"); // B === requester (decide)
     expect(src()).toContain("SELF_VERIFICATION_FORBIDDEN"); // subject === self (request)

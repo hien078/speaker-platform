@@ -32,7 +32,12 @@ import {
  *  - approve set emailVerifiedAt/phoneVerifiedAt CHỈ KHI CÒN NULL (conditional
  *    updateAll — không đè timestamp cũ); uniqueness danh tính verified cùng
  *    hợp đồng OTP confirm path (verification.ts — phone re-check trong tx,
- *    email là unique constraint của chính chủ).
+ *    email là unique constraint của chính chủ);
+ *  - (review fix #1/#2) approve CAS trên GIÁ TRỊ LIÊN HỆ đọc trong tx (phone
+ *    raw/email) — đổi giữa read và write (profile.ts CAS commit) → 0 row →
+ *    re-read → CONTACT_CHANGED, tx abort (claim + audit rollback); phone ĐƯỢC
+ *    GHI dạng chuẩn hóa (currentTarget) — verified phone luôn canonical,
+ *    uniqueness check where({ phone }) không bypass được bởi dạng thô.
  *
  * Audit action registry (disjoint mọi batch trước — spec §4.6):
  *   contact.manual_verify_requested / contact.manual_verify_approved /
@@ -242,7 +247,12 @@ export async function requestManualContactVerificationAction(
  *    đã verified cùng số → PHONE_ALREADY_VERIFIED), email là unique constraint
  *    của chính chủ (không thể collision);
  *  - set emailVerifiedAt/phoneVerifiedAt CHỈ KHI CÒN NULL (conditional
- *    updateAll — không đè timestamp cũ, idempotent với quyết định song song).
+ *    updateAll — không đè timestamp cũ, idempotent với quyết định song song);
+ *  - (review fix #1/#2) write là COMPARE-AND-SET trên giá trị liên hệ đọc
+ *    TRONG tx: phone CAS trên raw value + GHI dạng chuẩn hóa (currentTarget),
+ *    email CAS trên email — 0 row → re-read trong tx: verified cùng giá trị
+ *    chuẩn hóa = idempotent no-op, còn lại CONTACT_CHANGED (tx abort —
+ *    profile.ts đổi liên hệ giữa read/write KHÔNG BAO GIỜ bị mark verified).
  * CAS trên status=requested AND expiresAt > now — 0 row → ALREADY_DECIDED /
  * EXPIRED (expired KHÔNG cron — tính lúc đọc).
  */
@@ -321,6 +331,9 @@ export async function decideManualContactVerificationAction(
           throw new Error("CONTACT_CHANGED");
         }
         if (fresh.channel === "phone") {
+          // normalizedChannelValue đã throw khi phone null (→ CONTACT_CHANGED
+          // ở catch trên) — guard này chỉ narrow type cho CAS bên dưới.
+          if (subject.phone === null) throw new Error("CONTACT_CHANGED");
           // Uniqueness danh tính verified — CÙNG hợp đồng OTP confirm path
           // (verification.ts): re-check TRONG tx, KHÔNG merge, KHÔNG update.
           const owner = await tx.orm.public.User
@@ -329,18 +342,44 @@ export async function decideManualContactVerificationAction(
             .where((u) => u.phoneVerifiedAt.isNotNull())
             .first();
           if (owner !== null) throw new Error("PHONE_ALREADY_VERIFIED");
-          // Set CHỈ khi còn null — không đè timestamp cũ (idempotent).
-          await tx.orm.public.User
-            .where({ id: subject.id })
+          // CAS trên RAW value đọc trong tx + GHI dạng CHUẨN HÓA (review fix
+          // #1/#2): updateAll match CHỈ khi row vẫn giữ đúng raw value vừa
+          // hash-check ở trên VÀ phoneVerifiedAt còn null — profile đổi số
+          // giữa read/write (profile.ts CAS commit) → 0 row → re-read → quyết
+          // định KHÔNG gắn với số chưa từng out-of-band → CONTACT_CHANGED (tx
+          // abort — claim + audit rollback). GHI currentTarget (chuẩn hóa):
+          // mọi phone ĐÃ VERIFIED lưu canonical — owner lookup
+          // where({ phone }) của lần approve/OTP-confirm sau không bị bypass
+          // bởi dạng thô ("+84912345678") còn sót từ signup.
+          const claimedPhone = await tx.orm.public.User
+            .where({ id: subject.id, phone: subject.phone })
             .where((u) => u.phoneVerifiedAt.isNull())
-            .updateAll({ phoneVerifiedAt: nowIso });
+            .updateAll({ phone: currentTarget, phoneVerifiedAt: nowIso });
+          if (claimedPhone.length === 0) {
+            const recheck = await tx.orm.public.User.first({ id: subject.id });
+            if (recheck === null) throw new Error("NOT_FOUND");
+            // Idempotent no-op: ai đó (OTP confirm path song song) đã verify
+            // CÙNG giá trị chuẩn hóa — quyết định vẫn nhất quán, KHÔNG đè
+            // timestamp; giá trị khác / chưa verify → CONTACT_CHANGED.
+            if (recheck.phoneVerifiedAt === null || recheck.phone !== currentTarget) {
+              throw new Error("CONTACT_CHANGED");
+            }
+          }
         } else {
           // Email: unique constraint của chính chủ (User.email) — không thể
-          // collision; set CHỈ khi còn null.
-          await tx.orm.public.User
-            .where({ id: subject.id })
+          // collision; CAS trên email đọc trong tx (review fix #2 — email đổi
+          // giữa read/write → 0 row → re-read) + set CHỈ khi còn null.
+          const claimedEmail = await tx.orm.public.User
+            .where({ id: subject.id, email: subject.email })
             .where((u) => u.emailVerifiedAt.isNull())
             .updateAll({ emailVerifiedAt: nowIso });
+          if (claimedEmail.length === 0) {
+            const recheck = await tx.orm.public.User.first({ id: subject.id });
+            if (recheck === null) throw new Error("NOT_FOUND");
+            if (recheck.emailVerifiedAt === null || recheck.email !== subject.email) {
+              throw new Error("CONTACT_CHANGED");
+            }
+          }
         }
       }
 
