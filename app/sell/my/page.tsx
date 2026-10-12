@@ -66,6 +66,17 @@ export default async function MyListingsPage({
       {actionError !== null && (
         <div className="mt-5 rounded-xl border border-[var(--red)]/35 bg-[var(--red-soft)] px-4 py-3 text-sm text-[var(--red)]">
           {actionError}
+          {/* Task D (founder 2026-10-12): ?error=POLICY_ACCEPTANCE_REQUIRED (submit/
+              toggle publish bị guard consent chặn) — kèm link đồng ý; các code
+              khác giữ banner text thường (submitErrorText đã map). */}
+          {sp.error === "POLICY_ACCEPTANCE_REQUIRED" && (
+            <Link
+              href="/account/policies"
+              className="mt-2 block font-semibold text-[var(--red)] underline underline-offset-2 hover:opacity-80"
+            >
+              Xem và đồng ý tại trang tài khoản
+            </Link>
+          )}
         </div>
       )}
 

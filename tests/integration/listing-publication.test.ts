@@ -99,6 +99,7 @@ vi.mock("next/navigation", () => ({
 import { db } from "../../src/prisma/db.client";
 import { createSession } from "../../src/lib/session";
 import { resetRateLimits } from "../../src/lib/rate-limit";
+import { POLICIES } from "../../src/lib/policy-registry";
 import { slugify } from "../../src/lib/utils";
 import {
   saveListingDraftAction,
@@ -165,6 +166,18 @@ async function grantVerification(userId: string, now = new Date().toISOString())
     policyVersion: "v1",
     acceptedAt: now,
   });
+  // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
+  // review/toggle-publish listing giờ có guard assertCurrentPoliciesAccepted
+  // (terms + privacy) — seed thêm hai row account-policy ở version registry.
+  // Case âm sống ở policy-acceptance.test.ts (integration).
+  for (const policyKey of ["terms", "privacy"] as const) {
+    await db.orm.public.PolicyAcceptance.create({
+      userId,
+      policyKey,
+      policyVersion: POLICIES[policyKey].version,
+      acceptedAt: now,
+    });
+  }
   await db.orm.public.BetaCohortMembership.create({
     userId,
     cohort: "founding_seller",

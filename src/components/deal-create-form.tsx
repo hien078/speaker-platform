@@ -32,12 +32,17 @@ import {
   DEAL_FULFILLMENT_METHODS,
 } from "@/src/lib/deal-vocab";
 import { FULFILLMENT_METHOD_LABELS } from "@/src/lib/constants";
+import { PolicyAcceptanceNotice } from "@/src/components/policy-acceptance-notice";
 
 /**
  * Text lỗi typed → tiếng Việt (mechanics only — KHÔNG promise language §4.2).
  * Code lạ hiển thị thô (fail closed — code là hằng số của action, không phải
  * input người dùng, KHÔNG có phản chiếu). D12: ba mã SELLER_* hiển thị cùng
  * một copy trung tính như CTA trang listing.
+ *
+ * Task D: POLICY_ACCEPTANCE_REQUIRED KHÔNG nằm trong map text — render riêng
+ * qua PolicyAcceptanceNotice (thông báo trung tính + link /account/policies)
+ * thay vì text thô.
  */
 const DEAL_CREATE_ERROR_TEXT: Record<string, string> = {
   RATE_LIMITED: "Bạn thao tác quá nhanh — thử lại sau ít phút",
@@ -129,10 +134,17 @@ export function DealCreateForm({
         </>
       )}
 
-      {state.error && (
-        <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2 text-xs text-[var(--red)]">
-          {DEAL_CREATE_ERROR_TEXT[state.error] ?? state.error}
-        </p>
+      {state.error === "POLICY_ACCEPTANCE_REQUIRED" ? (
+        // Task D (founder 2026-10-12): guard từ chối vì chưa đồng ý terms +
+        // privacy — thông báo trung tính + link /account/policies (KHÔNG 500,
+        // KHÔNG code thô).
+        <PolicyAcceptanceNotice />
+      ) : (
+        state.error && (
+          <p className="rounded-lg border border-[var(--red)]/35 bg-[var(--red-soft)] px-3.5 py-2 text-xs text-[var(--red)]">
+            {DEAL_CREATE_ERROR_TEXT[state.error] ?? state.error}
+          </p>
+        )
       )}
       {state.success && (
         <p className="rounded-lg border border-[var(--green)]/30 bg-[var(--green-soft)] px-3.5 py-2 text-xs text-[var(--green)]">

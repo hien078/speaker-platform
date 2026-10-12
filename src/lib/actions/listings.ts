@@ -25,6 +25,10 @@ import {
   assertCategoryPublicationAllowed,
   listingRegimeForCategorySlug,
 } from "@/src/lib/beta-categories";
+import {
+  assertCurrentPoliciesAccepted,
+  POLICY_ACCEPTANCE_REQUIRED_ERROR,
+} from "@/src/lib/policy-acceptance";
 import { PROVINCE_CODES, isProvinceCode, resolveLegacyProvince } from "@/src/lib/provinces";
 import { CITIES } from "@/src/lib/constants";
 import { normalizeSearchText } from "@/src/lib/search-normalize";
@@ -138,6 +142,10 @@ const SUBMIT_ERROR_PARAM_CODES: ReadonlySet<string> = new Set([
   // MEDIUM 1 (review fix): CAS claim thua vì content đổi tay giữa gate và claim
   // (updatedAt bump) → redirect ?error=CONCURRENT_CHANGE (typed code).
   "CONCURRENT_CHANGE",
+  // Task D (founder 2026-10-12): guard consent terms + privacy — banner
+  // /sell/my + /sell/[id]/edit render thông báo trung tính + link
+  // /account/policies (listing-error-text.ts + policy-acceptance-notice).
+  "POLICY_ACCEPTANCE_REQUIRED",
 ]);
 
 const submitErrorParam = (code: string): string => {
@@ -228,6 +236,26 @@ async function runContentValidation(
   } catch (e) {
     const code = e instanceof Error ? e.message : "";
     if (isKnownContentCode(code)) return { error: contentErrorText(code) };
+    throw e;
+  }
+}
+
+/**
+ * Task D (founder decision 2026-10-12): guard consent terms + privacy cho các
+ * action create/submit/publish listing (createListingAction /
+ * updateListingAction edit-resubmit / submitListingAction /
+ * toggleListingVisibilityAction hidden→công khai — KHÔNG draft autosave).
+ * Trả true khi bị chặn (typed POLICY_ACCEPTANCE_REQUIRED — caller trả form
+ * error code / redirect ?error=POLICY_ACCEPTANCE_REQUIRED, form/banner map →
+ * thông báo trung tính + link /account/policies); lỗi infra/db NÉM TIẾP
+ * (fail closed — KHÔNG masquerade thành "blocked").
+ */
+async function policyAcceptanceBlocked(userId: string): Promise<boolean> {
+  try {
+    await assertCurrentPoliciesAccepted(userId);
+    return false;
+  } catch (e) {
+    if (e instanceof Error && e.message === POLICY_ACCEPTANCE_REQUIRED_ERROR) return true;
     throw e;
   }
 }
@@ -429,6 +457,15 @@ export async function createListingAction(
     // currentCategorySlug: undefined — tạo mới phải ∈ allowlist (§5.6.1)
   });
   if (blocked) return blocked;
+
+  // ─── Task D (founder 2026-10-12): consent terms + privacy TRƯỚC mọi write ────
+  // Guard chạy SAU publication gate (mọi lỗi eligibility riêng của listing đã
+  // check) — seller chưa đồng ý ở version hiện hành → KHÔNG tạo listing.
+  // Form (PortableListingForm) map code → thông báo trung tính + link
+  // /account/policies (KHÔNG 500, KHÔNG code thô).
+  if (await policyAcceptanceBlocked(user.id)) {
+    return { error: POLICY_ACCEPTANCE_REQUIRED_ERROR };
+  }
 
   // ─── Batch 5 Task 4 (S-4): searchTextNormalized — load tên SAU gate (đường bị
   // chặn không tốn query), CHỈ khi id non-null (corrections item 13 — đường
@@ -853,6 +890,15 @@ export async function toggleListingVisibilityAction(formData: FormData): Promise
       }
       redirect(`/sell/my?error=${encodeURIComponent(submitErrorParam(blocked))}`);
     }
+    // ─── Task D (founder 2026-10-12): hiện lại hidden→công khai là PUBLISH —
+    // guard consent terms + privacy như create/submit (SAU publication gate,
+    // TRƯỚC CAS claim — KHÔNG row nào bị đụng). Redirect ?error= typed code
+    // trong allowlist — banner /sell/my render thông báo trung tính + link
+    // /account/policies. Nhánh ẨN (approved→hidden) KHÔNG gate (không tạo
+    // nội dung công khai).
+    if (await policyAcceptanceBlocked(user.id)) {
+      redirect(`/sell/my?error=${encodeURIComponent(POLICY_ACCEPTANCE_REQUIRED_ERROR)}`);
+    }
     // b4-holistic-2 (LOW — review backfill): approvedContentAt NULL = content
     // hiện tại CHƯA BAO GIỜ được admin duyệt — row pre-Batch-4 edit-while-hidden
     // (base update KHÔNG gửi hidden vào review) hoặc hidden từ pending/rejected/
@@ -1107,6 +1153,13 @@ export async function updateListingAction(
   if (intoReview) {
     const blocked = await runPublicationGate(publicationInput);
     if (blocked) return blocked; // KHÔNG mutation ảnh/video nào xảy ra trước điểm này
+    // ─── Task D (founder 2026-10-12): edit-resubmit (content-change → pending)
+    // là đường SUBMIT vào pipeline review công khai — guard consent terms +
+    // privacy như createListingAction/submitListingAction (KHÔNG áp cho edit
+    // không transition). Form map code → notice + link /account/policies.
+    if (await policyAcceptanceBlocked(user.id)) {
+      return { error: POLICY_ACCEPTANCE_REQUIRED_ERROR };
+    }
   } else {
     const invalid = await runContentValidation(publicationInput);
     if (invalid) return invalid;
@@ -1298,6 +1351,15 @@ export async function submitListingAction(formData: FormData): Promise<void> {
     }
     // ?error= chỉ typed code từ allowlist cố định — giá trị lạ → CONTENT_INVALID
     return redirect(`/sell/${listing.id}/edit?error=${encodeURIComponent(submitErrorParam(blocked))}`);
+  }
+
+  // ─── Task D (founder 2026-10-12): consent terms + privacy TRƯỚC claim ─────────
+  // draft→pending là đường SUBMIT vào pipeline review công khai — guard như
+  // createListingAction (SAU publication gate, TRƯỚC CAS claim — KHÔNG row nào
+  // bị đụng). Redirect ?error=POLICY_ACCEPTANCE_REQUIRED (allowlist trên) —
+  // banner edit page render thông báo trung tính + link /account/policies.
+  if (await policyAcceptanceBlocked(user.id)) {
+    return redirect(`/sell/${listing.id}/edit?error=${encodeURIComponent(POLICY_ACCEPTANCE_REQUIRED_ERROR)}`);
   }
 
   // ─── Batch 5 Task 4 (S-4/corrections item 13): backfill searchTextNormalized ───

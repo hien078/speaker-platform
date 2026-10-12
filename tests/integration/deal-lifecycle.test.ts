@@ -105,6 +105,7 @@ vi.mock("@/src/lib/auth", () => ({
 
 import { db } from "../../src/prisma/db.client";
 import { resetRateLimits } from "../../src/lib/rate-limit";
+import { POLICIES } from "../../src/lib/policy-registry";
 import { createDealAction, markDealOutcomeAction } from "../../src/lib/actions/deals";
 
 const hasDb = Boolean(process.env.DATABASE_URL);
@@ -135,6 +136,17 @@ async function mkUser(role: "buyer" | "seller"): Promise<string> {
     role,
   });
   created.users.push(u.id);
+  // Task D fixture migration (founder 2026-10-12): createDealAction giờ có
+  // guard assertCurrentPoliciesAccepted (terms + privacy) — mọi user fixture
+  // đã đồng ý ở version registry (row cascade theo user khi dọn). Case âm
+  // sống ở policy-acceptance.test.ts (integration).
+  for (const policyKey of ["terms", "privacy"] as const) {
+    await db.orm.public.PolicyAcceptance.create({
+      userId: u.id,
+      policyKey,
+      policyVersion: POLICIES[policyKey].version,
+    });
+  }
   return u.id;
 }
 

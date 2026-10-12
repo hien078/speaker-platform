@@ -195,6 +195,17 @@ export default async function EditListingPage({
           {/* LOW-1: lookup own-property-safe — code lạ/prototype key (?error=__proto__)
               → generic, KHÔNG crash (map + helper sống ở src/lib/listing-error-text.ts) */}
           {submitErrorText(submitError)}
+          {/* Task D (founder 2026-10-12): ?error=POLICY_ACCEPTANCE_REQUIRED (submit
+              bị guard consent chặn) — kèm link đồng ý; các code khác giữ banner
+              text thường. */}
+          {submitError === "POLICY_ACCEPTANCE_REQUIRED" && (
+            <Link
+              href="/account/policies"
+              className="mt-2 block font-semibold text-[var(--red)] underline underline-offset-2 hover:opacity-80"
+            >
+              Xem và đồng ý tại trang tài khoản
+            </Link>
+          )}
         </div>
       )}
 
