@@ -126,6 +126,10 @@ describe("ChatWindow — 403 POLICY_ACCEPTANCE_REQUIRED → banner + link", () =
     expect(src()).toContain("setPolicyNotice(true)");
   });
 
+  it("gửi thất bại → trả lại nội dung vừa gõ (review fix: không mất tin nhắn khi bị chặn)", () => {
+    expect(src()).toContain("setText((t) => t || body)");
+  });
+
   it("banner: thông báo trung tính + Link /account/policies (KHÔNG code thô)", () => {
     expect(src()).toMatch(/\{policyNotice && \(/);
     expect(src()).toContain(

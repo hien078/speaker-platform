@@ -93,6 +93,8 @@ export function ChatWindow({
         if (code === "POLICY_ACCEPTANCE_REQUIRED") {
           setPolicyNotice(true);
         }
+        // Gửi thất bại → trả lại nội dung vừa gõ (không đè nếu user đã gõ tiếp).
+        setText((t) => t || body);
       }
       await poll();
     } finally {
