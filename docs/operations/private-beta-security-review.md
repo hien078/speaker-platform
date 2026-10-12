@@ -511,6 +511,46 @@ zero-cost đánh dấu kênh verified (interim FD-R1/FD-R29/FD-R69 — register 
 |---|---|---|
 | RR-33 | Social engineering operator: kẻ xấu giả danh user qua kênh out-of-band thuyết phục admin duyệt verify kênh mình không sở hữu (proofing out-of-band chưa được founder định nghĩa — FD-R3) | Two-person rule (A mở ≠ B duyệt ≠ subject — requester không tự duyệt được); step-up MFA mọi action; audit `contact.manual_verify_*` (channel/method/decision — KHÔNG giá trị thô) tra `/admin/audit`; TTL 24h + CAS hết hạn tự chuyển `expired`; rate limit 20/h/admin |
 
+### 6.6 Zero-cost launch Task D (2026-10-12) — explicit consent terms + privacy trước hành động tạo nội dung
+
+Founder decision 2026-10-12 (Nghị định 13/2023/NĐ-CP mong đợi explicit consent;
+Terms draft nói "dùng LoaViet = chấp nhận" — KHÔNG đủ): người dùng phải đồng ý
+Điều khoản sử dụng + Chính sách quyền riêng tư **tường minh** trước khi tạo nội
+dung user-facing. Cơ chế (zero-cost — KHÔNG migration, KHÔNG telemetry mới):
+
+- **Đăng ký**: checkbox bắt buộc (`acceptPolicies` — server reject
+  `POLICY_CONSENT_REQUIRED` kể cả khi client bypass) + ghi **2 row
+  `PolicyAcceptance` (terms + privacy) trong CÙNG transaction tạo User
+  (`src/lib/actions/auth.ts` — cơ chế Batch 2, KHÔNG cơ chế thứ hai; lỗi giữa
+  tx → rollback toàn bộ, KHÔNG user mồ côi).
+- **Guard trước hành động tạo nội dung** (`assertCurrentPoliciesAccepted` —
+  `src/lib/policy-acceptance.ts`, đọc FRESH từ DB mỗi call): bắt đầu hội thoại
+  MỚI, tạo Deal, create/submit/publish listing (KHÔNG draft autosave), gửi tin
+  nhắn chat. KHÔNG áp: admin console, login, markDealOutcome, edit không
+  transition. Typed error `POLICY_ACCEPTANCE_REQUIRED` → surface trung tính +
+  link `/account/policies` (form state / `?error=` / 403 JSON / redirect) —
+  KHÔNG 500 ở đâu.
+- **`/account/policies`** (đăng nhập): trạng thái chấp nhận theo version hiện
+  hành + form đồng ý những gì còn thiếu (`acceptCurrentPoliciesAction` —
+  idempotent theo `@@unique(userId, policyKey, policyVersion)`; 23505 race →
+  idempotent success).
+- **Version bump của founder** (FD-R4 pattern — duyệt policy + bump version
+  trong commit founder): guard đọc version MỚI từ registry → tự chặn lại →
+  user re-accept tại `/account/policies`. **User hiện có KHÔNG backfill
+  consent** — họ chấp nhận trên hành động tạo nội dung tiếp theo (release
+  checklist §12-21).
+
+**Privacy note (§4.8):** row `PolicyAcceptance` CHÍNH LÀ record đồng ý
+(userId + policyKey + policyVersion + acceptedAt) — **KHÔNG có telemetry/audit
+event mới**, KHÔNG PII trong audit/log (đồng ý không phải hành vi đáng giám sát;
+thời điểm chấp nhận là dữ liệu quyền của chính user, đọc lại được tại
+`/account/policies`). Guard đọc fresh mỗi call — KHÔNG tin cache session
+(version bump có hiệu lực NGAY LẬP TỨC ở call kế tiếp). Tests:
+`tests/unit/policy-acceptance.test.ts`, `register-policy-consent.test.ts`,
+`policy-acceptance-action.test.ts`, `policy-acceptance-ui.test.ts`,
+`tests/integration/policy-acceptance.test.ts` (tx đăng ký + guard + idempotent
+trên DB thật).
+
 ## CSRF — tư thế chống giả mạo yêu cầu xuyên site (posture)
 
 **Posture (hàng 12 ma trận — `covered (framework posture, documented)`):**
