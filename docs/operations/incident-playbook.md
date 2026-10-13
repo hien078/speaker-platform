@@ -123,9 +123,11 @@ founder policy (FD-R7) — trong sự cố KHÔNG xóa evidence vì "hết hạn
    `docs/operations/account-recovery-playbook.md` §4 (runbook §6 — two-person
    rule) — cân nhắc kỹ vì đường này cấp quyền truy cập lại. **Production
    (cho tới FD-R1): `/recover` KHÔNG gửi được mã** (adapter fail-closed —
-   account-recovery playbook §1.3) → bước này chỉ chứa được bằng thu hồi
-   session + đình chỉ (bước 1/4); ca cần reset mật khẩu escalate founder
-   (FD-R1/FD-R3).
+   account-recovery playbook §1.3) → ca cần reset mật khẩu đi **quy trình hai
+   người đã được founder duyệt (FD-R3 2026-10-13): account-recovery playbook
+   §4b** — admin A gọi số đã xác minh + ≥ 2/3 câu hỏi, admin B ≠ A duyệt,
+   link reset một lần 30 phút (thu hồi mọi session ngay lúc duyệt); chứa
+   thêm bằng thu hồi session + đình chỉ (bước 1/4) trong lúc chờ gọi.
 3. **Đối soát audit:** tra `user.recovery_requested` / `user.recovery_completed`
    (recovery có phải người dùng thật không), `session.revoked*`,
    `user.email_changed`/`user.phone_changed`/`user.password_changed`,

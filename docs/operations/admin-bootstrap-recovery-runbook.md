@@ -266,6 +266,18 @@ hash bằng key mới. KHÔNG cần reset MFA.
 > Block psql dưới đây giữ làm **break-glass** (email bootstrap khi không vào được
 > admin UI) — chạy panel được thì KHÔNG chạy psql.
 
+> **2026-10-13 (Task E — FD-R3):** khôi phục **mật khẩu** user thường giờ có
+> đường chuẩn riêng — **quy trình hai người** `docs/operations/account-recovery-playbook.md`
+> §4b (panel "Khôi phục tài khoản thủ công" `/admin/users?u=<id>`: admin A gọi
+> số đã xác minh + ≥ 2/3 câu hỏi, admin B ≠ A duyệt, link reset một lần 30 phút —
+> KHÔNG psql tay, KHÔNG đặt `passwordHash` tay). Block psql §6 này CHỈ còn mục
+> đích break-glass đánh dấu `emailVerifiedAt` (invite/verification — concierge
+> §4), KHÔNG phải khôi phục mật khẩu. **Tài khoản ADMIN bị LOẠI khỏi quy trình
+> §4b** (action tự chặn `ADMIN_SUBJECT_FORBIDDEN` — chiếm quyền admin qua đường
+> user là lỗ leo thang): lockout MFA / mất quyền bootstrap của admin vẫn là
+> §2/§3 của runbook NÀY (two-person psql `admin.mfa_reset_manual`), KHÔNG phải
+> panel user.
+
 Người dùng mất MỌI kênh đã xác minh (email + phone) không thể tự phục vụ —
 recovery chỉ chạy qua kênh đã verified (spec §7.7, chống chiếm tài khoản qua SIM
 tái sử dụng/email cũ). Phương án cuối cùng (audited, two-person rule — proofing

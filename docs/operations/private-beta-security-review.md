@@ -551,6 +551,34 @@ thời điểm chấp nhận là dữ liệu quyền của chính user, đọc l
 `tests/integration/policy-acceptance.test.ts` (tx đăng ký + guard + idempotent
 trên DB thật).
 
+### 6.7 Task E (2026-10-13) — two-person manual account recovery (FD-R3)
+
+Quy trình hai người khôi phục mật khẩu user thường (founder FD-R3 quyết
+2026-10-13 — register note; production chưa có OTP provider FD-R1/FD-2 nên
+`/recover` tự phục vụ dead-end, hand-set `passwordHash` bị cấm). Capability
+mới `account.recover_manual` (super_admin/operations_admin + step-up MFA mọi
+action — `STEP_UP_CAPABILITIES`, cùng nhóm `user.suspend` A9); panel
+`/admin/users?u=<id>`; public consume `/recover/manual` (token trong cookie
+HttpOnly path-scoped 15 phút — pattern `/invite` Batch 7 corrections #7/#8/
+#12/#13/#35). Nguồn sự thật: `src/lib/actions/manual-account-recovery.ts`,
+`src/lib/manual-account-recovery.ts`; quy trình vận hành:
+`docs/operations/account-recovery-playbook.md` §4b. Rủi ro mới (non-blocking
+— control bù trong ngoặc):
+
+| # | Risk | Control bù |
+|---|---|---|
+| RR-34 | Operator social engineering: kẻ xấu giả danh user qua điện thoại trả đúng ≥ 2/3 câu hỏi (câu hỏi là dữ liệu công khai/tìm được — tiêu đề tin đăng, tỉnh) thuyết phục admin A mở + admin B duyệt | Cuộc gọi PHẢI tới số phone ĐÃ XÁC MINH (`PHONE_NOT_VERIFIED` — số tự khai báo không dùng được); two-person rule (A mở ≠ B duyệt ≠ subject — `SAME_PERSON_FORBIDDEN`/`SELF_RECOVERY_FORBIDDEN`); step-up MFA mọi action; attestation bắt buộc (`ATTESTATION_REQUIRED`); audit `account.manual_recovery_*` (checks-count/decision — KHÔNG phone/answer/token thô) tra `/admin/audit`; rate limit 20/h/admin |
+| RR-35 | SIM swap trên số đã verified: kẻ chiếm SIM của nạn nhân nhận cuộc gọi + link reset (out-of-band qua chính số đó) | Link reset MỘT LẦN 30 phút (single-use CAS — dùng lại/hết hạn collapse về MỘT thông báo chung §7.7); token 256-bit KHÔNG đoán được, DB chỉ lưu HMAC (hkdf label riêng `account-recovery-reset-token`); thu hồi MỌI session subject trong tx approve (kẻ giữ session cũ mất tác quyền NGAY); phone/snapshot đổi giữa request/duyệt → `CONTACT_CHANGED` (tx abort); admin subject bị loại (`ADMIN_SUBJECT_FORBIDDEN` — bootstrap runbook §2/§3 là đường admin) |
+
+Cả hai là rủi ro CỐT LÕI của khôi phục admin-assisted (không thể loại bỏ không
+provider OTP/FIDO2 — FD-R1): chấp nhận theo quyết định founder FD-R3
+2026-10-13; ghi hàng findings register dưới (LOW ACCEPTED). Tests:
+`tests/unit/manual-account-recovery.test.ts` (vocab/source contract —
+token interpolate ĐÚNG MỘT nơi, consume cookie-only),
+`tests/integration/manual-account-recovery.test.ts` (20 tests trên DB thật:
+happy path, two-person, CONTACT_CHANGED, token single-use/expiring, forged
+enumeration-safe, audit no raw PII, raw token never persisted).
+
 ## CSRF — tư thế chống giả mạo yêu cầu xuyên site (posture)
 
 **Posture (hàng 12 ma trận — `covered (framework posture, documented)`):**
@@ -612,7 +640,8 @@ trên DB thật).
 | LOW | ACCEPTED | src/prisma/contract.prisma (User.phone) | RR-3: phone-verify race — không partial unique index trên phone đã verify | Index = migration mới (G2); ops query §6.1 là control hiện tại | no |
 | LOW | ACCEPTED | src/lib/provinces.ts | FD-R64: legacy name `"Thừa Thiên Huế"` thiếu trong `legacyNames` của `hue` → resolve `unresolved` (fail-closed) | Founder bổ sung vào registry (FD register) | no |
 | LOW | ACCEPTED | instrumentation.ts:27 | RR-31: build warning `process.exit` trong Edge runtime (pre-existing, B2 R19) | Ghi nhận; không ảnh hưởng runtime đã deploy | no |
+| LOW | ACCEPTED | src/lib/actions/manual-account-recovery.ts | RR-34/RR-35 (§6.7 — Task E FD-R3 2026-10-13): manual account recovery hai người còn rủi ro operator social engineering (kẻ giả danh trả đúng ≥ 2/3 câu) + SIM swap trên số đã verified — rủi ro cốt lõi của khôi phục admin-assisted không provider OTP (FD-R1) | Founder chấp nhận theo FD-R3 (2026-10-13); control bù §6.7 (verified-phone-only, two-person, step-up, link một lần 30 phút, thu hồi session trong tx, audit no raw PII); provider OTP/FIDO2 = FD-R1 | no |
 
-**Tổng:** 0 CRITICAL, 0 HIGH, 2 MEDIUM ACCEPTED (FD-R58), 10 LOW ACCEPTED,
+**Tổng:** 0 CRITICAL, 0 HIGH, 2 MEDIUM ACCEPTED (FD-R58), 11 LOW ACCEPTED,
 1 LOW OPEN (CSP flip — checklist row của operator, không phải defect code) —
-13 hàng. §9 "no known critical security issue" **THỎA** ở thời điểm 2026-10-08.
+14 hàng. §9 "no known critical security issue" **THỎA** ở thời điểm 2026-10-13.
