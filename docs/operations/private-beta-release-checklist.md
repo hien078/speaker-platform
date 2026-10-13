@@ -105,7 +105,7 @@
 |---|---|---|---|
 | FD-R1 | Provider OTP production (FD-2): tới khi có provider `/recover` không gửi được mã (LAUNCH BLOCKER). Panel two-person (2026-10-12, zero-cost Task A) mở đường xác minh kênh cho invite/seller (FD-R69) — KHÔNG cho tự phục vụ | PENDING | — |
 | FD-R2 | RBAC `Scoped`/`Exceptional + audited`/`Limited` cells (moderator/support/ops capabilities — fail-closed defaults ship) | Chấp nhận mặc định fail-closed (chỉ quyền đang ship); xem lại sau beta (founder, chat) | 2026-10-12 |
-| FD-R3 | Out-of-band (admin-assisted) account recovery identity proofing requirements (manual fallback cần founder acknowledgment) | Duyệt quy trình hai người: admin A gọi số đã xác minh + ≥ 2/3 câu hỏi out-of-band, admin B ≠ A duyệt, link reset một lần 30 phút, thu hồi mọi session; admin bị loại (bootstrap runbook); hand-set passwordHash vẫn cấm (founder, chat) | 2026-10-13 |
+| FD-R3 | Out-of-band (admin-assisted) account recovery identity proofing requirements (manual fallback cần founder acknowledgment) | PENDING | — |
 | FD-R4 | Seller Rules review + version tension: bump `v1`→`v2` trong commit duyệt của founder (G3(d)) + row APPROVED trong `policy-review-record.md` | PENDING | — |
 | FD-R6 | Moderation sanction policy (manual-only, indefinite until lifted; existing-conversation question = FD-R53) | Chấp nhận mặc định: xử phạt thủ công, hiệu lực tới khi gỡ; chưa có bảng mức phạt — xem lại sau beta (founder, chat) | 2026-10-12 |
 | FD-R7 | Retention & deletion policy (moderation evidence, `ProductEvent`, `Deal`/`DealStatusHistory`; account-deletion interaction FD-R45) | Tạm thời: lưu dữ liệu trong thời gian cần cho vận hành/an toàn/pháp lý; chưa xoá tự động; chốt kỳ hạn cụ thể trước khi mở rộng (xem lại sau 3 tháng) (founder, chat) | 2026-10-12 |
