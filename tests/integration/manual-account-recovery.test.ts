@@ -47,6 +47,15 @@
  * 11. Raw token KHÔNG bao giờ persisted: MỌI row AccountRecoveryRequest +
  *     AuditEvent của subject không chứa token thô; resetTokenHash là HMAC
  *     keyed (không reverses).
+ * 12. Consume thu hồi session MỚI (review zc-efix #2): attacker biết mật khẩu
+ *     cũ login lại SAU approve (approve-time revocation không chặn session
+ *     MỚI), TRƯỚC consume → session đó bị thu hồi THEO consume (revokedAt +
+ *     revokedReason, getSessionFromCookie null) — cùng tx với password write.
+ * 13. Admin-subject re-check (review zc-efix #3): subject được promote
+ *     adminRole GIỮA request và approve → ADMIN_SUBJECT_FORBIDDEN (tx abort,
+ *     row giữ nguyên, session KHÔNG thu hồi); GIỮA approve và consume →
+ *     consume refuse CÙNG lỗi chung (password write CAS adminRole IS NULL →
+ *     LINK_INVALID rollback), mật khẩu admin KHÔNG bị đụng.
  *
  * `next/headers` mock (cookie store điều khiển được — createSession cần
  * cookies() ngoài request scope; consume đọc token từ cookie); DB/session/
@@ -90,7 +99,7 @@ vi.mock("next/headers", () => ({
 }));
 
 import { db } from "../../src/prisma/db.client";
-import { SESSION_COOKIE, createSession } from "../../src/lib/session";
+import { SESSION_COOKIE, createSession, getSessionFromCookie } from "../../src/lib/session";
 import { resetRateLimits } from "../../src/lib/rate-limit";
 import { verifyPassword } from "../../src/lib/auth";
 import { normalizePhone } from "../../src/lib/otp";
@@ -870,5 +879,101 @@ d("manual account recovery — raw token KHÔNG bao giờ persisted (§4.8)", ()
     for (const e of events) {
       expect(JSON.stringify(e)).not.toContain(rawToken);
     }
+  });
+});
+
+// ─── 12. Consume thu hồi session login-mật-khẩu-cũ (review zc-efix #2) ────────
+
+d("manual account recovery — consume thu hồi session MỚI (attacker login giữa approve/consume)", () => {
+  it(
+    "login bằng mật khẩu cũ TRONG cửa sổ 30 phút → session đó bị thu hồi THEO consume (revokedAt + reason), getSessionFromCookie null",
+    { timeout: 120_000 },
+    async () => {
+      const subject = await mkSubject();
+      const adminA = await mkAdmin();
+      const adminB = await mkAdmin("operations_admin");
+      const { rawToken } = await approveFlow(subject, adminA, adminB);
+
+      // Attacker biết (hoặc đã đặt) mật khẩu cũ → login lại SAU approve
+      // (approve-time revocation KHÔNG chặn session MỚI — login không kiểm
+      // recovery đang chờ), TRƯỚC consume — session sống.
+      await createSession(subject.id); // consumer login (isAdmin false)
+      const attackerToken = cookieState.store.get(SESSION_COOKIE)!;
+      const attackerRow = await db.orm.public.UserSession
+        .where({ userId: subject.id })
+        .where((s) => s.revokedAt.isNull())
+        .orderBy((s) => s.createdAt.desc())
+        .first();
+      expect(attackerRow).not.toBeNull(); // session MỚI sống sau approve-time revocation
+
+      // User thật consume link → mật khẩu mới + session attacker CHẾT theo
+      // consume (cùng tx với password write — pattern recovery.ts).
+      const consumed = await consumeWithToken(rawToken, "mat-khau-moi-456");
+      expect(consumed.error, JSON.stringify(consumed)).toBeUndefined();
+
+      const revoked = await db.orm.public.UserSession.first({ id: attackerRow!.id });
+      expect(revoked!.revokedAt).not.toBeNull();
+      expect(revoked!.revokedReason).toBe("manual_account_recovery");
+      // Token cookie đó KHÔNG còn resolve session (fail closed về logged-out)
+      cookieState.store.set(SESSION_COOKIE, attackerToken);
+      expect(await getSessionFromCookie()).toBeNull();
+    },
+  );
+});
+
+// ─── 13. Admin-subject re-check (review zc-efix #3) ───────────────────────────
+
+d("manual account recovery — subject promote admin giữa các bước (re-check approve + consume)", () => {
+  it("promote SAU request, TRƯỚC approve → ADMIN_SUBJECT_FORBIDDEN, row giữ nguyên, KHÔNG token, session subject KHÔNG thu hồi", async () => {
+    const subject = await mkSubject();
+    const adminA = await mkAdmin();
+    const adminB = await mkAdmin("operations_admin");
+    await loginAs(subject.id); // session sống — phải KHÔNG bị thu hồi khi refuse
+
+    const tokenA = await loginAs(adminA);
+    await stepUpCurrentSession(adminA);
+    const req = await openRecovery(tokenA, subject.id);
+    expect(req.state.error).toBeUndefined();
+
+    // super_admin promote subject → adminRole (setAdminRoleAction CAS +
+    // revoke session — mô phỏng bằng update thẳng: cơ chế promote là surface
+    // đã test của Task 11; đối tượng test là re-check bên recovery)
+    await db.orm.public.User.where({ id: subject.id }).update({
+      adminRole: "moderator",
+      role: "admin",
+    });
+
+    const tokenB = await loginAs(adminB);
+    await stepUpCurrentSession(adminB);
+    const decided = await decideAs(tokenB, req.rowId!, "approve");
+    expect(decided.error).toBe("ADMIN_SUBJECT_FORBIDDEN");
+    const row = await db.orm.public.AccountRecoveryRequest.first({ id: req.rowId! });
+    expect(row!.status).toBe("requested"); // tx abort — quyết định KHÔNG persist
+    expect(row!.decidedById).toBeNull();
+    expect(row!.resetTokenHash).toBeNull(); // KHÔNG issue token cho admin account
+    // session subject NGUYÊN VẸN — quyết định bị từ chối KHÔNG thu hồi
+    const sessions = await db.orm.public.UserSession.where({ userId: subject.id }).all();
+    expect(sessions.length).toBeGreaterThanOrEqual(1);
+    for (const s of sessions) expect(s.revokedAt).toBeNull();
+  });
+
+  it("promote SAU approve, TRƯỚC consume → consume refuse (CÙNG lỗi chung), mật khẩu admin KHÔNG bị đụng, row KHÔNG consume", { timeout: 120_000 }, async () => {
+    const subject = await mkSubject();
+    const adminA = await mkAdmin();
+    const adminB = await mkAdmin("operations_admin");
+    const { requestId, rawToken } = await approveFlow(subject, adminA, adminB);
+
+    await db.orm.public.User.where({ id: subject.id }).update({
+      adminRole: "moderator",
+      role: "admin",
+    });
+
+    const consumed = await consumeWithToken(rawToken, "mat-khau-admin-789");
+    expect(consumed.error).toContain("không còn hiệu lực"); // CÙNG lỗi chung — KHÔNG oracle
+    const row = await db.orm.public.AccountRecoveryRequest.first({ id: requestId });
+    expect(row!.status).toBe("approved"); // claim rollback — KHÔNG consume
+    expect(row!.consumedAt).toBeNull();
+    const subjectRow = await db.orm.public.User.first({ id: subject.id });
+    expect(subjectRow!.passwordHash).toBe("x"); // mật khẩu admin NGUYÊN VẸN
   });
 });

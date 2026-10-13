@@ -36,7 +36,14 @@ import {
  *
  * resetUrl sau approve hiển thị MỘT LẦN trong state (admin B copy gửi
  * out-of-band — phone/Zalo) — KHÔNG bao giờ render lại từ DB (token thô
- * không tồn tại nơi khác), KHÔNG auto-copy vào clipboard log.
+ * không tồn tại nơi khác), KHÔNG auto-copy vào clipboard log. DecideForm
+ * render CHO CẢ requested LẪN approved-unconsumed (BLOCK fix review
+ * zc-efix #1): approve gọi revalidatePath("/admin/users") → Next 16 re-render
+ * page NGAY (revalidatePath.md:19 — Server Function "Updates the UI
+ * immediately") với row approved; nếu chỉ render khi requested, DecideForm
+ * unmount → useActionState (giữ resetUrl) bị discard → link MỘT LẦN mất
+ * vĩnh viễn. key theo request id (preserving-ui-state.md:281): cùng row qua
+ * requested→approved GIỮ state; đổi subject/request → remount → state reset.
  *
  * Copy PROVISIONAL (FD-3): mechanics only (§4.2), không claim bảo đảm gì.
  */
@@ -181,9 +188,22 @@ export function ManualAccountRecoveryPanel({
         {view.openRequest !== null && (
           <>
             <OpenRequestInfo view={view} />
-            {view.openRequest.status === "requested" && (
+            {/* BLOCK fix (review zc-efix #1): DecideForm render CHO CẢ requested
+                LẪN approved-unconsumed — approve gọi revalidatePath("/admin/users")
+                → Next 16 re-render page NGAY (revalidatePath.md:19) với row
+                approved; nếu chỉ render khi requested, DecideForm unmount và
+                useActionState (giữ resetUrl MỘT LẦN — token thô không tồn tại
+                nơi khác) bị discard → link mất vĩnh viễn, FD-R3 kẹt đến hết hạn
+                30 phút (OPEN_REQUEST_EXISTS chặn request mới). key theo request
+                id (preserving-ui-state.md:281 — key reset state): CÙNG row qua
+                requested→approved GIỮ state; ĐỔI subject/request → remount →
+                state reset (link của user khác không leak sang panel user khác). */}
+            {(view.openRequest.status === "requested" ||
+              view.openRequest.status === "approved") && (
               <DecideForm
+                key={view.openRequest.id}
                 requestId={view.openRequest.id}
+                resultOnly={view.openRequest.status !== "requested"}
                 disabled={isSubject || view.openRequest.isRequester}
                 disabledReason={
                   view.openRequest.isRequester
@@ -289,10 +309,17 @@ function RequestForm({
 
 function DecideForm({
   requestId,
+  resultOnly,
   disabled,
   disabledReason,
 }: {
   requestId: string;
+  /**
+   * Status approved-unconsumed: KHÔNG quyết lại (CAS ở action đã chặn) — nút +
+   * ô TOTP ẩn; form CHỈ giữ state hiển thị (resetUrl MỘT LẦN phải sống qua
+   * revalidatePath — BLOCK fix review zc-efix #1).
+   */
+  resultOnly: boolean;
   disabled: boolean;
   disabledReason?: string;
 }) {
@@ -322,30 +349,32 @@ function DecideForm({
       className="flex flex-col gap-1.5"
     >
       <input type="hidden" name="requestId" value={requestId} />
-      <div className="flex flex-wrap gap-1.5">
-        <TotpInput />
-        <button
-          type="submit"
-          onClick={submit("approve")}
-          disabled={disabled || pending}
-          className="btn h-8 bg-[var(--green)] px-3 text-xs text-white hover:opacity-90"
-          title="Duyệt — thu hồi mọi phiên của tài khoản và sinh link reset một lần (30 phút)"
-        >
-          <ShieldCheck className="size-3.5" />
-          Duyệt
-        </button>
-        <button
-          type="submit"
-          onClick={submit("reject")}
-          disabled={disabled || pending}
-          className="btn h-8 bg-[var(--red)] px-3 text-xs text-white hover:opacity-90"
-          title="Từ chối — không issue link reset"
-        >
-          <XCircle className="size-3.5" />
-          Từ chối
-        </button>
-      </div>
-      {disabled && disabledReason !== undefined && (
+      {!resultOnly && (
+        <div className="flex flex-wrap gap-1.5">
+          <TotpInput />
+          <button
+            type="submit"
+            onClick={submit("approve")}
+            disabled={disabled || pending}
+            className="btn h-8 bg-[var(--green)] px-3 text-xs text-white hover:opacity-90"
+            title="Duyệt — thu hồi mọi phiên của tài khoản và sinh link reset một lần (30 phút)"
+          >
+            <ShieldCheck className="size-3.5" />
+            Duyệt
+          </button>
+          <button
+            type="submit"
+            onClick={submit("reject")}
+            disabled={disabled || pending}
+            className="btn h-8 bg-[var(--red)] px-3 text-xs text-white hover:opacity-90"
+            title="Từ chối — không issue link reset"
+          >
+            <XCircle className="size-3.5" />
+            Từ chối
+          </button>
+        </div>
+      )}
+      {!resultOnly && disabled && disabledReason !== undefined && (
         <p className="text-xs text-[var(--muted)]">{disabledReason}</p>
       )}
       {state.error !== undefined && <FormError message={ERROR_TEXT[state.error] ?? state.error} />}

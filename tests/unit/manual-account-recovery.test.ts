@@ -37,13 +37,23 @@
  *       ${token} ĐÚNG MỘT nơi — không bao giờ db/audit/log);
  *     - approve: NEXT_PUBLIC_APP_URL check TRƯỚC tx (corrections #36),
  *       revokeAllUserSessionsTx TRONG cùng tx, CAS + re-read INSIDE tx +
- *       classify constraint violation NGOÀI tx (Global Constraints).
+ *       classify constraint violation NGOÀI tx (Global Constraints);
+ *       re-check adminRole INSIDE tx approve (ADMIN_SUBJECT_FORBIDDEN —
+ *       subject promote admin sau request, review zc-efix #3);
+ *     - consume: revokeAllUserSessionsTx trong cùng tx password write
+ *       (login mật khẩu cũ cửa sổ 30 phút chết theo consume — review
+ *       zc-efix #2) + password write CAS adminRole IS NULL (0 row →
+ *       LINK_INVALID rollback — review zc-efix #3).
  *  3. Source contract UI: panel /admin/users?u=<id> render maskContact
  *     (KHÔNG giá trị đầy đủ), disable + lý do khi admin hiện tại là
  *     requester/subject; form client useActionState + dispatch thủ công
  *     (React 19 giữ input); typed error labels đủ MỌI code; public flow
  *     /recover/manual/[token] (route handler) + /recover/manual (page) +
  *     password form — token CHỈ trong cookie HttpOnly, KHÔNG trong form/URL.
+ *     BLOCK fix (review zc-efix #1): DecideForm render CHO CẢ requested
+ *     LẪN approved (approve revalidatePath → page re-render row approved —
+ *     useActionState giữ resetUrl KHÔNG bị unmount), key theo request id
+ *     (đổi subject → state reset), result-only mode ẩn nút + TOTP.
  */
 import { describe, expect, it, vi } from "vitest";
 import { createHmac, randomBytes } from "node:crypto";
@@ -395,6 +405,37 @@ describe("source contract — src/lib/actions/manual-account-recovery.ts", () =>
       "delete({ name: MANUAL_RECOVERY_COOKIE, path: MANUAL_RECOVERY_COOKIE_PATH })",
     );
   });
+
+  it("consume: revokeAllUserSessionsTx TRONG cùng tx password write — login bằng mật khẩu cũ trong cửa sổ 30 phút chết THEO consume (review zc-efix #2)", () => {
+    const consume = src().slice(src().indexOf("export async function consumeManualAccountRecoveryAction"));
+    const txAt = consume.indexOf("db.transaction(");
+    const pwAt = consume.indexOf("updateAll({ passwordHash })");
+    const revokeAt = consume.indexOf('revokeAllUserSessionsTx(tx, valid.userId, "manual_account_recovery")');
+    const auditAt = consume.indexOf("auditEventTx(");
+    expect(pwAt).toBeGreaterThan(0);
+    expect(revokeAt).toBeGreaterThan(pwAt); // revoke SAU password write — cùng tx
+    expect(revokeAt).toBeGreaterThan(txAt); // TRONG tx (không phải fire-after-commit)
+    expect(auditAt).toBeGreaterThan(revokeAt); // audit sau revoke — sống chết cùng tx
+  });
+
+  it("approve: subject được promote admin SAU request → re-check adminRole INSIDE tx → ADMIN_SUBJECT_FORBIDDEN (review zc-efix #3)", () => {
+    const decide = src().slice(
+      src().indexOf("export async function decideManualAccountRecoveryAction"),
+      src().indexOf("export async function cancelManualAccountRecoveryAction"),
+    );
+    // re-read subject trong tx phải chặn admin subject (KHÔNG chỉ phone) —
+    // request-side check lúc mở KHÔNG đủ: promote có thể xảy ra trong cửa sổ 24h
+    expect(decide).toMatch(/subject\.adminRole !== null/);
+    expect(decide).toMatch(/throw new Error\("ADMIN_SUBJECT_FORBIDDEN"\)/);
+    // sentinel map ở catch NGOÀI tx (throw trong callback → Postgres abort tx)
+    expect(decide).toMatch(/case "ADMIN_SUBJECT_FORBIDDEN":/);
+  });
+
+  it("consume: password write CAS adminRole IS NULL — promote admin giữa approve/consume → 0 row → LINK_INVALID rollback (review zc-efix #3)", () => {
+    const consume = src().slice(src().indexOf("export async function consumeManualAccountRecoveryAction"));
+    expect(consume).toMatch(/u\.adminRole\.isNull\(\)/);
+    expect(consume).toMatch(/updated\.length === 0\) throw new Error\("LINK_INVALID"\)/);
+  });
 });
 
 // ─── 3. Source contract — UI admin (panel + forms) ───────────────────────────
@@ -460,6 +501,39 @@ describe("source contract — src/components/manual-account-recovery-forms.tsx",
     expect(src()).toContain("state.resetUrl");
     // view KHÔNG mang token/url — chỉ resetTokenExpiresAt (thời điểm hết hạn)
     expect(src()).not.toMatch(/view\.resetUrl|openRequest\.resetUrl/);
+  });
+
+  it("BLOCK fix (review zc-efix #1): DecideForm render CHO CẢ requested LẪN approved — approve gọi revalidatePath(\"/admin/users\") → Next 16 re-render page NGAY (revalidatePath.md:19 Server Function \"Updates the UI immediately\") với row approved; nếu chỉ render khi requested, DecideForm unmount → useActionState (giữ resetUrl MỘT LẦN) bị discard → link mất vĩnh viễn (token thô không tồn tại nơi khác), FD-R3 kẹt đến hết hạn 30 phút", () => {
+    const panel = src().slice(
+      src().indexOf("export function ManualAccountRecoveryPanel"),
+      src().indexOf("function OpenRequestInfo"),
+    );
+    // render condition của DecideForm phải ĐỠ status flip requested→approved
+    // (row approved-unconsumed là row page trả về ngay sau action approve)
+    expect(panel).toMatch(
+      /\(view\.openRequest\.status === "requested" \|\|\s*view\.openRequest\.status === "approved"\)/,
+    );
+  });
+
+  it("BLOCK fix: DecideForm key theo request id — CÙNG row qua requested→approved GIỮ state (link sống qua revalidate); ĐỔI subject/request → remount → state reset (link của user khác KHÔNG leak sang panel user khác — preserving-ui-state.md:281 key-reset pattern)", () => {
+    const panel = src().slice(
+      src().indexOf("export function ManualAccountRecoveryPanel"),
+      src().indexOf("function OpenRequestInfo"),
+    );
+    // ([^>] đã match newline — không cần flag s ở target tsconfig này)
+    expect(panel).toMatch(/<DecideForm[^>]*key=\{view\.openRequest\.id\}/);
+  });
+
+  it("BLOCK fix: result-only mode (status approved) — nút duyệt/từ chối + ô TOTP ẩn (KHÔNG quyết lần hai), state resetUrl VẪN render (box MỘT LẦN sống qua status flip)", () => {
+    const decideForm = src().slice(
+      src().indexOf("function DecideForm"),
+      src().indexOf("function CancelForm"),
+    );
+    expect(src()).toContain('resultOnly={view.openRequest.status !== "requested"}');
+    // nút + TOTP chỉ render khi KHÔNG result-only
+    expect(decideForm).toMatch(/\{!resultOnly && \(/);
+    // box resetUrl render từ state — NGOÀI điều kiện resultOnly
+    expect(decideForm).toContain("state.resetUrl !== undefined && (");
   });
 });
 

@@ -43,7 +43,9 @@ import {
  *  - admin B (≠ A, ≠ subject) approve/reject — KHÔNG BAO GIỜ một admin tự mở
  *    + tự duyệt (SAME_PERSON_FORBIDDEN / SELF_RECOVERY_FORBIDDEN);
  *  - subject KHÔNG BAO GIỜ là admin account (ADMIN_SUBJECT_FORBIDDEN — admin
- *    lockout/MFA-reset thuộc bootstrap runbook, không phải surface này);
+ *    lockout/MFA-reset thuộc bootstrap runbook, không phải surface này;
+ *    kiểm lúc mở request, RE-CHECK trong tx approve, consume CAS
+ *    adminRole IS NULL — review zc-efix #3);
  *  - subject KHÔNG BAO GIỜ là chính admin mở request (SELF_RECOVERY_FORBIDDEN).
  *
  * Audit action registry (disjoint mọi batch trước — spec §4.6):
@@ -86,7 +88,10 @@ import {
  * corrections #36: NEXT_PUBLIC_APP_URL check TRƯỚC tx) — KHÔNG bao giờ vào
  * db (chỉ tokenHash)/audit/telemetry/log. Approve thu hồi MỘI session của
  * subject TRONG cùng tx (containment — kẻ chiếm session cũ mất tác quyền
- * NGAY, trước cả khi user đặt được mật khẩu mới).
+ * NGAY, trước cả khi user đặt được mật khẩu mới); consume thu hồi LẠI trong
+ * cùng tx với password write (review zc-efix #2 — session MỚI login bằng
+ * mật khẩu cũ trong cửa sổ 30 phút sống sót approve-time revocation, chết
+ * theo consume; pattern self-service recovery.ts).
  */
 
 export type ManualRecoveryFormState = {
@@ -346,6 +351,9 @@ export async function requestManualAccountRecoveryAction(
  *  - so lại phoneHash + phoneVerifiedAtSnapshot với giá trị HIỆN TẠI đọc
  *    TRONG tx (INSIDE): đổi giữa request/decide → CONTACT_CHANGED (tx abort —
  *    quyết định không gắn với số chưa từng được out-of-band);
+ *  - RE-CHECK adminRole TRONG tx (review zc-efix #3): subject được promote
+ *    admin SAU request → ADMIN_SUBJECT_FORBIDDEN (tx abort — KHÔNG issue
+ *    token cho admin account; admin recovery thuộc bootstrap runbook);
  *  - sinh reset token MỘT LẦN (randomBytes(32) base64url), lưu CHỈ HMAC +
  *    resetTokenExpiresAt = approval + 30 phút;
  *  - thu hồi MỌI session của subject TRONG cùng tx (containment — kẻ đang
@@ -433,6 +441,12 @@ export async function decideManualAccountRecoveryAction(
       if (decision === "approve") {
         const subject = await tx.orm.public.User.first({ id: fresh.userId });
         if (subject === null) throw new Error("NOT_FOUND");
+        // RE-CHECK adminRole INSIDE tx (review zc-efix #3): request-side chặn
+        // lúc mở, nhưng subject có thể được promote adminRole SAU request
+        // (setAdminRoleAction CAS) trong cửa sổ 24h — quyết định phải chết ở
+        // đây: KHÔNG issue token cho admin account (admin lockout/MFA-reset
+        // thuộc bootstrap runbook, KHÔNG phải surface này).
+        if (subject.adminRole !== null) throw new Error("ADMIN_SUBJECT_FORBIDDEN");
         if (subject.phone === null || subject.phoneVerifiedAt === null) {
           // số đã bị mất/xác minh bị gỡ giữa request/decide — giá trị đã đổi
           throw new Error("CONTACT_CHANGED");
@@ -488,6 +502,10 @@ export async function decideManualAccountRecoveryAction(
           return { error: "EXPIRED" };
         case "CONTACT_CHANGED":
           return { error: "CONTACT_CHANGED" };
+        case "ADMIN_SUBJECT_FORBIDDEN":
+          // subject promote admin SAU request — re-check trong tx chặn
+          // (review zc-efix #3); map ở ĐÂY (ngoài tx), KHÔNG trong callback.
+          return { error: "ADMIN_SUBJECT_FORBIDDEN" };
       }
     }
     throw e; // fail closed — KHÔNG map mù lỗi infra thành form error
@@ -605,8 +623,15 @@ export async function cancelManualAccountRecoveryAction(
  * resetTokenExpiresAt > now → status=consumed + consumedAt. 0 row = đã dùng
  * lại / hết hạn / token rác → CÙNG lỗi collapsed (spec §7.7 — consume không
  * thành oracle). Mật khẩu mới ghi trong CÙNG tx với claim (hashPassword
- * NGOÀI tx — bcrypt chậm, không giữ tx). Session của subject ĐÃ bị thu hồi
- * ở approve (không thu hồi lại ở đây — idempotent).
+ * NGOÀI tx — bcrypt chậm, không giữ tx) — password write CAS adminRole IS
+ * NULL (review zc-efix #3: subject promote admin giữa approve/consume →
+ * 0 row → LINK_INVALID, claim rollback — KHÔNG bao giờ đụng mật khẩu admin
+ * account qua surface này). Session của subject bị thu hồi LẠI trong CÙNG
+ * tx với password write (review zc-efix #2 — pattern self-service
+ * recovery.ts): thu hồi lúc approve KHÔNG chặn session MỚI — attacker biết
+ * mật khẩu cũ login lại trong cửa sổ 30 phút thì session đó chết THEO
+ * consume, không sống sót qua reset (idempotent với session đã revoke ở
+ * approve).
  *
  * Rate limit: per IP (mirror RECOVERY_CONFIRM_RULE) + per token (bucket keyed
  * bằng HMAC hash — limiter KHÔNG giữ token thô, spec §4.8). Fail open.
@@ -668,7 +693,23 @@ export async function consumeManualAccountRecoveryAction(
         .updateAll({ status: "consumed", consumedAt: nowIso });
       if (claimed.length === 0) throw new Error("LINK_INVALID");
 
-      await tx.orm.public.User.where({ id: valid.userId }).updateAll({ passwordHash });
+      // Password write CAS adminRole IS NULL (review zc-efix #3): subject
+      // được promote admin SAU approve → 0 row → LINK_INVALID (claim rollback
+      // — KHÔNG bao giờ đụng mật khẩu admin account qua surface này; admin
+      // recovery thuộc bootstrap runbook).
+      const updated = await tx.orm.public.User
+        .where({ id: valid.userId })
+        .where((u) => u.adminRole.isNull())
+        .updateAll({ passwordHash });
+      if (updated.length === 0) throw new Error("LINK_INVALID");
+
+      // Thu hồi MỌI session TRONG cùng tx với password write (review zc-efix
+      // #2 — pattern self-service recovery.ts): thu hồi lúc approve KHÔNG
+      // chặn session MỚI — attacker biết mật khẩu cũ login lại trong cửa sổ
+      // 30 phút thì session đó chết THEO consume, không sống sót qua reset
+      // (idempotent với session đã revoke ở approve; KHÔNG exceptSessionId —
+      // consume là public, user không giữ session nào).
+      await revokeAllUserSessionsTx(tx, valid.userId, "manual_account_recovery");
 
       // Audit sống chết cùng tx — ids ONLY (§4.8 — KHÔNG token thô, KHÔNG PII).
       await auditEventTx(tx, {

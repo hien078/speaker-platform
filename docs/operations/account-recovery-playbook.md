@@ -217,7 +217,9 @@ trình giấy):**
    - **Từ chối** → không issue link (audit `account.manual_recovery_rejected`).
    - Action tự chặn: A tự duyệt (`SAME_PERSON_FORBIDDEN`), subject là chính
      mình (`SELF_RECOVERY_FORBIDDEN` — cả mở lẫn duyệt), subject là admin
-     account (`ADMIN_SUBJECT_FORBIDDEN` — xem giới hạn dưới), phone/snapshot
+     account (`ADMIN_SUBJECT_FORBIDDEN` — kiểm lúc mở request, RE-CHECK
+     trong tx approve: subject được promote admin SAU khi request mở cũng
+     bị chặn — xem giới hạn dưới), phone/snapshot
      đổi giữa hai bước (`CONTACT_CHANGED` — tx abort), request quá hạn
      (`EXPIRED`), đã quyết (`ALREADY_DECIDED`).
    - Admin A (người mở) có thể **hủy** request trước khi có quyết định
@@ -226,16 +228,24 @@ trình giấy):**
 3. **User tự đặt mật khẩu mới** qua link: mở `/recover/manual/<token>` →
    token chuyển vào cookie HttpOnly (15 phút, path-scoped) + redirect trang
    tokenless → nhập mật khẩu mới (cùng chính sách `/recover`: 6..100) →
-   **MỘT CAS duy nhất**: row `consumed` + `passwordHash` + audit
-   `account.manual_recovery_consumed` trong cùng tx. Link dùng MỘT lần —
+   **MỘT CAS duy nhất**: row `consumed` + `passwordHash` (CAS
+   `adminRole IS NULL` — subject được promote admin giữa approve/consume →
+   refuse cùng thông báo chung, KHÔNG đụng mật khẩu admin account) +
+   **thu hồi lại MỌI session** + audit `account.manual_recovery_consumed`
+   trong cùng tx. Link dùng MỘT lần —
    dùng lại/hết hạn/token rác → CÙNG MỘT thông báo chung (enumeration-safe
-   §7.7 — không oracle). Mọi session đã bị thu hồi từ bước duyệt; user đăng
+   §7.7 — không oracle). Session đăng nhập bằng mật khẩu cũ trong cửa sổ
+   30 phút (login SAU lúc duyệt) cũng bị thu hồi theo consume; user đăng
    nhập lại bằng mật khẩu mới.
 
 **Giới hạn (tự chặn trong code):**
 
 - Subject KHÔNG BAO GIỜ là admin account (`ADMIN_SUBJECT_FORBIDDEN`) —
-  khôi phục admin (lockout MFA / mất quyền bootstrap) thuộc
+  kiểm lúc mở request, RE-CHECK `adminRole` trong tx approve (subject
+  được promote admin SAU khi request mở → quyết định refuse, tx abort) và
+  consume CAS `adminRole IS NULL` (promote giữa approve/consume → password
+  write 0 row → refuse, claim rollback). Khôi phục admin (lockout MFA / mất
+  quyền bootstrap) thuộc
   `docs/operations/admin-bootstrap-recovery-runbook.md` §2/§3 (two-person
   psql), KHÔNG phải surface này.
 - MỘT request mở duy nhất per user (partial unique `account_recovery_one_open`
