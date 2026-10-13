@@ -638,6 +638,19 @@ describe("phân loại finance table theo writer (grep-verified) — mọi model
     expect(NON_FINANCE_TABLES).toContain("ManualContactVerification");
   });
 
+  it("AccountRecoveryRequest (Task E) NON-FINANCE — writer là manual-account-recovery.ts, không FK tới bảng finance", () => {
+    // Writer: src/lib/actions/manual-account-recovery.ts (request/approve/
+    // reject/cancel — requireCapabilityWithStepUp("account.recover_manual");
+    // consume — public action đọc cookie) — KHÔNG finance guard vì không phải
+    // ranh giới tài chính (đặt lại mật khẩu KHÔNG chạm tiền). FK duy nhất → User
+    // (Restrict/SetNull) — không FK tới bảng finance nào (evidence:
+    // tests/integration/account-recovery-migration.test.ts assert không op id
+    // nào khớp finance regex). Quy tắc thường trực §6 monitoring-signals.md:
+    // model mới được phân loại trong CHÍNH batch thêm nó.
+    expect(FINANCE_TABLES).not.toContain("AccountRecoveryRequest");
+    expect(NON_FINANCE_TABLES).toContain("AccountRecoveryRequest");
+  });
+
   it("OTP_MAX_ATTEMPTS khớp src/lib/otp.ts (server-only — tsx không import được)", () => {
     const otpSrc = read("src/lib/otp.ts");
     const match = otpSrc.match(/export const OTP_MAX_ATTEMPTS = (\d+)/);

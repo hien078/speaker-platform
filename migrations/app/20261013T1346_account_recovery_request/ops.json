@@ -1,0 +1,401 @@
+[
+  {
+    "id": "table.AccountRecoveryRequest",
+    "label": "Create table \"AccountRecoveryRequest\"",
+    "summary": "Creates table \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "table",
+        "name": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure table \"AccountRecoveryRequest\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create table \"AccountRecoveryRequest\"",
+        "sql": "CREATE TABLE \"public\".\"AccountRecoveryRequest\" (\n  \"checkListingTitle\" bool NOT NULL,\n  \"checkProvince\" bool NOT NULL,\n  \"checkRegistrationMonth\" bool NOT NULL,\n  \"checksPassed\" int4 NOT NULL,\n  \"consumedAt\" timestamptz,\n  \"createdAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"decidedAt\" timestamptz,\n  \"decidedById\" text,\n  \"expiresAt\" timestamptz NOT NULL,\n  \"id\" text NOT NULL,\n  \"phoneHash\" text NOT NULL,\n  \"phoneVerifiedAtSnapshot\" timestamptz NOT NULL,\n  \"requestedAt\" timestamptz DEFAULT (now()) NOT NULL,\n  \"requestedById\" text,\n  \"resetTokenExpiresAt\" timestamptz,\n  \"resetTokenHash\" text,\n  \"status\" text DEFAULT 'requested' NOT NULL,\n  \"updatedAt\" timestamptz NOT NULL,\n  \"userId\" text NOT NULL,\n  PRIMARY KEY (\"id\"),\n  CONSTRAINT \"AccountRecoveryRequest_status_check_8162b213\" CHECK (\"status\" IN ('requested', 'approved', 'rejected', 'cancelled', 'expired', 'consumed')),\n  CONSTRAINT \"account_recovery_checks_range_827d8d2e\" CHECK (\"checksPassed\" BETWEEN 2 AND 3)\n)",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify table \"AccountRecoveryRequest\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.AccountRecoveryRequest_decidedById_idx_8194d55f",
+    "label": "Create index \"AccountRecoveryRequest_decidedById_idx_8194d55f\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AccountRecoveryRequest_decidedById_idx_8194d55f",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AccountRecoveryRequest_decidedById_idx_8194d55f\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_decidedById_idx_8194d55f\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AccountRecoveryRequest_decidedById_idx_8194d55f\"",
+        "sql": "CREATE INDEX \"AccountRecoveryRequest_decidedById_idx_8194d55f\" ON \"public\".\"AccountRecoveryRequest\" (\"decidedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AccountRecoveryRequest_decidedById_idx_8194d55f\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_decidedById_idx_8194d55f\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.AccountRecoveryRequest_expiresAt_idx_6b6b8c10",
+    "label": "Create index \"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AccountRecoveryRequest_expiresAt_idx_6b6b8c10",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\"",
+        "sql": "CREATE INDEX \"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\" ON \"public\".\"AccountRecoveryRequest\" (\"expiresAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_expiresAt_idx_6b6b8c10\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.AccountRecoveryRequest_requestedById_idx_f9a56c66",
+    "label": "Create index \"AccountRecoveryRequest_requestedById_idx_f9a56c66\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AccountRecoveryRequest_requestedById_idx_f9a56c66",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AccountRecoveryRequest_requestedById_idx_f9a56c66\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_requestedById_idx_f9a56c66\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AccountRecoveryRequest_requestedById_idx_f9a56c66\"",
+        "sql": "CREATE INDEX \"AccountRecoveryRequest_requestedById_idx_f9a56c66\" ON \"public\".\"AccountRecoveryRequest\" (\"requestedById\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AccountRecoveryRequest_requestedById_idx_f9a56c66\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_requestedById_idx_f9a56c66\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.AccountRecoveryRequest_status_requestedAt_idx_27ce3e29",
+    "label": "Create index \"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AccountRecoveryRequest_status_requestedAt_idx_27ce3e29",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\"",
+        "sql": "CREATE INDEX \"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\" ON \"public\".\"AccountRecoveryRequest\" (\"status\", \"requestedAt\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_status_requestedAt_idx_27ce3e29\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.AccountRecoveryRequest_userId_status_idx_e4a128ba",
+    "label": "Create index \"AccountRecoveryRequest_userId_status_idx_e4a128ba\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "AccountRecoveryRequest_userId_status_idx_e4a128ba",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"AccountRecoveryRequest_userId_status_idx_e4a128ba\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_userId_status_idx_e4a128ba\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"AccountRecoveryRequest_userId_status_idx_e4a128ba\"",
+        "sql": "CREATE INDEX \"AccountRecoveryRequest_userId_status_idx_e4a128ba\" ON \"public\".\"AccountRecoveryRequest\" (\"userId\", \"status\")",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"AccountRecoveryRequest_userId_status_idx_e4a128ba\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"AccountRecoveryRequest_userId_status_idx_e4a128ba\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "index.AccountRecoveryRequest.account_recovery_one_open_b136b151",
+    "label": "Create index \"account_recovery_one_open_b136b151\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "index",
+        "name": "account_recovery_one_open_b136b151",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure index \"account_recovery_one_open_b136b151\" does not exist",
+        "sql": "SELECT (to_regclass($1)) IS NULL AS \"result\"",
+        "params": [
+          "\"public\".\"account_recovery_one_open_b136b151\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "create index \"account_recovery_one_open_b136b151\"",
+        "sql": "CREATE UNIQUE INDEX \"account_recovery_one_open_b136b151\" ON \"public\".\"AccountRecoveryRequest\" (\"userId\") WHERE ((\"status\" = 'requested' OR (\"status\" = 'approved' AND \"consumedAt\" IS NULL)))",
+        "params": []
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify index \"account_recovery_one_open_b136b151\" exists",
+        "sql": "SELECT (to_regclass($1)) IS NOT NULL AS \"result\"",
+        "params": [
+          "\"public\".\"account_recovery_one_open_b136b151\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AccountRecoveryRequest.AccountRecoveryRequest_userId_fkey",
+    "label": "Add foreign key \"AccountRecoveryRequest_userId_fkey\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AccountRecoveryRequest_userId_fkey",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AccountRecoveryRequest_userId_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_userId_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AccountRecoveryRequest_userId_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AccountRecoveryRequest\"\nADD CONSTRAINT \"AccountRecoveryRequest_userId_fkey\"\nFOREIGN KEY (\"userId\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE RESTRICT"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AccountRecoveryRequest_userId_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_userId_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AccountRecoveryRequest.AccountRecoveryRequest_requestedById_fkey",
+    "label": "Add foreign key \"AccountRecoveryRequest_requestedById_fkey\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AccountRecoveryRequest_requestedById_fkey",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AccountRecoveryRequest_requestedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_requestedById_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AccountRecoveryRequest_requestedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AccountRecoveryRequest\"\nADD CONSTRAINT \"AccountRecoveryRequest_requestedById_fkey\"\nFOREIGN KEY (\"requestedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AccountRecoveryRequest_requestedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_requestedById_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ]
+  },
+  {
+    "id": "foreignKey.AccountRecoveryRequest.AccountRecoveryRequest_decidedById_fkey",
+    "label": "Add foreign key \"AccountRecoveryRequest_decidedById_fkey\" on \"AccountRecoveryRequest\"",
+    "operationClass": "additive",
+    "target": {
+      "id": "postgres",
+      "details": {
+        "schema": "public",
+        "objectType": "foreignKey",
+        "name": "AccountRecoveryRequest_decidedById_fkey",
+        "table": "AccountRecoveryRequest"
+      }
+    },
+    "precheck": [
+      {
+        "description": "ensure FK \"AccountRecoveryRequest_decidedById_fkey\" does not exist",
+        "sql": "SELECT NOT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_decidedById_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ],
+    "execute": [
+      {
+        "description": "add FK \"AccountRecoveryRequest_decidedById_fkey\"",
+        "sql": "ALTER TABLE \"public\".\"AccountRecoveryRequest\"\nADD CONSTRAINT \"AccountRecoveryRequest_decidedById_fkey\"\nFOREIGN KEY (\"decidedById\")\nREFERENCES \"public\".\"User\" (\"id\")\nON DELETE SET NULL"
+      }
+    ],
+    "postcheck": [
+      {
+        "description": "verify FK \"AccountRecoveryRequest_decidedById_fkey\" exists",
+        "sql": "SELECT EXISTS (SELECT 1 AS \"one\" FROM \"pg_constraint\" AS \"c\" INNER JOIN \"pg_namespace\" AS \"n\" ON \"n\".\"oid\" = \"c\".\"connamespace\" WHERE (\"c\".\"conname\" = $1 AND \"n\".\"nspname\" = $2 AND \"c\".\"conrelid\" = to_regclass($3))) AS \"result\"",
+        "params": [
+          "AccountRecoveryRequest_decidedById_fkey",
+          "public",
+          "\"public\".\"AccountRecoveryRequest\""
+        ]
+      }
+    ]
+  }
+]
