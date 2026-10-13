@@ -16,6 +16,10 @@ import {
   ManualContactVerificationPanel,
   type ManualContactChannelView,
 } from "@/src/components/manual-contact-verification-forms";
+import {
+  ManualAccountRecoveryPanel,
+  type ManualRecoveryView,
+} from "@/src/components/manual-account-recovery-forms";
 import { Users, UsersRound, BadgeCheck, Search, History, Ban, ShieldCheck } from "lucide-react";
 
 export const dynamic = "force-dynamic";
@@ -73,6 +77,9 @@ export default async function AdminUsersPage({
   // zero-cost launch Task A — panel manual contact verification (convenience;
   // action tự requireCapabilityWithStepUp("contact.verify_manual")).
   const canVerifyManual = capabilitiesOf(admin.user.adminRole).includes("contact.verify_manual");
+  // Task E (FD-R3 founder 2026-10-13) — panel manual account recovery
+  // (convenience; action tự requireCapabilityWithStepUp("account.recover_manual")).
+  const canRecoverManual = capabilitiesOf(admin.user.adminRole).includes("account.recover_manual");
   const sp = (await searchParams) as { q?: string; role?: string; u?: string };
   const q = sp.q?.trim() ?? "";
   // corrections #27: ?u=<userId> — tra cứu EXACT theo id (link từ console beta
@@ -94,6 +101,9 @@ export default async function AdminUsersPage({
       // zero-cost launch Task A — panel manual contact verification đọc trạng thái verified
       "emailVerifiedAt",
       "phoneVerifiedAt",
+      // Task E — panel manual account recovery: subject là admin account thì
+      // request disable (ADMIN_SUBJECT_FORBIDDEN — action tự refuse).
+      "adminRole",
     )
     .orderBy((u) => u.createdAt.desc())
     .limit(100);
@@ -123,6 +133,7 @@ export default async function AdminUsersPage({
         "createdAt",
         "emailVerifiedAt",
         "phoneVerifiedAt",
+        "adminRole",
       )
       .all();
     const seen = new Set(users.map((u) => u.id));
@@ -229,6 +240,70 @@ export default async function AdminUsersPage({
               },
         };
       });
+    }
+  }
+
+  // Task E (FD-R3 founder 2026-10-13) — panel "Khôi phục tài khoản thủ công"
+  // cho user đang xem (?u= — corrections #27 exact id). Chỉ build khi viewer
+  // giữ account.recover_manual (convenience; action tự guard + step-up).
+  // maskContact chạy SERVER-SIDE — client chỉ nhận maskedPhone (§4.8/§7.6
+  // KHÔNG bao giờ số đầy đủ đến client). Open request = requested chưa hết
+  // hạn HOẶC approved-unconsumed-token-còn-hạn (một link reset sống tối đa
+  // per user — cùng ranh giới pre-check của action); row quá hạn không hiện
+  // (expired on read — request mới flip nó sang 'expired' trong tx của mình).
+  let manualRecoveryView: ManualRecoveryView | null = null;
+  if (uid && canRecoverManual) {
+    const subject = users.find((u) => u.id === uid) ?? null;
+    if (subject !== null) {
+      const nowIso = new Date().toISOString();
+      const openRequested = await db.orm.public.AccountRecoveryRequest
+        .where({ userId: uid })
+        .where((r) => r.status.eq("requested"))
+        .where((r) => r.expiresAt.gt(nowIso))
+        .first();
+      const openApproved = await db.orm.public.AccountRecoveryRequest
+        .where({ userId: uid })
+        .where((r) => r.status.eq("approved"))
+        .where((r) => r.consumedAt.isNull())
+        .where((r) => r.resetTokenExpiresAt.gt(nowIso))
+        .first();
+      const open = openRequested ?? openApproved;
+      // tên người mở (display name — không phải PII liên hệ)
+      let requesterName: string | null = null;
+      if (open !== null && open.requestedById !== null) {
+        const requester = await db.orm.public.User.first({ id: open.requestedById });
+        requesterName = requester?.name ?? null;
+      }
+      // nowMs qua new Date() (không Date.now() — react-hooks/purity precedent)
+      const nowMs = new Date().getTime();
+      const requestedAt = open?.requestedAt ?? null;
+      const ageHours =
+        requestedAt === null
+          ? null
+          : Math.max(0, Math.round((nowMs - Date.parse(requestedAt)) / 3_600_000));
+      manualRecoveryView = {
+        subjectId: uid,
+        maskedPhone: maskContact("phone", subject.phone),
+        phoneVerified: subject.phoneVerifiedAt !== null,
+        phoneVerifiedAt:
+          subject.phoneVerifiedAt === null ? null : formatDateShort(subject.phoneVerifiedAt),
+        subjectIsAdmin: subject.adminRole !== null,
+        openRequest: open === null
+          ? null
+          : {
+              id: open.id,
+              status: open.status,
+              checksPassed: open.checksPassed,
+              requestedAt: formatDateShort(open.requestedAt),
+              ageLabel: ageHours === null ? "" : ageHours < 1 ? "vừa mở" : `${ageHours} giờ trước`,
+              isRequester: open.requestedById === admin.user.id,
+              requesterName,
+              resetTokenExpiresAt:
+                open.resetTokenExpiresAt === null
+                  ? null
+                  : formatDateShort(open.resetTokenExpiresAt),
+            },
+      };
     }
   }
 
@@ -515,6 +590,17 @@ export default async function AdminUsersPage({
           subjectId={uid}
           isSubject={uid === admin.user.id}
           channels={manualContactChannels}
+        />
+      )}
+      {/* Task E (FD-R3 founder 2026-10-13) — panel manual account recovery cho
+          user đang xem (?u=). isSubject: admin hiện tại là người được khôi
+          phục — panel vẫn render (trạng thái đọc được) nhưng MỌI form disable
+          (tự khôi phục mật khẩu của chính mình là đường leo thang). */}
+      {uid && canRecoverManual && manualRecoveryView !== null && (
+        <ManualAccountRecoveryPanel
+          subjectId={uid}
+          isSubject={uid === admin.user.id}
+          view={manualRecoveryView}
         />
       )}
     </div>

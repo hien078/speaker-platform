@@ -510,6 +510,11 @@ describe("requireCapabilityWithStepUp — step-up gate (spec §5.4.2)", () => {
         // manual contact verification) — cùng nhóm nhạy cảm nhất của A5
         // ("MỌI quyết định verification thủ công đều cần step-up").
         "contact.verify_manual",
+        // Task E (FD-R3 founder 2026-10-13): đặt lại mật khẩu user là
+        // "destructive account action" nhạy cảm NHẤT (chiếm tài khoản toàn
+        // bộ) — MỌI action manual recovery (request/approve/reject/cancel)
+        // đều cần step-up, cùng nhóm user.suspend (A9).
+        "account.recover_manual",
       ].sort(),
     );
   });
