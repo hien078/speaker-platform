@@ -50,13 +50,17 @@ type HeaderEntry = { source: string; headers: Array<{ key: string; value: string
  *  - `"/((?!uploads/).*)"` → regex nguyên văn (Next cho phép regex bọc parens);
  *  - `"/uploads/:path*"`   → zero-or-more segment sau prefix;
  *  - `"/invite/:token"`    → đúng MỘT segment (không match /invite, không match /invite/a/b);
+ *  - `"/recover/manual/:token"` → MỘT segment sau prefix nhiều cấp (Task E —
+ *    cùng dạng :param, prefix 2 segment; không match /recover/manual);
  *  - `"/invite"`           → literal.
  */
 function sourceToRegex(source: string): RegExp {
   if (source.startsWith("/(")) return new RegExp(`^${source}$`);
   const star = /^(\/[a-z-]+)\/:[a-z]+\*$/i.exec(source);
   if (star) return new RegExp(`^${star[1]}(?:/(.*))?$`);
-  const param = /^(\/[a-z-]+)\/:[a-z]+$/i.exec(source);
+  // :param sau prefix MỘT hoăc NHIỀU segment ("/invite/:token",
+  // "/recover/manual/:token") — đúng MỘT segment, không hơn.
+  const param = /^(\/[a-z-]+(?:\/[a-z-]+)*)\/:[a-z]+$/i.exec(source);
   if (param) return new RegExp(`^${param[1]}/([^/]+)$`);
   return new RegExp(`^${source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
 }
@@ -106,6 +110,23 @@ describe("§7.4 headers() — cấu trúc mảng (app-wide ĐẦU, Batch 4/7 NGU
     expect(invite).toBeDefined();
     expect(invite!.headers).toEqual([{ key: "X-Robots-Tag", value: "noindex" }]);
   });
+
+  it("Task E /recover/manual blocks NGUYÊN VẸN — no-referrer chỉ trên :token; /recover/manual KHÔNG có Referrer-Policy", async () => {
+    // Mirror /invite (corrections #8): URL reset là nơi token thô xuất hiện
+    // MỘT lần — no-referrer CHỈ trên response đó; trang tokenless KHÔNG
+    // (action POST cần Origin same-origin — no-referrer gửi Origin: null
+    // → Next CSRF check reject).
+    const list = await entries();
+    const token = list.find((h) => h.source === "/recover/manual/:token");
+    expect(token).toBeDefined();
+    expect(token!.headers).toEqual([
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex" },
+    ]);
+    const page = list.find((h) => h.source === "/recover/manual");
+    expect(page).toBeDefined();
+    expect(page!.headers).toEqual([{ key: "X-Robots-Tag", value: "noindex" }]);
+  });
 });
 
 // ─── Header HIỆU DỤNG theo path (last-match-wins) ─────────────────────────────
@@ -129,6 +150,18 @@ describe("§7.4 header HIỆU DỤNG theo path (last-match-wins)", () => {
 
   it("/invite (tokenless) → strict-origin-when-cross-origin, KHÔNG no-referrer (corrections #8 — origin check action POST)", async () => {
     const h = await effectiveHeaders("/invite");
+    expect(h["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
+    expect(h["X-Robots-Tag"]).toBe("noindex");
+  });
+
+  it("/recover/manual/<token> → Referrer-Policy no-referrer (Task E THẮNG — app-wide đứng TRƯỚC) + noindex", async () => {
+    const h = await effectiveHeaders("/recover/manual/9f8d7c6b5a4e3f2d1c0b9a8d7e6f5a4b3c2d1e0f");
+    expect(h["Referrer-Policy"]).toBe("no-referrer");
+    expect(h["X-Robots-Tag"]).toBe("noindex");
+  });
+
+  it("/recover/manual (tokenless) → strict-origin-when-cross-origin, KHÔNG no-referrer (corrections #8 — action POST cần Origin)", async () => {
+    const h = await effectiveHeaders("/recover/manual");
     expect(h["Referrer-Policy"]).toBe("strict-origin-when-cross-origin");
     expect(h["X-Robots-Tag"]).toBe("noindex");
   });

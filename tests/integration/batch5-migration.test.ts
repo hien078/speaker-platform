@@ -806,6 +806,9 @@ d("pre-Batch-5 row survives the batch 5 migration (b5-review T1 L1)", () => {
   // zero-cost launch Task A — ref production advance qua
   // manual_contact_verification (append-only pin; end == production hash).
   const MCV_DIR = "20261012T0000_manual_contact_verification";
+  // Task E — ref production advance qua account_recovery_request (append-only
+  // pin; end == production hash).
+  const ARR_DIR = "20261013T1346_account_recovery_request";
   const INVARIANT = "backfill-listing-approved-content-at";
 
   type Row = Record<string, unknown>;
@@ -922,6 +925,7 @@ d("pre-Batch-5 row survives the batch 5 migration (b5-review T1 L1)", () => {
           BATCH6_DIR,
           BATCH7_DIR,
           MCV_DIR,
+          ARR_DIR,
         ]);
         expect(post.markerHash).toBe(productionRef.hash);
 

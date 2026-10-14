@@ -52,7 +52,11 @@ export type Capability =
   | "audit.read"
   // zero-cost launch Task A — manual contact verification (two-person rule):
   // admin A mở request, admin B quyết định sau xác nhận out-of-band.
-  | "contact.verify_manual";
+  | "contact.verify_manual"
+  // Task E — manual account recovery (two-person rule, FD-R3 founder
+  // 2026-10-13): admin A mở request sau cuộc gọi tới số ĐÃ XÁC MINH, admin B
+  // duyệt → reset token một lần cho user tự đặt mật khẩu mới.
+  | "account.recover_manual";
 
 /**
  * Ma trận role → capability — ĐÚNG từng ô plan Task 4 (spec §5.4.1).
@@ -82,6 +86,10 @@ export const ROLE_CAPABILITIES: Record<AdminRole, readonly Capability[]> = {
     // 2026-10-12): quyết định verification thủ công thuộc nhóm nhạy cảm
     // nhất (A5) — super/ops only, moderator/support/analyst fail closed.
     "contact.verify_manual",
+    // Task E — manual account recovery (founder FD-R3 2026-10-13): đặt lại
+    // mật khẩu user là hành vi nhạy cảm nhất (chiếm tài khoản) — super/ops
+    // only, moderator/support/analyst fail closed (A2).
+    "account.recover_manual",
   ],
   operations_admin: [
     "admin.access",
@@ -95,6 +103,7 @@ export const ROLE_CAPABILITIES: Record<AdminRole, readonly Capability[]> = {
     "user.view_basic",
     "session.revoke",
     "contact.verify_manual",
+    "account.recover_manual",
   ],
   moderator: ["admin.access", "listing.moderate", "report.resolve"],
   support: ["admin.access"],
@@ -178,6 +187,11 @@ export async function requireCapability(cap: Capability): Promise<AdminContext> 
  *   thủ công (approve manual contact verification) — A5 đọc NGHIÊM NHẤT:
  *   "MỘI quyết định verification thủ công đều cần step-up" (cùng nhóm
  *   seller.verify). Two-person rule (A ≠ B) enforce ở action, KHÔNG ở đây.
+ * - `account.recover_manual` (Task E, FD-R3 founder 2026-10-13): đặt lại mật
+ *   khẩu user là "destructive account action" nhạy cảm NHẤT (chiếm tài khoản
+ *   toàn bộ) — MỌI action của manual recovery (request/approve/reject/cancel)
+ *   đều cần step-up, cùng nhóm `user.suspend` (A9) + `contact.verify_manual`.
+ *   Two-person rule (A ≠ B ≠ subject) enforce ở action, KHÔNG ở đây.
  */
 export const STEP_UP_CAPABILITIES: readonly Capability[] = [
   "pii.view_sensitive",
@@ -187,6 +201,7 @@ export const STEP_UP_CAPABILITIES: readonly Capability[] = [
   "seller.verification.revoke",
   "user.suspend",
   "contact.verify_manual",
+  "account.recover_manual",
 ];
 
 /**

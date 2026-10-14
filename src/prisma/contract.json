@@ -8,6 +8,10 @@
       "model": "AbuseReport",
       "namespace": "public"
     },
+    "AccountRecoveryRequest": {
+      "model": "AccountRecoveryRequest",
+      "namespace": "public"
+    },
     "AdminAuditLog": {
       "model": "AdminAuditLog",
       "namespace": "public"
@@ -205,6 +209,35 @@
     "namespaces": {
       "public": {
         "enum": {
+          "account_recovery_status": {
+            "codecId": "pg/text@1",
+            "members": [
+              {
+                "name": "requested",
+                "value": "requested"
+              },
+              {
+                "name": "approved",
+                "value": "approved"
+              },
+              {
+                "name": "rejected",
+                "value": "rejected"
+              },
+              {
+                "name": "cancelled",
+                "value": "cancelled"
+              },
+              {
+                "name": "expired",
+                "value": "expired"
+              },
+              {
+                "name": "consumed",
+                "value": "consumed"
+              }
+            ]
+          },
           "admin_role": {
             "codecId": "pg/text@1",
             "members": [
@@ -1129,6 +1162,262 @@
               },
               "namespaceId": "public",
               "table": "AbuseReport"
+            }
+          },
+          "AccountRecoveryRequest": {
+            "fields": {
+              "checkListingTitle": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "checkProvince": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "checkRegistrationMonth": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/bool@1",
+                  "kind": "scalar"
+                }
+              },
+              "checksPassed": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/int4@1",
+                  "kind": "scalar"
+                }
+              },
+              "consumedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "createdAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "decidedAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "decidedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "expiresAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "id": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "phoneHash": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "phoneVerifiedAtSnapshot": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "requestedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "requestedById": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "resetTokenExpiresAt": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "resetTokenHash": {
+                "nullable": true,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              },
+              "status": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                },
+                "valueSet": {
+                  "entityKind": "enum",
+                  "entityName": "account_recovery_status",
+                  "namespaceId": "public",
+                  "plane": "domain"
+                }
+              },
+              "updatedAt": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "kind": "scalar"
+                }
+              },
+              "userId": {
+                "nullable": false,
+                "type": {
+                  "codecId": "pg/text@1",
+                  "kind": "scalar"
+                }
+              }
+            },
+            "relations": {
+              "decidedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "decidedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "requestedBy": {
+                "cardinality": "N:1",
+                "nullable": true,
+                "on": {
+                  "localFields": [
+                    "requestedById"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              },
+              "user": {
+                "cardinality": "N:1",
+                "nullable": false,
+                "on": {
+                  "localFields": [
+                    "userId"
+                  ],
+                  "targetFields": [
+                    "id"
+                  ]
+                },
+                "to": {
+                  "model": "User",
+                  "namespace": "public"
+                }
+              }
+            },
+            "storage": {
+              "fields": {
+                "checkListingTitle": {
+                  "column": "checkListingTitle"
+                },
+                "checkProvince": {
+                  "column": "checkProvince"
+                },
+                "checkRegistrationMonth": {
+                  "column": "checkRegistrationMonth"
+                },
+                "checksPassed": {
+                  "column": "checksPassed"
+                },
+                "consumedAt": {
+                  "column": "consumedAt"
+                },
+                "createdAt": {
+                  "column": "createdAt"
+                },
+                "decidedAt": {
+                  "column": "decidedAt"
+                },
+                "decidedById": {
+                  "column": "decidedById"
+                },
+                "expiresAt": {
+                  "column": "expiresAt"
+                },
+                "id": {
+                  "column": "id"
+                },
+                "phoneHash": {
+                  "column": "phoneHash"
+                },
+                "phoneVerifiedAtSnapshot": {
+                  "column": "phoneVerifiedAtSnapshot"
+                },
+                "requestedAt": {
+                  "column": "requestedAt"
+                },
+                "requestedById": {
+                  "column": "requestedById"
+                },
+                "resetTokenExpiresAt": {
+                  "column": "resetTokenExpiresAt"
+                },
+                "resetTokenHash": {
+                  "column": "resetTokenHash"
+                },
+                "status": {
+                  "column": "status"
+                },
+                "updatedAt": {
+                  "column": "updatedAt"
+                },
+                "userId": {
+                  "column": "userId"
+                }
+              },
+              "namespaceId": "public",
+              "table": "AccountRecoveryRequest"
             }
           },
           "AdminAuditLog": {
@@ -7396,6 +7685,51 @@
               }
             },
             "relations": {
+              "accountRecoveryRequests": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "userId"
+                  ]
+                },
+                "to": {
+                  "model": "AccountRecoveryRequest",
+                  "namespace": "public"
+                }
+              },
+              "accountRecoveryRequestsDecided": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "decidedById"
+                  ]
+                },
+                "to": {
+                  "model": "AccountRecoveryRequest",
+                  "namespace": "public"
+                }
+              },
+              "accountRecoveryRequestsRequested": {
+                "cardinality": "1:N",
+                "on": {
+                  "localFields": [
+                    "id"
+                  ],
+                  "targetFields": [
+                    "requestedById"
+                  ]
+                },
+                "to": {
+                  "model": "AccountRecoveryRequest",
+                  "namespace": "public"
+                }
+              },
               "adminMfa": {
                 "cardinality": "1:1",
                 "nullable": true,
@@ -8963,6 +9297,247 @@
                   ]
                 }
               ]
+            },
+            "AccountRecoveryRequest": {
+              "checks": [
+                {
+                  "expression": "\"status\" IN ('requested', 'approved', 'rejected', 'cancelled', 'expired', 'consumed')",
+                  "name": "AccountRecoveryRequest_status_check_8162b213",
+                  "prefix": "AccountRecoveryRequest_status_check"
+                },
+                {
+                  "expression": "\"checksPassed\" BETWEEN 2 AND 3",
+                  "name": "account_recovery_checks_range_827d8d2e",
+                  "prefix": "account_recovery_checks_range"
+                }
+              ],
+              "columns": {
+                "checkListingTitle": {
+                  "codecId": "pg/bool@1",
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "checkProvince": {
+                  "codecId": "pg/bool@1",
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "checkRegistrationMonth": {
+                  "codecId": "pg/bool@1",
+                  "nativeType": "bool",
+                  "nullable": false
+                },
+                "checksPassed": {
+                  "codecId": "pg/int4@1",
+                  "nativeType": "int4",
+                  "nullable": false
+                },
+                "consumedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "createdAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "decidedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "decidedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "expiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "id": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "phoneHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                },
+                "phoneVerifiedAtSnapshot": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "requestedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "default": {
+                    "expression": "now()",
+                    "kind": "function"
+                  },
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "requestedById": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "resetTokenExpiresAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": true
+                },
+                "resetTokenHash": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": true
+                },
+                "status": {
+                  "codecId": "pg/text@1",
+                  "default": {
+                    "kind": "literal",
+                    "value": "requested"
+                  },
+                  "nativeType": "text",
+                  "nullable": false,
+                  "valueSet": {
+                    "entityKind": "valueSet",
+                    "entityName": "account_recovery_status",
+                    "namespaceId": "public",
+                    "plane": "storage"
+                  }
+                },
+                "updatedAt": {
+                  "codecId": "pg/timestamptz-string@1",
+                  "nativeType": "timestamptz",
+                  "nullable": false
+                },
+                "userId": {
+                  "codecId": "pg/text@1",
+                  "nativeType": "text",
+                  "nullable": false
+                }
+              },
+              "foreignKeys": [
+                {
+                  "onDelete": "restrict",
+                  "source": {
+                    "columns": [
+                      "userId"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AccountRecoveryRequest"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "requestedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AccountRecoveryRequest"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                },
+                {
+                  "onDelete": "setNull",
+                  "source": {
+                    "columns": [
+                      "decidedById"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "AccountRecoveryRequest"
+                  },
+                  "target": {
+                    "columns": [
+                      "id"
+                    ],
+                    "namespaceId": "public",
+                    "tableName": "User"
+                  }
+                }
+              ],
+              "indexes": [
+                {
+                  "columns": [
+                    "decidedById"
+                  ],
+                  "name": "AccountRecoveryRequest_decidedById_idx_8194d55f",
+                  "prefix": "AccountRecoveryRequest_decidedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "expiresAt"
+                  ],
+                  "name": "AccountRecoveryRequest_expiresAt_idx_6b6b8c10",
+                  "prefix": "AccountRecoveryRequest_expiresAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "requestedById"
+                  ],
+                  "name": "AccountRecoveryRequest_requestedById_idx_f9a56c66",
+                  "prefix": "AccountRecoveryRequest_requestedById_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "status",
+                    "requestedAt"
+                  ],
+                  "name": "AccountRecoveryRequest_status_requestedAt_idx_27ce3e29",
+                  "prefix": "AccountRecoveryRequest_status_requestedAt_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId",
+                    "status"
+                  ],
+                  "name": "AccountRecoveryRequest_userId_status_idx_e4a128ba",
+                  "prefix": "AccountRecoveryRequest_userId_status_idx",
+                  "unique": false
+                },
+                {
+                  "columns": [
+                    "userId"
+                  ],
+                  "name": "account_recovery_one_open_b136b151",
+                  "prefix": "account_recovery_one_open",
+                  "unique": true,
+                  "where": "(\"status\" = 'requested' OR (\"status\" = 'approved' AND \"consumedAt\" IS NULL))"
+                }
+              ],
+              "primaryKey": {
+                "columns": [
+                  "id"
+                ]
+              },
+              "uniques": []
             },
             "AdminAuditLog": {
               "columns": {
@@ -15293,6 +15868,17 @@
             }
           },
           "valueSet": {
+            "account_recovery_status": {
+              "kind": "valueSet",
+              "values": [
+                "requested",
+                "approved",
+                "rejected",
+                "cancelled",
+                "expired",
+                "consumed"
+              ]
+            },
             "admin_role": {
               "kind": "valueSet",
               "values": [
@@ -15631,10 +16217,10 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "ec3fc69d14672b04241aed700fe7abb6014c2308ca51188228b1b05ed28142e5"
+    "storageHash": "cbad7facbb336295afa263cfe89705814f6bd77b88fdeac1379de38ff6cdcef3"
   },
   "execution": {
-    "executionHash": "c6d7ade5b53e17328171934252ca30a715dad8fdf5d91c3da1de57e89e8cbfd4",
+    "executionHash": "f1b7dafd5e8d80490abdcb86b355354ce146cbd76e4e42f4064ec00d9aedf252",
     "mutations": {
       "defaults": [
         {
@@ -15645,6 +16231,32 @@
           "ref": {
             "entry": "AbuseReport",
             "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "uuidv4",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AccountRecoveryRequest",
+            "field": "id",
+            "namespace": "public"
+          }
+        },
+        {
+          "onCreate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "onUpdate": {
+            "id": "timestampNow",
+            "kind": "generator"
+          },
+          "ref": {
+            "entry": "AccountRecoveryRequest",
+            "field": "updatedAt",
             "namespace": "public"
           }
         },

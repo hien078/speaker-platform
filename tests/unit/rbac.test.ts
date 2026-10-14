@@ -116,6 +116,10 @@ const ALL_CAPS: Capability[] = [
   "audit.read",
   // zero-cost launch Task A — manual contact verification (two-person rule)
   "contact.verify_manual",
+  // Task E — manual account recovery (two-person rule, FD-R3 founder
+  // 2026-10-13): admin A mở request sau cuộc gọi tới số ĐÃ XÁC MINH, admin B
+  // duyệt → reset token một lần cho user tự đặt mật khẩu mới.
+  "account.recover_manual",
 ];
 
 // Ma trận kỳ vọng — ĐÚNG từng ô plan Task 4 (spec §5.4.1). Ô "—" trong spec
@@ -141,6 +145,10 @@ const EXPECTED: Record<Capability, Record<AdminRole, boolean>> = {
   // (two-person rule cần admin A ≠ admin B — moderator/support KHÔNG được
   // chạm kênh verified của user; analyst read-only fail closed A2).
   "contact.verify_manual": { super_admin: true, operations_admin: true, moderator: false, support: false, analyst: false },
+  // Task E — manual account recovery: super/ops only (đặt lại mật khẩu user
+  // là hành vi chiếm tài khoản toàn bộ — moderator/support KHÔNG được chạm;
+  // two-person rule A ≠ B ≠ subject enforce ở action, KHÔNG phải ma trận).
+  "account.recover_manual": { super_admin: true, operations_admin: true, moderator: false, support: false, analyst: false },
 };
 
 beforeEach(() => {

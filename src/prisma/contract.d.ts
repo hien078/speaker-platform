@@ -34,9 +34,9 @@ import type {
 } from '@prisma/orm-postgres/contract/types';
 
 export type StorageHash =
-  StorageHashBase<'ec3fc69d14672b04241aed700fe7abb6014c2308ca51188228b1b05ed28142e5'>;
+  StorageHashBase<'cbad7facbb336295afa263cfe89705814f6bd77b88fdeac1379de38ff6cdcef3'>;
 export type ExecutionHash =
-  ExecutionHashBase<'c6d7ade5b53e17328171934252ca30a715dad8fdf5d91c3da1de57e89e8cbfd4'>;
+  ExecutionHashBase<'f1b7dafd5e8d80490abdcb86b355354ce146cbd76e4e42f4064ec00d9aedf252'>;
 export type ProfileHash =
   ProfileHashBase<'3916f444a8a17ad749191acf9e08dad97d1a327b88c2f1d45d12f240296aa8b2'>;
 
@@ -268,6 +268,27 @@ export type FieldOutputTypes = {
       readonly reporterId: CodecTypes['pg/text@1']['output'] | null;
       readonly targetId: CodecTypes['pg/text@1']['output'];
       readonly targetType: 'listing' | 'user' | 'message';
+    };
+    readonly AccountRecoveryRequest: {
+      readonly checkListingTitle: CodecTypes['pg/bool@1']['output'];
+      readonly checkProvince: CodecTypes['pg/bool@1']['output'];
+      readonly checkRegistrationMonth: CodecTypes['pg/bool@1']['output'];
+      readonly checksPassed: CodecTypes['pg/int4@1']['output'];
+      readonly consumedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly id: CodecTypes['pg/text@1']['output'];
+      readonly phoneHash: CodecTypes['pg/text@1']['output'];
+      readonly phoneVerifiedAtSnapshot: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly resetTokenExpiresAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly resetTokenHash: CodecTypes['pg/text@1']['output'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'consumed';
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly userId: CodecTypes['pg/text@1']['output'];
     };
     readonly AdminAuditLog: {
       readonly action: CodecTypes['pg/text@1']['output'];
@@ -875,6 +896,27 @@ export type FieldInputTypes = {
       readonly targetId: CodecTypes['pg/text@1']['input'];
       readonly targetType: 'listing' | 'user' | 'message';
     };
+    readonly AccountRecoveryRequest: {
+      readonly checkListingTitle: CodecTypes['pg/bool@1']['input'];
+      readonly checkProvince: CodecTypes['pg/bool@1']['input'];
+      readonly checkRegistrationMonth: CodecTypes['pg/bool@1']['input'];
+      readonly checksPassed: CodecTypes['pg/int4@1']['input'];
+      readonly consumedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly id: CodecTypes['pg/text@1']['input'];
+      readonly phoneHash: CodecTypes['pg/text@1']['input'];
+      readonly phoneVerifiedAtSnapshot: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly resetTokenExpiresAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly resetTokenHash: CodecTypes['pg/text@1']['input'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'consumed';
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly userId: CodecTypes['pg/text@1']['input'];
+    };
     readonly AdminAuditLog: {
       readonly action: CodecTypes['pg/text@1']['input'];
       readonly adminId: CodecTypes['pg/text@1']['input'];
@@ -1481,6 +1523,27 @@ export type StorageColumnTypes = {
       readonly targetId: CodecTypes['pg/text@1']['output'];
       readonly targetType: 'listing' | 'user' | 'message';
     };
+    readonly AccountRecoveryRequest: {
+      readonly checkListingTitle: CodecTypes['pg/bool@1']['output'];
+      readonly checkProvince: CodecTypes['pg/bool@1']['output'];
+      readonly checkRegistrationMonth: CodecTypes['pg/bool@1']['output'];
+      readonly checksPassed: CodecTypes['pg/int4@1']['output'];
+      readonly consumedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly id: CodecTypes['pg/text@1']['output'];
+      readonly phoneHash: CodecTypes['pg/text@1']['output'];
+      readonly phoneVerifiedAtSnapshot: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly requestedById: CodecTypes['pg/text@1']['output'] | null;
+      readonly resetTokenExpiresAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+      readonly resetTokenHash: CodecTypes['pg/text@1']['output'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'consumed';
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+      readonly userId: CodecTypes['pg/text@1']['output'];
+    };
     readonly AdminAuditLog: {
       readonly action: CodecTypes['pg/text@1']['output'];
       readonly adminId: CodecTypes['pg/text@1']['output'];
@@ -2086,6 +2149,27 @@ export type StorageColumnInputTypes = {
       readonly reporterId: CodecTypes['pg/text@1']['input'] | null;
       readonly targetId: CodecTypes['pg/text@1']['input'];
       readonly targetType: 'listing' | 'user' | 'message';
+    };
+    readonly AccountRecoveryRequest: {
+      readonly checkListingTitle: CodecTypes['pg/bool@1']['input'];
+      readonly checkProvince: CodecTypes['pg/bool@1']['input'];
+      readonly checkRegistrationMonth: CodecTypes['pg/bool@1']['input'];
+      readonly checksPassed: CodecTypes['pg/int4@1']['input'];
+      readonly consumedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly createdAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly decidedAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly decidedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly expiresAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly id: CodecTypes['pg/text@1']['input'];
+      readonly phoneHash: CodecTypes['pg/text@1']['input'];
+      readonly phoneVerifiedAtSnapshot: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly requestedById: CodecTypes['pg/text@1']['input'] | null;
+      readonly resetTokenExpiresAt: CodecTypes['pg/timestamptz-string@1']['input'] | null;
+      readonly resetTokenHash: CodecTypes['pg/text@1']['input'] | null;
+      readonly status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'consumed';
+      readonly updatedAt: CodecTypes['pg/timestamptz-string@1']['input'];
+      readonly userId: CodecTypes['pg/text@1']['input'];
     };
     readonly AdminAuditLog: {
       readonly action: CodecTypes['pg/text@1']['input'];
@@ -2695,6 +2779,31 @@ export namespace Models {
     moderationCase: public_ModerationCase;
     reporter: public_User | null;
     readonly [RelationKeys]?: 'moderationCase' | 'reporter';
+  };
+  export type public_AccountRecoveryRequest = {
+    checkListingTitle: CodecTypes['pg/bool@1']['output'];
+    checkProvince: CodecTypes['pg/bool@1']['output'];
+    checkRegistrationMonth: CodecTypes['pg/bool@1']['output'];
+    checksPassed: CodecTypes['pg/int4@1']['output'];
+    consumedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+    createdAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    decidedAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+    decidedById: CodecTypes['pg/text@1']['output'] | null;
+    expiresAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    id: CodecTypes['pg/text@1']['output'];
+    phoneHash: CodecTypes['pg/text@1']['output'];
+    phoneVerifiedAtSnapshot: CodecTypes['pg/timestamptz-string@1']['output'];
+    requestedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    requestedById: CodecTypes['pg/text@1']['output'] | null;
+    resetTokenExpiresAt: CodecTypes['pg/timestamptz-string@1']['output'] | null;
+    resetTokenHash: CodecTypes['pg/text@1']['output'] | null;
+    status: 'requested' | 'approved' | 'rejected' | 'cancelled' | 'expired' | 'consumed';
+    updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    userId: CodecTypes['pg/text@1']['output'];
+    decidedBy: public_User | null;
+    requestedBy: public_User | null;
+    user: public_User;
+    readonly [RelationKeys]?: 'decidedBy' | 'requestedBy' | 'user';
   };
   export type public_AdminAuditLog = {
     action: CodecTypes['pg/text@1']['output'];
@@ -3381,6 +3490,9 @@ export namespace Models {
     sellerOperatingProvinceCode: CodecTypes['pg/text@1']['output'] | null;
     sellerType: 'individual' | 'business' | null;
     updatedAt: CodecTypes['pg/timestamptz-string@1']['output'];
+    accountRecoveryRequests: public_AccountRecoveryRequest[];
+    accountRecoveryRequestsDecided: public_AccountRecoveryRequest[];
+    accountRecoveryRequestsRequested: public_AccountRecoveryRequest[];
     adminMfa: public_AdminMfa | null;
     appealsFiled: public_Appeal[];
     auditEventsActor: public_AuditEvent[];
@@ -3428,6 +3540,9 @@ export namespace Models {
     wishlist: public_WishlistItem[];
     withdrawRequests: public_WithdrawRequest[];
     readonly [RelationKeys]?:
+      | 'accountRecoveryRequests'
+      | 'accountRecoveryRequestsDecided'
+      | 'accountRecoveryRequestsRequested'
       | 'adminMfa'
       | 'appealsFiled'
       | 'auditEventsActor'
@@ -3546,6 +3661,7 @@ export namespace Models {
 export declare const models: {
   public: {
     AbuseReport: Models.public_AbuseReport;
+    AccountRecoveryRequest: Models.public_AccountRecoveryRequest;
     AdminAuditLog: Models.public_AdminAuditLog;
     AdminMfa: Models.public_AdminMfa;
     AdminRecoveryCode: Models.public_AdminRecoveryCode;
@@ -3715,6 +3831,190 @@ type ContractBase = Omit<
                   readonly target: {
                     readonly namespaceId: 'public' & NamespaceId;
                     readonly tableName: 'ModerationCase';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+              ];
+            };
+            readonly AccountRecoveryRequest: {
+              columns: {
+                readonly checkListingTitle: {
+                  readonly nativeType: 'bool';
+                  readonly codecId: 'pg/bool@1';
+                  readonly nullable: false;
+                };
+                readonly checkProvince: {
+                  readonly nativeType: 'bool';
+                  readonly codecId: 'pg/bool@1';
+                  readonly nullable: false;
+                };
+                readonly checkRegistrationMonth: {
+                  readonly nativeType: 'bool';
+                  readonly codecId: 'pg/bool@1';
+                  readonly nullable: false;
+                };
+                readonly checksPassed: {
+                  readonly nativeType: 'int4';
+                  readonly codecId: 'pg/int4@1';
+                  readonly nullable: false;
+                };
+                readonly consumedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: true;
+                };
+                readonly createdAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                };
+                readonly decidedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: true;
+                };
+                readonly decidedById: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly expiresAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                };
+                readonly id: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly phoneHash: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+                readonly phoneVerifiedAtSnapshot: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                };
+                readonly requestedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                  readonly default: { readonly kind: 'function'; readonly expression: 'now()' };
+                };
+                readonly requestedById: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly resetTokenExpiresAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: true;
+                };
+                readonly resetTokenHash: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: true;
+                };
+                readonly status: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                  readonly default: {
+                    readonly kind: 'literal';
+                    readonly value: DefaultLiteralValue<'pg/text@1', 'requested'>;
+                  };
+                };
+                readonly updatedAt: {
+                  readonly nativeType: 'timestamptz';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                  readonly nullable: false;
+                };
+                readonly userId: {
+                  readonly nativeType: 'text';
+                  readonly codecId: 'pg/text@1';
+                  readonly nullable: false;
+                };
+              };
+              primaryKey: { readonly columns: readonly ['id'] };
+              uniques: readonly [];
+              indexes: readonly [
+                {
+                  readonly name: 'AccountRecoveryRequest_decidedById_idx_8194d55f';
+                  readonly prefix: 'AccountRecoveryRequest_decidedById_idx';
+                  readonly columns: readonly ['decidedById'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'AccountRecoveryRequest_expiresAt_idx_6b6b8c10';
+                  readonly prefix: 'AccountRecoveryRequest_expiresAt_idx';
+                  readonly columns: readonly ['expiresAt'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'AccountRecoveryRequest_requestedById_idx_f9a56c66';
+                  readonly prefix: 'AccountRecoveryRequest_requestedById_idx';
+                  readonly columns: readonly ['requestedById'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'AccountRecoveryRequest_status_requestedAt_idx_27ce3e29';
+                  readonly prefix: 'AccountRecoveryRequest_status_requestedAt_idx';
+                  readonly columns: readonly ['status', 'requestedAt'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'AccountRecoveryRequest_userId_status_idx_e4a128ba';
+                  readonly prefix: 'AccountRecoveryRequest_userId_status_idx';
+                  readonly columns: readonly ['userId', 'status'];
+                  readonly unique: false;
+                },
+                {
+                  readonly name: 'account_recovery_one_open_b136b151';
+                  readonly prefix: 'account_recovery_one_open';
+                  readonly columns: readonly ['userId'];
+                  readonly where: '("status" = \'requested\' OR ("status" = \'approved\' AND "consumedAt" IS NULL))';
+                  readonly unique: true;
+                },
+              ];
+              foreignKeys: readonly [
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'AccountRecoveryRequest';
+                    readonly columns: readonly ['userId'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'AccountRecoveryRequest';
+                    readonly columns: readonly ['requestedById'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
+                    readonly columns: readonly ['id'];
+                  };
+                },
+                {
+                  readonly source: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'AccountRecoveryRequest';
+                    readonly columns: readonly ['decidedById'];
+                  };
+                  readonly target: {
+                    readonly namespaceId: 'public' & NamespaceId;
+                    readonly tableName: 'User';
                     readonly columns: readonly ['id'];
                   };
                 },
@@ -8376,6 +8676,17 @@ type ContractBase = Omit<
             };
           };
           readonly valueSet: {
+            readonly account_recovery_status: {
+              readonly kind: 'valueSet';
+              readonly values: readonly [
+                'requested',
+                'approved',
+                'rejected',
+                'cancelled',
+                'expired',
+                'consumed',
+              ];
+            };
             readonly admin_role: {
               readonly kind: 'valueSet';
               readonly values: readonly [
@@ -8628,6 +8939,10 @@ type ContractBase = Omit<
       readonly namespace: 'public' & NamespaceId;
       readonly model: 'AbuseReport';
     };
+    readonly AccountRecoveryRequest: {
+      readonly namespace: 'public' & NamespaceId;
+      readonly model: 'AccountRecoveryRequest';
+    };
     readonly AdminAuditLog: {
       readonly namespace: 'public' & NamespaceId;
       readonly model: 'AdminAuditLog';
@@ -8841,6 +9156,164 @@ type ContractBase = Omit<
                 readonly reporterId: { readonly column: 'reporterId' };
                 readonly targetId: { readonly column: 'targetId' };
                 readonly targetType: { readonly column: 'targetType' };
+              };
+            };
+          };
+          readonly AccountRecoveryRequest: {
+            readonly fields: {
+              readonly checkListingTitle: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/bool@1' };
+              };
+              readonly checkProvince: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/bool@1' };
+              };
+              readonly checkRegistrationMonth: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/bool@1' };
+              };
+              readonly checksPassed: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/int4@1' };
+              };
+              readonly consumedAt: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly createdAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly decidedAt: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly decidedById: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly expiresAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly id: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly phoneHash: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly phoneVerifiedAtSnapshot: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly requestedAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly requestedById: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly resetTokenExpiresAt: {
+                readonly nullable: true;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly resetTokenHash: {
+                readonly nullable: true;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly status: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+              readonly updatedAt: {
+                readonly nullable: false;
+                readonly type: {
+                  readonly kind: 'scalar';
+                  readonly codecId: 'pg/timestamptz-string@1';
+                };
+              };
+              readonly userId: {
+                readonly nullable: false;
+                readonly type: { readonly kind: 'scalar'; readonly codecId: 'pg/text@1' };
+              };
+            };
+            readonly relations: {
+              readonly decidedBy: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['decidedById'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+              readonly requestedBy: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: true;
+                readonly on: {
+                  readonly localFields: readonly ['requestedById'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+              readonly user: {
+                readonly to: { readonly namespace: 'public' & NamespaceId; readonly model: 'User' };
+                readonly cardinality: 'N:1';
+                readonly nullable: false;
+                readonly on: {
+                  readonly localFields: readonly ['userId'];
+                  readonly targetFields: readonly ['id'];
+                };
+              };
+            };
+            readonly storage: {
+              readonly table: 'AccountRecoveryRequest';
+              readonly namespaceId: 'public';
+              readonly fields: {
+                readonly checkListingTitle: { readonly column: 'checkListingTitle' };
+                readonly checkProvince: { readonly column: 'checkProvince' };
+                readonly checkRegistrationMonth: { readonly column: 'checkRegistrationMonth' };
+                readonly checksPassed: { readonly column: 'checksPassed' };
+                readonly consumedAt: { readonly column: 'consumedAt' };
+                readonly createdAt: { readonly column: 'createdAt' };
+                readonly decidedAt: { readonly column: 'decidedAt' };
+                readonly decidedById: { readonly column: 'decidedById' };
+                readonly expiresAt: { readonly column: 'expiresAt' };
+                readonly id: { readonly column: 'id' };
+                readonly phoneHash: { readonly column: 'phoneHash' };
+                readonly phoneVerifiedAtSnapshot: { readonly column: 'phoneVerifiedAtSnapshot' };
+                readonly requestedAt: { readonly column: 'requestedAt' };
+                readonly requestedById: { readonly column: 'requestedById' };
+                readonly resetTokenExpiresAt: { readonly column: 'resetTokenExpiresAt' };
+                readonly resetTokenHash: { readonly column: 'resetTokenHash' };
+                readonly status: { readonly column: 'status' };
+                readonly updatedAt: { readonly column: 'updatedAt' };
+                readonly userId: { readonly column: 'userId' };
               };
             };
           };
@@ -12660,6 +13133,39 @@ type ContractBase = Omit<
               };
             };
             readonly relations: {
+              readonly accountRecoveryRequests: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'AccountRecoveryRequest';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['userId'];
+                };
+              };
+              readonly accountRecoveryRequestsDecided: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'AccountRecoveryRequest';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['decidedById'];
+                };
+              };
+              readonly accountRecoveryRequestsRequested: {
+                readonly to: {
+                  readonly namespace: 'public' & NamespaceId;
+                  readonly model: 'AccountRecoveryRequest';
+                };
+                readonly cardinality: '1:N';
+                readonly on: {
+                  readonly localFields: readonly ['id'];
+                  readonly targetFields: readonly ['requestedById'];
+                };
+              };
               readonly adminMfa: {
                 readonly to: {
                   readonly namespace: 'public' & NamespaceId;
@@ -13583,6 +14089,17 @@ type ContractBase = Omit<
           };
         };
         readonly enum: {
+          readonly account_recovery_status: {
+            readonly codecId: 'pg/text@1';
+            readonly members: readonly [
+              { readonly name: 'requested'; readonly value: 'requested' },
+              { readonly name: 'approved'; readonly value: 'approved' },
+              { readonly name: 'rejected'; readonly value: 'rejected' },
+              { readonly name: 'cancelled'; readonly value: 'cancelled' },
+              { readonly name: 'expired'; readonly value: 'expired' },
+              { readonly name: 'consumed'; readonly value: 'consumed' },
+            ];
+          };
           readonly admin_role: {
             readonly codecId: 'pg/text@1';
             readonly members: readonly [
@@ -13949,6 +14466,23 @@ type ContractBase = Omit<
           readonly ref: {
             readonly entry: 'AbuseReport';
             readonly field: 'id';
+            readonly namespace: 'public';
+          };
+        },
+        {
+          readonly onCreate: { readonly id: 'uuidv4'; readonly kind: 'generator' };
+          readonly ref: {
+            readonly entry: 'AccountRecoveryRequest';
+            readonly field: 'id';
+            readonly namespace: 'public';
+          };
+        },
+        {
+          readonly onCreate: { readonly id: 'timestampNow'; readonly kind: 'generator' };
+          readonly onUpdate: { readonly id: 'timestampNow'; readonly kind: 'generator' };
+          readonly ref: {
+            readonly entry: 'AccountRecoveryRequest';
+            readonly field: 'updatedAt';
             readonly namespace: 'public';
           };
         },

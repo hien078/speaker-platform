@@ -110,6 +110,28 @@ const nextConfig: NextConfig = {
         source: "/invite",
         headers: [{ key: "X-Robots-Tag", value: "noindex" }],
       },
+      // Task E — manual account recovery (FD-R3 founder 2026-10-13): CÙNG
+      // pattern /invite (Batch 7 corrections #8) — Referrer-Policy
+      // no-referrer CHỈ trên response URL token (/recover/manual/<token> là
+      // nơi token thô xuất hiện MỘT lần trước khi cookie HttpOnly thay thế);
+      // KHÔNG dùng "/recover/manual/:path*" — pattern đó match cả trang
+      // tokenless, và với no-referrer browser gửi Origin: null trên action
+      // POST cùng origin → Next CSRF check reject. Route handler
+      // app/(auth)/recover/manual/[token]/route.ts set cùng header trên
+      // response redirect (belt-and-braces).
+      {
+        source: "/recover/manual/:token",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Robots-Tag", value: "noindex" },
+        ],
+      },
+      // /recover/manual (tokenless) — KHÔNG Referrer-Policy (action POST cần
+      // Origin same-origin), chỉ chặn index (URL reset không được index).
+      {
+        source: "/recover/manual",
+        headers: [{ key: "X-Robots-Tag", value: "noindex" }],
+      },
     ];
   },
 };

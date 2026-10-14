@@ -189,6 +189,12 @@ export const NON_FINANCE_TABLES = [
   // src/lib/actions/manual-contact-verification.ts (admin A request / admin B
   // decide); FK duy nhất là User (Restrict) — không FK tới bảng finance.
   "ManualContactVerification",
+  // Task E — manual account recovery: writer chính là
+  // src/lib/actions/manual-account-recovery.ts (admin A request / admin B
+  // approve-reject / user consume); FK duy nhất là User (Restrict) — không FK
+  // tới bảng finance (tests/integration/account-recovery-migration.test.ts
+  // assert không op id nào chạm bảng finance).
+  "AccountRecoveryRequest",
 ] as const;
 
 /** Monitored set = finance-only ∪ cascade-affected (12 bảng — SQL + watermark). */

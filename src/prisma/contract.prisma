@@ -289,6 +289,21 @@ enum manual_contact_status {
   expired = "expired"
 }
 
+// ─── Enums (Task E — manual account recovery, FD-R3 founder 2026-10-13) ───
+
+enum account_recovery_status {
+  @@type("pg/text@1")
+  requested = "requested" // admin A đã mở sau cuộc gọi tới số ĐÃ XÁC MINH — chờ admin B quyết định
+  approved  = "approved"   // admin B (≠ A, ≠ subject) đã duyệt — reset token một lần đã issue (30 phút)
+  rejected  = "rejected"   // admin B từ chối — KHÔNG issue token
+  cancelled = "cancelled"  // admin A tự hủy trước khi có quyết định
+  // expired: requested quá 24h (read-path tính theo expiresAt — no cron) HOẶC
+  // approved-unconsumed có reset token quá 30 phút — request MỚI flip row trong
+  // tx của mình (partial unique account_recovery_one_open không chặn vĩnh viễn)
+  expired = "expired"
+  consumed = "consumed"    // user đã đặt mật khẩu mới qua link — terminal, single-use
+}
+
 // ─── Người dùng & danh mục ───
 
 model User {
@@ -363,6 +378,10 @@ model User {
   manualContactVerifications          ManualContactVerification[] @relation("manual_contact_verification_user")
   manualContactVerificationsRequested ManualContactVerification[] @relation("manual_contact_verification_requester")
   manualContactVerificationsDecided  ManualContactVerification[] @relation("manual_contact_verification_decider")
+  // ─── Task E — manual account recovery relations (additive — KHÔNG cột mới trên User) ───
+  accountRecoveryRequests          AccountRecoveryRequest[] @relation("account_recovery_request_user")
+  accountRecoveryRequestsRequested  AccountRecoveryRequest[] @relation("account_recovery_request_requester")
+  accountRecoveryRequestsDecided    AccountRecoveryRequest[] @relation("account_recovery_request_decider")
 
   @@index([role])
 }
@@ -1423,4 +1442,56 @@ model ManualContactVerification {
   // string (Batch 6 Deal precedent) — cột camelCase PHẢI trong quote (corrections
   // item 5: unquoted folds trong Postgres → index chết im).
   @@index([userId, channel], where: "(\"status\" = 'requested')", unique: true, name: "manual_contact_one_requested")
+}
+
+// ─── Manual account recovery (Task E — two-person rule, FD-R3 founder 2026-10-13) ───
+// Production KHÔNG có OTP provider (FD-R1/FD-2 — adapter fail-closed) →
+// /recover KHÔNG gửi được mã; hand-set passwordHash BỊ CẤM (account-recovery
+// playbook §4). Founder duyệt quy trình HAI NGƯỜI 2026-10-13: user liên hệ
+// support qua email → admin A GỌI số phone ĐÃ XÁM MINH của tài khoản → user
+// trả đúng ≥ 2/3 câu hỏi out-of-band (tiêu đề một tin đăng, tỉnh, tháng đăng
+// ký) → admin B (≠ A, ≠ subject) duyệt → reset token MỘT LẦN (30 phút) hiển
+// thị cho admin B gửi out-of-band (phone/Zalo). KHÔNG BAO GIỜ lưu câu trả lời
+// (chỉ boolean từng câu + tổng); phone CHỈ lưu HMAC keyed (hkdf label RIÊNG
+// "account-recovery-phone") — KHÔNG giá trị thô (spec §4.8); token thô CHỈ tồn
+// tại trong URL một lần cho admin B — DB lưu HMAC (label RIÊNG
+// "account-recovery-reset-token", pattern BetaInviteToken.tokenHash Batch 7).
+
+model AccountRecoveryRequest {
+  id            String   @id @default(uuid())
+  userId        String
+  user          User     @relation("account_recovery_request_user", fields: [userId], references: [id], onDelete: Restrict) // explicit Restrict: row recovery là audit trail — sống qua mọi product flow; KHÔNG cascade
+  requestedById String? // nullable + SetNull: row sống qua admin deletion (Batch 3 UserSuspension precedent)
+  requestedBy   User?    @relation("account_recovery_request_requester", fields: [requestedById], references: [id], onDelete: SetNull)
+  requestedAt   TimestamptzString @default(now())
+  checksPassed  Int // 2..3 — số câu đúng của 3 câu hỏi out-of-band (CHECK chặn 0/1 — action cũng chặn)
+  checkListingTitle        Boolean // câu 1: tiêu đề một tin đăng của user — CHỈ boolean, KHÔNG BAO GIỜ câu trả lời
+  checkProvince            Boolean // câu 2: tỉnh của user
+  checkRegistrationMonth   Boolean // câu 3: tháng đăng ký tài khoản
+  phoneVerifiedAtSnapshot  TimestamptzString // phoneVerifiedAt của subject LÚC REQUEST — approve so lại: đổi → CONTACT_CHANGED (tx abort)
+  phoneHash     String // HMAC-SHA256 hex (hkdfKey("account-recovery-phone")) của phone CHUẨN HÓA lúc request — KHÔNG BAO GIỜ giá trị thô
+  status        account_recovery_status @default(requested)
+  decidedById   String? // nullable + SetNull — admin B (≠ A, ≠ subject)
+  decidedBy     User?  @relation("account_recovery_request_decider", fields: [decidedById], references: [id], onDelete: SetNull)
+  decidedAt     TimestamptzString?
+  expiresAt     TimestamptzString // requestedAt + 24h — read-path coi row requested quá hạn là expired (no cron)
+  resetTokenHash String? // HMAC-SHA256 hex (hkdfKey("account-recovery-reset-token")) — CHỈ set lúc approve; token thô KHÔNG BAO GIỜ lưu
+  resetTokenExpiresAt TimestamptzString? // approval + 30 phút — consume CAS chặn quá hạn
+  consumedAt    TimestamptzString? // single-use — set khi user đặt mật khẩu mới qua link (cùng tx với passwordHash)
+  createdAt     TimestamptzString @default(now())
+  updatedAt     temporal.updatedAtString()
+
+  @@index([userId, status])
+  @@index([status, requestedAt])
+  @@index([expiresAt])
+  @@index([requestedById])
+  @@index([decidedById])
+  // checksPassed 2..3 — hợp đồng hai người: request chỉ mở khi user trả đúng
+  // ≥ 2/3 câu (founder FD-R3 2026-10-13); DB chặn cả khi action bị bypass.
+  @@check(expression: "\"checksPassed\" BETWEEN 2 AND 3", name: "account_recovery_checks_range")
+  // MỘT row mở duy nhất per user (requested, HOẶC approved chưa consume) — đóng
+  // race double-request; row rejected/cancelled/expired/consumed được GIỮ làm
+  // audit trail. where: là SQL string (Batch 6 Deal precedent) — cột camelCase
+  // PHẢI trong quote (corrections item 5: unquoted folds → index chết im).
+  @@index([userId], where: "(\"status\" = 'requested' OR (\"status\" = 'approved' AND \"consumedAt\" IS NULL))", unique: true, name: "account_recovery_one_open")
 }
