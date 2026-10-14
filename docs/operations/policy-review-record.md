@@ -20,12 +20,13 @@
 
 | Policy | Version | sha256 (scripts/policy-hash.ts) | Reviewer | Reviewed at | Decision | Notes |
 |---|---|---|---|---|---|---|
-| terms | v1 | a571f06b1a5d0db4a09c4e8a690fe0988e7098b624aff2987847f66cd7c99065 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| privacy | v1 | fa2d533357b852ec375ae1a477a6c0926c7d5f49321db9039c4eb0f50e234a0d | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| marketplace_rules | v1 | 45caee175df919cfe9c2a913e3059307eaedf8bbfdcfefc014e45af637ae815e | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| seller_rules | v1 | cac2e446bb46cb94514d13f5d7b966023ae3984784c6585470e311d3f0238de3 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| community_rules | v1 | 55c7092f87bae13e7568aacfed57c03f3285052abc2778c6295fe3bb99777221 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| safety_guidance | v1 | ff2ff43685362f9a3d9f6fdb442491f8acf878f441f217e9cc9df7de9f594f46 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| terms | v1 | 7bf688726ee2e7f740184cd515dd6dc93b9eb82944e6c551915e9cc5c6da0315 | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
+| privacy | v1 | dbf2a923015a384c1d7040966c181a4e3dabca3bc9f6e30f2b8ddb0b2d3a5637 | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
+| marketplace_rules | v1 | 094354e8b344400ddcd9ff96b5082034b6a71e669794365d5584093fe34bbc4a | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
+| seller_rules | v1 | cac2e446bb46cb94514d13f5d7b966023ae3984784c6585470e311d3f0238de3 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt (history v1 — FD-R4 bump v1→v2 ngày 2026-10-14) |
+| seller_rules | v2 | 71eb7a13883cb3c4ef1d4e9249d84cf14cc6564cca9b64ad476ddfae57d44e70 | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
+| community_rules | v1 | be19878b17bbd6685ac90c0766047de5e1fb0db46525fb0226c9215e00f13a54 | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
+| safety_guidance | v1 | 5740ccbaa4f639a53438370d95299c108c004c0dab89f570f8cc7ecc74ebb87c | Hoàng Ngọc Hiện | 2026-10-14 | APPROVED | Founder duyệt 2026-10-14 (chat) |
 
 **Decision là đúng một trong** `APPROVED` / `REJECTED` / `PENDING` — release
 gate yêu cầu `APPROVED` (ô không trống là chưa đủ).

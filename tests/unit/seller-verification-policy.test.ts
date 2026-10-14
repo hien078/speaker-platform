@@ -4,9 +4,10 @@
  *
  * Tám yêu cầu tối thiểu để MỘT tin đăng chuyển vào duyệt/công khai:
  *   verified email + verified phone + declared seller type + canonical
- *   operating location + Seller Rules accepted (v1) + active founding_seller
- *   membership + operations review = verified + TÀI KHOẢN KHÔNG BỊ ĐÌNH CHỈ
- *   (Batch 3 — account_not_suspended, spec §7.8 suspension).
+ *   operating location + Seller Rules accepted (v2 — FD-R4 bump 2026-10-14) +
+ *   active founding_seller membership + operations review = verified +
+ *   TÀI KHOẢN KHÔNG BỊ ĐÌNH CHỈ (Batch 3 — account_not_suspended, spec §7.8
+ *   suspension).
  *
  * Hợp đồng (plan Task 10 Step 1 — seller publication-gate gate; Batch 3
  * Task 5 Step 1 mở rộng):
@@ -124,7 +125,8 @@ const fullSeller = (): Row => ({
 const fullAcceptance = (): Row => ({
   userId: SELLER_ID,
   policyKey: "seller_rules",
-  policyVersion: "v1",
+  // FD-R4: bản duyệt đầu tiên bump v1 → v2 — gate đọc version MỚI (v2)
+  policyVersion: "v2",
 });
 
 const fullMembership = (): Row => ({
@@ -137,7 +139,7 @@ const fullVerification = (): Row => ({
   userId: SELLER_ID,
   status: "verified",
   method: "operations_review",
-  policyVersion: "v1",
+  policyVersion: "v2",
 });
 
 /** Nạp đủ 4 fixture vào store — case nào bỏ/thay mảnh thì truyền override. */
@@ -169,10 +171,12 @@ afterEach(() => {
 // ─── Hằng số policy ──────────────────────────────────────────────────────────
 
 describe("policy constants (spec §5.3.3)", () => {
-  it("version v1 + key seller_rules; reason codes + decisions typed", () => {
+  it("version v1 (verification policy) + Seller Rules v2 (FD-R4 bump 2026-10-14) + key seller_rules; reason codes + decisions typed", () => {
     expect(SELLER_VERIFICATION_POLICY_VERSION).toBe("v1");
     expect(SELLER_RULES_POLICY_KEY).toBe("seller_rules");
-    expect(SELLER_RULES_POLICY_VERSION).toBe("v1");
+    // FD-R4: bản Seller Rules duyệt đầu tiên (founder 2026-10-14) bump v1 → v2 —
+    // pin version MỚI; acceptance v1 pre-launch chỉ tồn tại trong dev/test.
+    expect(SELLER_RULES_POLICY_VERSION).toBe("v2");
     expect(SELLER_VERIFICATION_REASON_CODES).toContain("requirements_met");
     expect(SELLER_VERIFICATION_REASON_CODES).toContain("migrated_legacy_verified");
     expect(SELLER_VERIFICATION_DECISIONS).toEqual(["verified", "needs_review", "rejected", "revoked"]);
@@ -230,8 +234,20 @@ describe("checkSellerPublicationRequirements — 8 yêu cầu (spec §5.3.3 + §
       missing: "operating_location_declared",
     },
     {
-      name: "chưa đồng ý Seller Rules v1 → missing seller_rules_accepted",
+      name: "chưa đồng ý Seller Rules v2 → missing seller_rules_accepted",
       mutate: () => dbState.acceptances.length = 0,
+      missing: "seller_rules_accepted",
+    },
+    {
+      // FD-R4 (founder duyệt 2026-10-14): acceptance v1 (bản nháp pre-launch)
+      // KHÔNG thỏa yêu cầu — gate đọc version MỚI fresh, seller đã chấp nhận
+      // v1 phải đồng ý lại v2.
+      name: "chỉ đồng ý Seller Rules v1 (bản cũ) → missing seller_rules_accepted (FD-R4 bump)",
+      mutate: () => {
+        // thay acceptance v2 của seedFull bằng ĐÚNG một row v1 cũ
+        dbState.acceptances.length = 0;
+        dbState.acceptances.push({ ...fullAcceptance(), policyVersion: "v1" });
+      },
       missing: "seller_rules_accepted",
     },
     {

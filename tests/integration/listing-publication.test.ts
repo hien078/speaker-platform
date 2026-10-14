@@ -16,7 +16,8 @@
  *     approved; structured fields + checklistSlot + city =
  *     PROVINCE_CODES[provinceLevelCode] (canonical 34-unit displayName — FD-1)
  *     round-trip; audit listing.draft_created / listing.submitted
- *     (policyVersion v1) / listing.approved.
+ *     (policyVersion v2 — SELLER_RULES_POLICY_VERSION, FD-R4 bump 2026-10-14)
+ *     / listing.approved.
  *  2. Revoked seller: submit blocked → /sell/verification, status GIỮ draft,
  *     audit listing.submit_blocked; re-verify → submit passes.
  *  3. Suspended cohort membership (founding_seller): toggle hidden→approved
@@ -163,7 +164,8 @@ async function grantVerification(userId: string, now = new Date().toISOString())
   await db.orm.public.PolicyAcceptance.create({
     userId,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: now,
   });
   // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
@@ -481,7 +483,7 @@ d("listing publication gate end-to-end (Batch 4 Task 8)", () => {
       .where({ action: "listing.submitted", resourceId: draftId })
       .all();
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.policyVersion).toBe("v1"); // SELLER_RULES_POLICY_VERSION
+    expect(submitted[0]!.policyVersion).toBe("v2"); // SELLER_RULES_POLICY_VERSION (FD-R4 bump 2026-10-14)
     // b4-holistic (LOW tx-concurrency): draft→submit cũng viết PriceHistory
     // 'listed' như direct create — price stats không phụ thuộc nút nào seller bấm
     const listedPrice = await db.orm.public.PriceHistory
@@ -898,7 +900,7 @@ d("b4-holistic — listing.submitted audit + PriceHistory discipline (real DB)",
       .where({ action: "listing.submitted", resourceId: listingId })
       .all();
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.policyVersion).toBe("v1");
+    expect(submitted[0]!.policyVersion).toBe("v2"); // SELLER_RULES_POLICY_VERSION (FD-R4 bump 2026-10-14)
     expect(submitted[0]!.detail).toBe("via=create");
     expect(submitted[0]!.actorId).toBe(sellerId);
 
@@ -947,7 +949,7 @@ d("b4-holistic — listing.submitted audit + PriceHistory discipline (real DB)",
       .where({ action: "listing.submitted", resourceId: listingId })
       .all();
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.policyVersion).toBe("v1");
+    expect(submitted[0]!.policyVersion).toBe("v2"); // SELLER_RULES_POLICY_VERSION (FD-R4 bump 2026-10-14)
     expect(submitted[0]!.detail).toBe("via=edit_resubmit");
   });
 

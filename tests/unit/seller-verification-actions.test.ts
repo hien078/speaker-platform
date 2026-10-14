@@ -5,8 +5,8 @@
  * Hợp đồng (plan Task 10 Step 1 + Review Focus 4/5):
  *  1. submitSellerVerificationAction: thiếu prerequisite → error LIỆT KÊ
  *     chúng, KHÔNG tạo row; đủ (trừ operations_review_verified) → row
- *     status=pending + PolicyAcceptance(seller_rules, v1) CÙNG tx + audit
- *     "seller_verification.submitted".
+ *     status=pending + PolicyAcceptance(seller_rules, v2 — FD-R4 bump
+ *     2026-10-14) CÙNG tx + audit "seller_verification.submitted".
  *  2. declareSellerProfileAction: khai báo seller type + mã tỉnh (FD-1 —
  *     validate theo registry 34 đơn vị) + audit "seller_profile.declared".
  *  3. reviewSellerVerificationAction: operations_admin + mã step-up →
@@ -544,7 +544,8 @@ describe("declareSellerProfileAction — khai báo seller type + mã tỉnh (FD-
       id: `pa-${dbState.acceptances.length + 1}`,
       userId: seller.id,
       policyKey: "seller_rules",
-      policyVersion: "v1",
+      // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+      policyVersion: "v2",
       acceptedAt: new Date().toISOString(),
     });
     seedVerification("verified", { reasonCode: "requirements_met" });
@@ -593,7 +594,7 @@ describe("submitSellerVerificationAction — gửi hồ sơ (spec §5.3.2)", () 
     expect(dbState.acceptances).toHaveLength(0);
   });
 
-  it("đủ prerequisite → row status=pending + PolicyAcceptance(seller_rules,v1) + audit", async () => {
+  it("đủ prerequisite → row status=pending + PolicyAcceptance(seller_rules,v2) + audit", async () => {
     const seller = seedSeller();
     login(seller);
 
@@ -613,7 +614,8 @@ describe("submitSellerVerificationAction — gửi hồ sơ (spec §5.3.2)", () 
     expect(dbState.acceptances[0]).toMatchObject({
       userId: seller.id,
       policyKey: "seller_rules",
-      policyVersion: "v1",
+      // FD-R4: acceptance ghi theo SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+      policyVersion: "v2",
     });
     const evt = dbState.audits.find((r) => r.action === "seller_verification.submitted");
     expect(evt).toMatchObject({

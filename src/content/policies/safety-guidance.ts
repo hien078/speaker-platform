@@ -2,24 +2,21 @@
  * Hướng dẫn an toàn giao dịch (Safety Guidance) — nội dung chính sách,
  * spec §3.1 legal/policy readiness (Batch 8 Task 1).
  *
- * BẢN NHÁP DO CLAUDE SOẠN THEO YÊU CẦU CỦA FOUNDER (2026-10-12) — chờ founder
- * sửa và duyệt (FD-3, FD-R28, FD-R34). Status vẫn DRAFT-NOT-REVIEWED trong
- * registry cho tới khi founder duyệt; mọi chỗ `[... — founder điền]` là dữ
- * kiện chỉ founder cung cấp được. Văn bản PHẢI giữ nguyên văn sáu điểm spec
- * §6.4 + dòng §5.2 (bản dịch Batch 6 — trùng src/components/safety-guidance.tsx);
- * presence được ghim trong tests/unit/policy-registry.test.ts và
- * tests/unit/copy-safety.test.ts. Khi duyệt: hash sha256 của POLICY_TEXT ghi
- * vào docs/operations/policy-review-record.md (Decision == APPROVED) — flip
- * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit.
+ * Văn bản do Claude soạn theo yêu cầu của founder (nháp 2026-10-12) — founder
+ * đã đọc và DUYỆT ngày 2026-10-14 (FD-3, FD-R28, FD-R34 — chat). Status
+ * REVIEWED trong registry; hash sha256 của POLICY_TEXT ghi vào
+ * docs/operations/policy-review-record.md (Decision == APPROVED) — flip
+ * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit. Văn
+ * bản PHẢI giữ nguyên văn sáu điểm spec §6.4 + dòng §5.2 (bản dịch Batch 6 —
+ * trùng src/components/safety-guidance.tsx); presence được ghim trong
+ * tests/unit/policy-registry.test.ts và tests/unit/copy-safety.test.ts.
  *
  * Plain module (KHÔNG server-only, KHÔNG db) — import được bởi page
  * app/policies/[key] lẫn script tsx offline (scripts/policy-hash.ts).
  * Hash chỉ phủ POLICY_TEXT — status/version sống trong registry, KHÔNG ở
  * đây (S1: flip status không phá hash đã ghi).
  */
-export const POLICY_TEXT = `# Hướng dẫn an toàn giao dịch (BẢN NHÁP — chờ founder duyệt)
-
-> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
+export const POLICY_TEXT = `# Hướng dẫn an toàn giao dịch
 
 Thanh toán và giao nhận hàng diễn ra độc lập ngoài LoaViet.
 

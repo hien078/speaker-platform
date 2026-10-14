@@ -178,8 +178,8 @@ export async function declareSellerProfileAction(
  * Thiếu → error LIỆT KÊ yêu cầu (không tạo row). Đủ → tạo/cập nhật
  * SellerVerification status=pending (CAS theo status đã đọc —
  * rejected/needs_review/revoked → pending; pending/verified → no-op idempotent)
- * + PolicyAcceptance(seller_rules, v1) TRONG CÙNG tx + audit
- * "seller_verification.submitted" (trên tx — sống chết cùng hồ sơ).
+ * + PolicyAcceptance(seller_rules, v2 — FD-R4 bump 2026-10-14) TRONG CÙNG tx
+ * + audit "seller_verification.submitted" (trên tx — sống chết cùng hồ sơ).
  */
 export async function submitSellerVerificationAction(
   _prev: SellerVerificationFormState,

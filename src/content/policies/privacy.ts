@@ -1,25 +1,21 @@
 /**
- * Chính sách bảo mật (Privacy) — nội dung chính sách, spec §3.1 legal/policy
+ * Chính sách quyền riêng tư (Privacy) — nội dung chính sách, spec §3.1 legal/policy
  * readiness (Batch 8 Task 1).
  *
- * BẢN NHÁP DO CLAUDE SOẠN THEO YÊU CẦU CỦA FOUNDER (2026-10-12) — chờ founder
- * sửa và duyệt (FD-3, FD-R34; retention là FD-R7, xóa tài khoản FD-R45).
- * Status vẫn DRAFT-NOT-REVIEWED trong registry cho tới khi founder duyệt; mọi
- * chỗ `[... — founder điền]` là dữ kiện chỉ founder cung cấp được. Danh mục
- * dữ liệu đối chiếu src/prisma/contract.prisma + src/lib/product-events.ts.
- * Nên nhờ người có chuyên môn pháp lý rà soát (Nghị định 13/2023/NĐ-CP). Khi
- * duyệt: hash sha256 của POLICY_TEXT ghi vào
- * docs/operations/policy-review-record.md (Decision == APPROVED) — flip
- * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit.
+ * Văn bản do Claude soạn theo yêu cầu của founder (nháp 2026-10-12) — founder
+ * đã đọc và DUYỆT ngày 2026-10-14 (FD-3, FD-R34; retention là FD-R7, xóa tài
+ * khoản FD-R45 — chat). Status REVIEWED trong registry; hash sha256 của
+ * POLICY_TEXT ghi trong docs/operations/policy-review-record.md (Decision ==
+ * APPROVED) — flip status sang REVIEWED trong src/lib/policy-registry.ts,
+ * cùng commit. Danh mục dữ liệu đối chiếu src/prisma/contract.prisma +
+ * src/lib/product-events.ts.
  *
  * Plain module (KHÔNG server-only, KHÔNG db) — import được bởi page
  * app/policies/[key] lẫn script tsx offline (scripts/policy-hash.ts).
  * Hash chỉ phủ POLICY_TEXT — status/version sống trong registry, KHÔNG ở
  * đây (S1: flip status không phá hash đã ghi).
  */
-export const POLICY_TEXT = `# Chính sách bảo mật (BẢN NHÁP — chờ founder duyệt)
-
-> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
+export const POLICY_TEXT = `# Chính sách quyền riêng tư
 
 Ngày hiệu lực: 14/10/2026
 

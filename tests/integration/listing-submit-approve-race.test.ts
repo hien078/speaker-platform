@@ -145,7 +145,8 @@ async function mkVerifiedSeller(): Promise<string> {
   await db.orm.public.PolicyAcceptance.create({
     userId: u.id,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: now,
   });
   // Task D fixture migration (founder 2026-10-12): submitListingAction giờ có
@@ -461,7 +462,7 @@ d("submit + approve happy path — CAS updatedAt MATCH khi không race (round-tr
       .where({ action: "listing.submitted", resourceId: listingId })
       .all();
     expect(submitted).toHaveLength(1);
-    expect(submitted[0]!.policyVersion).toBe("v1"); // SELLER_RULES_POLICY_VERSION
+    expect(submitted[0]!.policyVersion).toBe("v2"); // SELLER_RULES_POLICY_VERSION (FD-R4 bump 2026-10-14)
 
     // approve: review card đọc pending (updatedAt U1) → post U1 làm version →
     // version check match → checkListingPublication → CAS

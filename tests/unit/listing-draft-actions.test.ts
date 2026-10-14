@@ -439,7 +439,8 @@ const seedPolicyRows = (sellerId: string, over?: { verificationStatus?: string }
     id: `pa-${dbState.acceptances.length + 1}`,
     userId: sellerId,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: new Date().toISOString(),
   });
   // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
@@ -934,7 +935,7 @@ describe("submitListingAction — draft→pending sau full gate (spec §4.4/§5.
       subjectId: seller.id,
       resourceType: "Listing",
       resourceId: draft.id,
-      policyVersion: "v1", // SELLER_RULES_POLICY_VERSION (§4.6)
+      policyVersion: "v2", // SELLER_RULES_POLICY_VERSION (§4.6 — FD-R4 bump 2026-10-14)
     });
     expect(auditsOf("listing.submit_blocked")).toHaveLength(0);
     // full gate chạy MỘT lần (per-path pin)
@@ -1296,7 +1297,7 @@ describe("updateListingAction trên draft — typed LISTING_DRAFT_NOT_EDITABLE (
 // ─── 5. b4-holistic — listing.submitted audit MỌI đường vào review + PriceHistory ──
 
 describe("b4-holistic — listing.submitted audit trên MỌI đường vào review + PriceHistory discipline", () => {
-  it("LOW b4-holistic: createListingAction (submit-ngay) → audit listing.submitted kèm policyVersion v1 (via=create)", async () => {
+  it("LOW b4-holistic: createListingAction (submit-ngay) → audit listing.submitted kèm policyVersion v2 (via=create)", async () => {
     const seller = mkVerifiedSeller();
     dbState.users.push(seller);
     seedPolicyRows(seller.id);
@@ -1313,7 +1314,7 @@ describe("b4-holistic — listing.submitted audit trên MỌI đường vào rev
       subjectId: seller.id,
       resourceType: "Listing",
       resourceId: dbState.listings[0]!.id,
-      policyVersion: "v1", // SELLER_RULES_POLICY_VERSION (§4.6)
+      policyVersion: "v2", // SELLER_RULES_POLICY_VERSION (§4.6 — FD-R4 bump 2026-10-14)
       detail: "via=create", // typed value — KHÔNG free text (spec §4.8)
     });
   });
@@ -1341,7 +1342,7 @@ describe("b4-holistic — listing.submitted audit trên MỌI đường vào rev
       subjectId: seller.id,
       resourceType: "Listing",
       resourceId: approved.id,
-      policyVersion: "v1",
+      policyVersion: "v2", // SELLER_RULES_POLICY_VERSION (§4.6 — FD-R4 bump 2026-10-14)
       detail: "via=edit_resubmit",
     });
   });

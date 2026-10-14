@@ -17,7 +17,7 @@ import { isProvinceCode, PROVINCE_CODES } from "@/src/lib/provinces";
  *
  * Tám yêu cầu tối thiểu (spec §5.3.3 + §7.8):
  *   verified email + verified phone + declared seller type + canonical
- *   operating location (mã 34 đơn vị — FD-1) + Seller Rules v1 accepted +
+ *   operating location (mã 34 đơn vị — FD-1) + Seller Rules v2 accepted +
  *   active founding_seller membership (controlled beta, spec §2.1/§4.9) +
  *   operations review = verified + TÀI KHOẢN KHÔNG BỊ ĐÌNH CHỈ
  *   (Batch 3 — account_not_suspended; suspension là moderation sanction).
@@ -35,7 +35,10 @@ import { isProvinceCode, PROVINCE_CODES } from "@/src/lib/provinces";
 
 export const SELLER_VERIFICATION_POLICY_VERSION = "v1";
 export const SELLER_RULES_POLICY_KEY = "seller_rules";
-export const SELLER_RULES_POLICY_VERSION = "v1";
+// FD-R4: bản Seller Rules duyệt đầu tiên (founder, 2026-10-14) bump v1 → v2 —
+// acceptance v1 pre-launch (chỉ dev/test) hết hiệu lực: gate đọc version MỚI
+// fresh, seller đã chấp nhận v1 phải đồng ý lại v2.
+export const SELLER_RULES_POLICY_VERSION = "v2";
 
 /**
  * Typed reason codes (spec §5.3.3 — KHÔNG dựa vào free text tuỳ ý).
@@ -202,7 +205,7 @@ export function formatMissingRequirements(missing: SellerPublicationRequirement[
 
 /**
  * Kiểm MỌI yêu cầu publication của một seller — đọc FRESH từ DB (5 lookup
- * song song: User + PolicyAcceptance(seller_rules,v1) +
+ * song song: User + PolicyAcceptance(seller_rules,v2) +
  * BetaCohortMembership(founding_seller) + SellerVerification +
  * UserSuspension(active) — Batch 3 Task 5, spec §7.8).
  *

@@ -24,7 +24,8 @@
  *
  * Hợp đồng (plan Task 7 Step 1 — fixture Batch 6 verified-seller shape:
  * emailVerifiedAt/phoneVerifiedAt/sellerType/sellerOperatingProvinceCode/
- * PolicyAcceptance(seller_rules,v1)/SellerVerification(verified)/
+ * PolicyAcceptance(seller_rules,v2 — FD-R4 bump 2026-10-14)/
+ * SellerVerification(verified)/
  * BetaCohortMembership(founding_seller, active) + listing approved; flip
  * CHỈ membership sang suspended):
  *
@@ -475,7 +476,8 @@ const seedPolicyRows = (
     id: `pa-${dbState.acceptances.length + 1}`,
     userId: sellerId,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: new Date().toISOString(),
   });
   // Task D fixture migration (founder 2026-10-12): create/submit/update-into-
