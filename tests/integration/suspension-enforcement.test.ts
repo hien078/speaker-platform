@@ -117,7 +117,8 @@ async function seedSevenRequirements(sellerId: string): Promise<void> {
   await db.orm.public.PolicyAcceptance.create({
     userId: sellerId,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
   });
   await db.orm.public.BetaCohortMembership.create({
     userId: sellerId,

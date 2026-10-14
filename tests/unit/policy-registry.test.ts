@@ -15,13 +15,12 @@
  *     true CHỈ khi cả sáu REVIEWED — fixture-driven (Review Focus 1).
  *  5. unreviewedPolicies liệt kê đúng các policy DRAFT.
  *  6. policyContentHash = sha256 hex của nội dung shipped, ổn định qua lần gọi.
- *  7. Mọi content module khớp hợp đồng BẢN NHÁP (founder yêu cầu 2026-10-12
- *     Claude soạn bản nháp thay placeholder — vẫn DRAFT-NOT-REVIEWED, chờ
- *     founder duyệt): heading "(BẢN NHÁP — chờ founder duyệt)" + blockquote
- *     nháp; không còn marker placeholder; safety_guidance chứa nguyên văn 6
- *     điểm §6.4 + dòng §5.2 (bản dịch Batch 6). Hợp đồng placeholder cũ
- *     (equality chặt, cấm mục/list) đã thay vì nó ghim văn bản placeholder vốn
- *     được thiết kế để bị thay thế.
+ *  7. Mọi content module khớp hợp đồng REVIEWED (founder đọc và duyệt 6 chính
+ *     sách 2026-10-14 — FD-R34; Seller Rules bump v1→v2 FD-R4): heading sạch
+ *     "# <title>" — KHÔNG còn heading "(BẢN NHÁP — chờ founder duyệt)" +
+ *     blockquote nháp (draft markers chỉ hợp lệ khi status
+ *     DRAFT-NOT-REVIEWED); không marker placeholder; safety_guidance chứa
+ *     nguyên văn 6 điểm §6.4 + dòng §5.2 (bản dịch Batch 6).
  *  8. Trang policy: banner DRAFT có điều kiện, KHÔNG dangerouslySetInnerHTML,
  *     generateStaticParams phủ POLICY_KEYS, key lạ → notFound(), công khai
  *     (không auth, không db); nhánh REVIEWED trung tính — flag registry
@@ -153,7 +152,7 @@ describe("allPoliciesReviewed / unreviewedPolicies — fixture-driven theo statu
     for (const [k, s] of original) POLICIES[k].status = s;
   });
 
-  it("false khi cả sáu còn DRAFT-NOT-REVIEWED (thực tế hiện tại — FD-3)", () => {
+  it("false khi cả sáu còn DRAFT-NOT-REVIEWED (fixture — FD-3)", () => {
     for (const k of POLICY_KEYS) POLICIES[k].status = "DRAFT-NOT-REVIEWED";
     expect(allPoliciesReviewed()).toBe(false);
     expect(unreviewedPolicies()).toEqual([...POLICY_KEYS]);
@@ -241,26 +240,29 @@ describe("scripts/policy-hash.ts --check — format <key> <version> <sha256> <st
   );
 });
 
-// ─── 7. Content modules — hợp đồng bản nháp (founder yêu cầu 2026-10-12) ────
+// ─── 7. Content modules — hợp đồng REVIEWED (founder duyệt 2026-10-14) ────────
 
-/** Blockquote bắt buộc ở đầu mỗi bản nháp (yêu cầu founder 2026-10-12). */
+/** Blockquote bản nháp — ĐÃ GỖ khi founder duyệt (chỉ hợp lệ khi status DRAFT). */
 const DRAFT_NOTICE =
   "> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.";
 
-describe("content modules — hợp đồng bản nháp DRAFT-NOT-REVIEWED (chờ founder duyệt)", () => {
-  it("mọi content module: heading BẢN NHÁP + blockquote nháp, không còn marker placeholder", () => {
+describe("content modules — hợp đồng REVIEWED (founder đọc và duyệt 2026-10-14)", () => {
+  it("mọi content module: heading sạch, KHÔNG draft markers (marker nháp chỉ hợp lệ khi status DRAFT)", () => {
     for (const key of POLICY_KEYS) {
       const body = policyContent(key);
-      // heading mở đầu: "# <title> (BẢN NHÁP — chờ founder duyệt)"
+      // heading mở đầu sạch: "# <title>" — KHÔNG suffix bản nháp
       expect(
-        body.startsWith(`# ${POLICIES[key].title} (BẢN NHÁP — chờ founder duyệt)\n\n${DRAFT_NOTICE}\n`),
-        `${key}: mở đầu bằng heading BẢN NHÁP + blockquote nháp`,
+        body.startsWith(`# ${POLICIES[key].title}\n`),
+        `${key}: mở đầu bằng heading sạch "# <title>"`,
       ).toBe(true);
+      // REVIEWED ⇒ draft markers đã gỡ: không heading nháp, không blockquote nháp
+      expect(body).not.toContain("(BẢN NHÁP — chờ founder duyệt)");
+      expect(body).not.toContain(DRAFT_NOTICE);
       // placeholder cũ đã được thay toàn bộ
       expect(body).not.toContain("[nội dung chờ founder");
       expect(body).not.toContain("DRAFT-NOT-REVIEWED");
-      // registry vẫn chưa duyệt — bản nháp KHÔNG tự flip status
-      expect(POLICIES[key].status).toBe("DRAFT-NOT-REVIEWED");
+      // flip status cùng commit row duyệt — sáu policy ĐÃ REVIEWED (FD-R34)
+      expect(POLICIES[key].status, `${key}: founder duyệt 2026-10-14 → REVIEWED`).toBe("REVIEWED");
     }
   });
 

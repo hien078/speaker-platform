@@ -609,7 +609,8 @@ const seedPolicyRows = (
     id: `pa-${dbState.acceptances.length + 1}`,
     userId: sellerId,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: new Date().toISOString(),
   });
   dbState.memberships.push({

@@ -199,13 +199,14 @@ d("applies the batch 2 migration additively", () => {
     const p = await db.orm.public.PolicyAcceptance.create({
       userId,
       policyKey: "seller_rules",
-      policyVersion: "v1",
+      // FD-R4: SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+      policyVersion: "v2",
     });
     created.policyAcceptances.push(p.id);
     const row = await db.orm.public.PolicyAcceptance.first({ id: p.id });
     expect(row!.userId).toBe(userId);
     expect(row!.policyKey).toBe("seller_rules");
-    expect(row!.policyVersion).toBe("v1");
+    expect(row!.policyVersion).toBe("v2");
     expect(row!.acceptedAt).toBeTruthy();
     await db.orm.public.PolicyAcceptance.where({ id: p.id }).delete();
     expect(await db.orm.public.PolicyAcceptance.first({ id: p.id })).toBeNull();

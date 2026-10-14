@@ -2,23 +2,20 @@
  * Quy tắc chợ (Marketplace Rules) — nội dung chính sách, spec §3.1
  * legal/policy readiness (Batch 8 Task 1).
  *
- * BẢN NHÁP DO CLAUDE SOẠN THEO YÊU CẦU CỦA FOUNDER (2026-10-12) — chờ founder
- * sửa và duyệt (FD-3, FD-R34). Status vẫn DRAFT-NOT-REVIEWED trong registry
- * cho tới khi founder duyệt; mọi chỗ `[... — founder điền]` là dữ kiện chỉ
- * founder cung cấp được. Số liệu trích từ hằng số thật: khoảng giá
- * PRICE_MIN/PRICE_MAX (src/lib/listing-schema.ts). Khi duyệt: hash sha256 của
- * POLICY_TEXT ghi vào docs/operations/policy-review-record.md (Decision ==
- * APPROVED) — flip status sang REVIEWED trong src/lib/policy-registry.ts,
- * cùng commit.
+ * Văn bản do Claude soạn theo yêu cầu của founder (nháp 2026-10-12) — founder
+ * đã đọc và DUYỆT ngày 2026-10-14 (FD-3, FD-R34 — chat). Status REVIEWED
+ * trong registry; hash sha256 của POLICY_TEXT ghi trong
+ * docs/operations/policy-review-record.md (Decision == APPROVED) — flip
+ * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit. Số liệu
+ * trích từ hằng số thật: khoảng giá PRICE_MIN/PRICE_MAX
+ * (src/lib/listing-schema.ts).
  *
  * Plain module (KHÔNG server-only, KHÔNG db) — import được bởi page
  * app/policies/[key] lẫn script tsx offline (scripts/policy-hash.ts).
  * Hash chỉ phủ POLICY_TEXT — status/version sống trong registry, KHÔNG ở
  * đây (S1: flip status không phá hash đã ghi).
  */
-export const POLICY_TEXT = `# Quy tắc chợ (BẢN NHÁP — chờ founder duyệt)
-
-> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
+export const POLICY_TEXT = `# Quy tắc chợ
 
 ## 1. LoaViet hoạt động như thế nào
 
@@ -28,7 +25,7 @@ LoaViet là nơi đăng tin và nhắn tin để mua bán loa Bluetooth di độ
 
 - Trong giai đoạn beta, tin đăng mới chỉ được mở cho danh mục loa Bluetooth di động.
 - Mỗi tin có thể ghi kèm phụ kiện đi theo sản phẩm (sạc, cáp, dây đeo, hộp, giấy tờ mua hàng).
-- Việc mở thêm danh mục khác hoặc cho đăng riêng phụ kiện sẽ được LoaViet thông báo khi có quyết định: [danh mục bổ sung, nếu có — founder điền].
+- Việc mở thêm danh mục khác hoặc cho đăng riêng phụ kiện sẽ được LoaViet thông báo khi có quyết định.
 
 ## 3. Sản phẩm và tin đăng bị cấm
 
@@ -38,7 +35,6 @@ LoaViet là nơi đăng tin và nhắn tin để mua bán loa Bluetooth di độ
 - Sản phẩm không có thật, không còn trong tay người bán, hoặc tin đăng chỉ để thu hút liên hệ.
 - Tin không phải để bán một chiếc loa cụ thể (ví dụ tin tuyển dụng, quảng cáo dịch vụ, tin tìm mua, rao trao đổi).
 - Nội dung chứa thông tin cá nhân của người khác hoặc đường link thanh toán.
-- [danh mục hàng cấm bổ sung — founder điền]
 
 ## 4. Giá
 

@@ -1012,7 +1012,8 @@ describe("behavioral render — /admin/beta-cohort ?userId= (b7-t8 review fix)",
       id: "pa-1",
       userId: "seller-1",
       policyKey: "seller_rules",
-      policyVersion: "v1",
+      // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+      policyVersion: "v2",
       acceptedAt: NOW,
       createdAt: NOW,
     });

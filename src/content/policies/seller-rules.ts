@@ -2,32 +2,29 @@
  * Quy tắc người bán (Seller Rules) — nội dung chính sách, spec §3.1
  * legal/policy readiness (Batch 8 Task 1).
  *
- * BẢN NHÁP DO CLAUDE SOẠN THEO YÊU CẦU CỦA FOUNDER (2026-10-12) — chờ founder
- * sửa và duyệt (FD-3, FD-R34). Status vẫn DRAFT-NOT-REVIEWED trong registry
- * cho tới khi founder duyệt; mọi chỗ `[... — founder điền]` là dữ kiện chỉ
- * founder cung cấp được. Danh sách yêu cầu xác minh đối chiếu
- * checkSellerPublicationRequirements (src/lib/seller-verification-policy.ts);
- * số ảnh tối đa = LISTING_MAX_IMAGES, độ dài mô tả = DESCRIPTION_MAX
- * (src/lib/listing-schema.ts). Khi duyệt: hash sha256 của POLICY_TEXT ghi vào
+ * Văn bản do Claude soạn theo yêu cầu của founder (nháp 2026-10-12) — founder
+ * đã đọc và DUYỆT ngày 2026-10-14 (FD-3, FD-R34 — chat). Status REVIEWED
+ * trong registry; hash sha256 của POLICY_TEXT ghi vào
  * docs/operations/policy-review-record.md (Decision == APPROVED) — flip
- * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit.
+ * status sang REVIEWED trong src/lib/policy-registry.ts, cùng commit. Danh
+ * sách yêu cầu xác minh đối chiếu checkSellerPublicationRequirements
+ * (src/lib/seller-verification-policy.ts); số ảnh tối đa = LISTING_MAX_IMAGES,
+ * độ dài mô tả = DESCRIPTION_MAX (src/lib/listing-schema.ts).
  *
  * FD-R4 (version tension): Batch 2 ghi PolicyAcceptance(seller_rules, v1)
  * chống CHÍNH placeholder trước đây — bản Seller Rules duyệt ĐẦU TIÊN phải
  * bump version v1 → v2 (SELLER_RULES_POLICY_VERSION trong
  * src/lib/seller-verification-policy.ts — commit của founder, kèm update
  * test publication-gate/acceptance; registry seller_rules.version theo).
- * Bản nháp này KHÔNG bump version. Pre-launch v1 acceptances chỉ tồn tại
- * trong dev/test.
+ * Seller đã chấp nhận v1 (chỉ tồn tại trong dev/test) phải đồng ý lại v2 —
+ * gate đọc version MỚI fresh mỗi lần.
  *
  * Plain module (KHÔNG server-only, KHÔNG db) — import được bởi page
  * app/policies/[key] lẫn script tsx offline (scripts/policy-hash.ts).
  * Hash chỉ phủ POLICY_TEXT — status/version sống trong registry, KHÔNG ở
  * đây (S1: flip status không phá hash đã ghi).
  */
-export const POLICY_TEXT = `# Quy tắc người bán (BẢN NHÁP — chờ founder duyệt)
-
-> Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
+export const POLICY_TEXT = `# Quy tắc người bán
 
 ## 1. Ai được bán trên LoaViet
 
@@ -78,14 +75,14 @@ Mỗi tin đăng tương ứng với một chiếc loa cụ thể. Không đăng
 
 ## 7. Phản hồi người mua
 
-- Trả lời tin nhắn của người mua trong thời gian hợp lý, nên trong vòng [thời gian phản hồi khuyến nghị — founder điền].
+- Trả lời tin nhắn của người mua trong thời gian hợp lý, nên trong vòng 24 giờ.
 - Lịch sự, trả lời đúng câu hỏi, không gây áp lực.
 - Nếu không còn muốn bán hoặc sản phẩm đã bán, hãy báo cho người đang hỏi.
 
 ## 8. Cập nhật trạng thái tin
 
 - Khi bán thành công qua một giao dịch đã ghi nhận trên LoaViet, hãy chọn đánh dấu tin là đã bán khi bạn xác nhận kết quả thành công.
-- Nếu bán ở nơi khác hoặc không còn bán, hãy ẩn hoặc xóa tin ngay; liên hệ hỗ trợ qua [email liên hệ — founder điền] nếu cần đánh dấu đã bán.
+- Nếu bán ở nơi khác hoặc không còn bán, hãy ẩn hoặc xóa tin ngay; liên hệ hỗ trợ qua hnhien0708@gmail.com nếu cần đánh dấu đã bán.
 - Không để tin của sản phẩm đã bán tiếp tục hiển thị.
 
 ## 9. Vi phạm

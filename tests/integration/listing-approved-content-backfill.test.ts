@@ -94,7 +94,8 @@ async function mkVerifiedSeller(): Promise<string> {
   await db.orm.public.PolicyAcceptance.create({
     userId: u.id,
     policyKey: "seller_rules",
-    policyVersion: "v1",
+    // FD-R4: gate đọc SELLER_RULES_POLICY_VERSION = v2 (bump 2026-10-14)
+    policyVersion: "v2",
     acceptedAt: now,
   });
   // Task D fixture migration (founder 2026-10-12): toggleListingVisibilityAction

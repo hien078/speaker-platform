@@ -232,14 +232,14 @@ d("full happy path — declare → grant → submit → review → gate (DB th�
       fd({ userId: seller, cohort: "founding_seller", status: "active" }),
     );
 
-    // submit: row pending + PolicyAcceptance(seller_rules, v1)
+    // submit: row pending + PolicyAcceptance(seller_rules, v2 — FD-R4 bump 2026-10-14)
     await login(seller);
     const submitted = await submitSellerVerificationAction({}, fd({ acceptSellerRules: "on" }));
     expect(submitted.error).toBeUndefined();
     const pendingRow = await db.orm.public.SellerVerification.first({ userId: seller });
     expect(pendingRow!.status).toBe("pending");
     const acceptance = await db.orm.public.PolicyAcceptance
-      .first({ userId: seller, policyKey: "seller_rules", policyVersion: "v1" });
+      .first({ userId: seller, policyKey: "seller_rules", policyVersion: "v2" });
     expect(acceptance).not.toBeNull();
 
     // review verified — atomic claim + step-up tươi (không cần TOTP trong test)

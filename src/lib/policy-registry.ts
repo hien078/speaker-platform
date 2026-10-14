@@ -64,7 +64,7 @@ export type PolicyDefinition = {
   updatedAt: string;
 };
 
-/** Nội dung shipped của từng policy (placeholder DRAFT-NOT-REVIEWED — FD-3). */
+/** Nội dung shipped của từng policy (founder đã đọc và duyệt 2026-10-14 — FD-R34). */
 const POLICY_CONTENT: Record<PolicyKey, string> = {
   terms: TERMS_TEXT,
   privacy: PRIVACY_TEXT,
@@ -75,53 +75,55 @@ const POLICY_CONTENT: Record<PolicyKey, string> = {
 };
 
 /**
- * Registry — status "DRAFT-NOT-REVIEWED" cho đến khi founder duyệt từng văn
- * bản (FD-3). Flip status → "REVIEWED" trong registry (KHÔNG trong content
- * module) cùng commit với row duyệt mới trong policy-review-record.md.
+ * Registry — status "REVIEWED": founder đã đọc và duyệt từng văn bản
+ * (2026-10-14 — FD-R34), row duyệt trong docs/operations/policy-review-record.md
+ * (Decision == APPROVED, hash khớp) flip status trong registry (KHÔNG trong
+ * content module) cùng commit.
  */
 export const POLICIES: Record<PolicyKey, PolicyDefinition> = {
   terms: {
     key: "terms",
     title: "Điều khoản sử dụng",
     version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
   privacy: {
     key: "privacy",
-    title: "Chính sách bảo mật",
+    title: "Chính sách quyền riêng tư",
     version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
   marketplace_rules: {
     key: "marketplace_rules",
     title: "Quy tắc chợ",
     version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
   seller_rules: {
     // key/version khớp SELLER_RULES_POLICY_KEY/VERSION (Batch 2) — ghim bằng test.
+    // FD-R4: bản duyệt đầu tiên bump v1 → v2 (commit duyệt founder 2026-10-14).
     key: "seller_rules",
     title: "Quy tắc người bán",
-    version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    version: "v2",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
   community_rules: {
     key: "community_rules",
     title: "Quy tắc cộng đồng",
     version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
   safety_guidance: {
     key: "safety_guidance",
     title: "Hướng dẫn an toàn giao dịch",
     version: "v1",
-    status: "DRAFT-NOT-REVIEWED",
-    updatedAt: "2026-10-06",
+    status: "REVIEWED",
+    updatedAt: "2026-10-14",
   },
 };
 

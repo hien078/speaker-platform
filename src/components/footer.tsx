@@ -39,7 +39,7 @@ export function Footer() {
             <p className="text-[12px] font-bold uppercase tracking-wider text-[var(--muted)]">Chính sách</p>
             <ul className="mt-3 space-y-1.5 text-[13px]">
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/terms">Điều khoản sử dụng</Link></li>
-              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/privacy">Chính sách bảo mật</Link></li>
+              <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/privacy">Chính sách quyền riêng tư</Link></li>
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/marketplace_rules">Quy tắc chợ</Link></li>
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/seller_rules">Quy tắc người bán</Link></li>
               <li><Link className="text-[var(--ink-2)] hover:text-[var(--accent)]" href="/policies/community_rules">Quy tắc cộng đồng</Link></li>
