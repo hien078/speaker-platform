@@ -78,14 +78,14 @@ Mỗi tin đăng tương ứng với một chiếc loa cụ thể. Không đăng
 
 ## 7. Phản hồi người mua
 
-- Trả lời tin nhắn của người mua trong thời gian hợp lý, nên trong vòng [thời gian phản hồi khuyến nghị — founder điền].
+- Trả lời tin nhắn của người mua trong thời gian hợp lý, nên trong vòng 24 giờ.
 - Lịch sự, trả lời đúng câu hỏi, không gây áp lực.
 - Nếu không còn muốn bán hoặc sản phẩm đã bán, hãy báo cho người đang hỏi.
 
 ## 8. Cập nhật trạng thái tin
 
 - Khi bán thành công qua một giao dịch đã ghi nhận trên LoaViet, hãy chọn đánh dấu tin là đã bán khi bạn xác nhận kết quả thành công.
-- Nếu bán ở nơi khác hoặc không còn bán, hãy ẩn hoặc xóa tin ngay; liên hệ hỗ trợ qua [email liên hệ — founder điền] nếu cần đánh dấu đã bán.
+- Nếu bán ở nơi khác hoặc không còn bán, hãy ẩn hoặc xóa tin ngay; liên hệ hỗ trợ qua hnhien0708@gmail.com nếu cần đánh dấu đã bán.
 - Không để tin của sản phẩm đã bán tiếp tục hiển thị.
 
 ## 9. Vi phạm

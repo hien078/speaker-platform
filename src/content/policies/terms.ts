@@ -19,11 +19,11 @@ export const POLICY_TEXT = `# Điều khoản sử dụng (BẢN NHÁP — chờ
 
 > Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
 
-Ngày hiệu lực: [ngày hiệu lực — founder điền]
+Ngày hiệu lực: 14/10/2026
 
 ## 1. Giới thiệu
 
-LoaViet là nền tảng đăng tin và nhắn tin giúp người mua và người bán loa Bluetooth di động tìm thấy nhau. LoaViet do [tên pháp nhân — founder điền], địa chỉ [địa chỉ trụ sở — founder điền], vận hành.
+LoaViet là nền tảng đăng tin và nhắn tin giúp người mua và người bán loa Bluetooth di động tìm thấy nhau. LoaViet do Hoàng Ngọc Hiện, địa chỉ 413 Hoàng Quốc Việt, Hà Nội, vận hành.
 
 Khi tạo tài khoản hoặc sử dụng LoaViet, bạn đồng ý với Điều khoản này và các văn bản liên quan: Chính sách bảo mật, Quy tắc chợ, Quy tắc người bán, Quy tắc cộng đồng và Hướng dẫn an toàn giao dịch.
 
@@ -36,7 +36,7 @@ Khi tạo tài khoản hoặc sử dụng LoaViet, bạn đồng ý với Điề
 
 ## 3. Điều kiện sử dụng
 
-- Bạn phải từ [độ tuổi tối thiểu — founder điền] tuổi trở lên và có năng lực hành vi dân sự để tự thực hiện giao dịch mua bán theo pháp luật Việt Nam.
+- Bạn phải từ 16 tuổi trở lên và có năng lực hành vi dân sự để tự thực hiện giao dịch mua bán theo pháp luật Việt Nam.
 - Thông tin bạn cung cấp (họ tên, email, số điện thoại, khu vực hoạt động) phải chính xác và được cập nhật khi thay đổi.
 - Không tạo hoặc dùng nhiều tài khoản để né tránh hạn chế hay biện pháp xử lý vi phạm; không dùng tài khoản của người khác.
 
@@ -44,7 +44,7 @@ Khi tạo tài khoản hoặc sử dụng LoaViet, bạn đồng ý với Điề
 
 - Bạn tự chịu trách nhiệm giữ bí mật mật khẩu và mã xác minh (OTP). LoaViet không bao giờ hỏi mật khẩu hay mã OTP của bạn.
 - Một số tính năng yêu cầu email và số điện thoại đã xác minh. Trong giai đoạn beta, khi kênh gửi mã tự động chưa sẵn sàng, việc xác minh có thể do quản trị viên thực hiện thủ công sau khi liên hệ trực tiếp với bạn, có hai người cùng xác nhận và được ghi nhật ký.
-- Hãy báo ngay qua [email liên hệ — founder điền] nếu bạn nghi ngờ tài khoản bị truy cập trái phép.
+- Hãy báo ngay qua hnhien0708@gmail.com nếu bạn nghi ngờ tài khoản bị truy cập trái phép.
 
 ## 5. Vai trò của LoaViet
 
@@ -75,7 +75,7 @@ Khi tạo tài khoản hoặc sử dụng LoaViet, bạn đồng ý với Điề
 - Khi có vi phạm hoặc rủi ro cho người dùng khác, LoaViet có thể từ chối hoặc gỡ tin đăng, thu hồi xác minh người bán, tạm dừng tư cách thành viên beta hoặc đình chỉ tài khoản.
 - Trong giai đoạn beta, các biện pháp này do quản trị viên xem xét thủ công và có thể kéo dài không thời hạn cho tới khi được gỡ bỏ.
 - Bạn có thể kháng cáo quyết định xử lý qua trang kháng cáo trong ứng dụng, như mô tả trong Quy tắc cộng đồng.
-- Bạn có thể ngừng sử dụng LoaViet bất kỳ lúc nào. Hiện chưa có chức năng tự xóa tài khoản; hãy gửi yêu cầu xóa qua [email liên hệ — founder điền].
+- Bạn có thể ngừng sử dụng LoaViet bất kỳ lúc nào. Hiện chưa có chức năng tự xóa tài khoản; hãy gửi yêu cầu xóa qua hnhien0708@gmail.com.
 
 ## 9. Giới hạn trách nhiệm
 
@@ -85,13 +85,13 @@ Khi tạo tài khoản hoặc sử dụng LoaViet, bạn đồng ý với Điề
 
 ## 10. Thay đổi Điều khoản
 
-Mỗi văn bản chính sách hiển thị số phiên bản và ngày cập nhật ở đầu trang. Khi thay đổi đáng kể, LoaViet sẽ tăng số phiên bản và thông báo trong ứng dụng trước [thời hạn báo trước — founder điền] khi áp dụng. Với một số văn bản (ví dụ Quy tắc người bán), bạn có thể phải đồng ý lại phiên bản mới để tiếp tục dùng tính năng liên quan.
+Mỗi văn bản chính sách hiển thị số phiên bản và ngày cập nhật ở đầu trang. Khi thay đổi đáng kể, LoaViet sẽ tăng số phiên bản và thông báo trong ứng dụng trước 7 ngày khi áp dụng. Với một số văn bản (ví dụ Quy tắc người bán), bạn có thể phải đồng ý lại phiên bản mới để tiếp tục dùng tính năng liên quan.
 
 ## 11. Luật áp dụng
 
-Điều khoản này chịu sự điều chỉnh của pháp luật Việt Nam. Tranh chấp giữa bạn và LoaViet trước hết được giải quyết bằng thương lượng; nếu không thành, tranh chấp được đưa ra Tòa án có thẩm quyền tại [nơi giải quyết tranh chấp — founder điền].
+Điều khoản này chịu sự điều chỉnh của pháp luật Việt Nam. Tranh chấp giữa bạn và LoaViet trước hết được giải quyết bằng thương lượng; nếu không thành, tranh chấp được đưa ra Tòa án có thẩm quyền tại Hà Nội.
 
 ## 12. Liên hệ
 
-[tên pháp nhân — founder điền] — email: [email liên hệ — founder điền].
+Hoàng Ngọc Hiện — email: hnhien0708@gmail.com.
 `;

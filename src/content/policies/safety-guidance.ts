@@ -69,6 +69,6 @@ LoaViet giúp bạn tìm loa và nhắn tin với người bán. LoaViet không 
 
 - Dùng nút báo cáo trên tin đăng, trên hồ sơ người bán hoặc trong cuộc trò chuyện. Chọn lý do phù hợp và mô tả ngắn gọn sự việc.
 - Dùng chức năng chặn để ngừng nhận tin nhắn từ một người dùng. Lịch sử trò chuyện vẫn được giữ làm bằng chứng.
-- Báo cáo được quản trị viên xem xét thủ công. Nếu cần trao đổi thêm: [email liên hệ — founder điền].
+- Báo cáo được quản trị viên xem xét thủ công. Nếu cần trao đổi thêm: hnhien0708@gmail.com.
 - Nếu bạn gặp nguy hiểm hoặc bị chiếm đoạt tài sản, hãy liên hệ ngay công an (113) hoặc cơ quan công an nơi gần nhất.
 `;

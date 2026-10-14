@@ -20,12 +20,12 @@
 
 | Policy | Version | sha256 (scripts/policy-hash.ts) | Reviewer | Reviewed at | Decision | Notes |
 |---|---|---|---|---|---|---|
-| terms | v1 | 87ec10049e20e87831d6443b35b3f50ada8db440417c5330abd401dc27fcf062 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| privacy | v1 | 305abfefe737120cb2325ea7058482f97f1c6e3cea257826b225281af3aae764 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| marketplace_rules | v1 | c9e62a1f10eef1d72994b0c58362e8b56e865c9041e57370e9caf4ff5a7db878 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| seller_rules | v1 | 28445ebefab214c74d634de8adfb491dea46840be419f522bd6632efe6608ce3 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| community_rules | v1 | f34afe6452bd422904534c48d052bc26db22ea40c7ff6db1233771071deb8b6b | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
-| safety_guidance | v1 | 78ebb1cf5b28e47f90588d123a1d80ad072e908998c1343d9936465e6d88e209 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| terms | v1 | a571f06b1a5d0db4a09c4e8a690fe0988e7098b624aff2987847f66cd7c99065 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| privacy | v1 | fa2d533357b852ec375ae1a477a6c0926c7d5f49321db9039c4eb0f50e234a0d | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| marketplace_rules | v1 | 45caee175df919cfe9c2a913e3059307eaedf8bbfdcfefc014e45af637ae815e | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| seller_rules | v1 | cac2e446bb46cb94514d13f5d7b966023ae3984784c6585470e311d3f0238de3 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| community_rules | v1 | 55c7092f87bae13e7568aacfed57c03f3285052abc2778c6295fe3bb99777221 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
+| safety_guidance | v1 | ff2ff43685362f9a3d9f6fdb442491f8acf878f441f217e9cc9df7de9f594f46 | — (chờ founder) | — | PENDING | Bản nháp do Claude soạn theo yêu cầu founder 2026-10-12 — chờ founder duyệt |
 
 **Decision là đúng một trong** `APPROVED` / `REJECTED` / `PENDING` — release
 gate yêu cầu `APPROVED` (ô không trống là chưa đủ).

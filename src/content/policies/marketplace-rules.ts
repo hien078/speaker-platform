@@ -28,7 +28,7 @@ LoaViet là nơi đăng tin và nhắn tin để mua bán loa Bluetooth di độ
 
 - Trong giai đoạn beta, tin đăng mới chỉ được mở cho danh mục loa Bluetooth di động.
 - Mỗi tin có thể ghi kèm phụ kiện đi theo sản phẩm (sạc, cáp, dây đeo, hộp, giấy tờ mua hàng).
-- Việc mở thêm danh mục khác hoặc cho đăng riêng phụ kiện sẽ được LoaViet thông báo khi có quyết định: [danh mục bổ sung, nếu có — founder điền].
+- Việc mở thêm danh mục khác hoặc cho đăng riêng phụ kiện sẽ được LoaViet thông báo khi có quyết định.
 
 ## 3. Sản phẩm và tin đăng bị cấm
 
@@ -38,7 +38,6 @@ LoaViet là nơi đăng tin và nhắn tin để mua bán loa Bluetooth di độ
 - Sản phẩm không có thật, không còn trong tay người bán, hoặc tin đăng chỉ để thu hút liên hệ.
 - Tin không phải để bán một chiếc loa cụ thể (ví dụ tin tuyển dụng, quảng cáo dịch vụ, tin tìm mua, rao trao đổi).
 - Nội dung chứa thông tin cá nhân của người khác hoặc đường link thanh toán.
-- [danh mục hàng cấm bổ sung — founder điền]
 
 ## 4. Giá
 

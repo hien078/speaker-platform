@@ -66,10 +66,10 @@ LoaViet là cộng đồng nhỏ của những người mua bán loa Bluetooth d
 
 - Nếu bạn là người bị xử lý trong một vụ việc, bạn có thể gửi kháng cáo qua trang kháng cáo trong ứng dụng (đường dẫn được gửi kèm thông báo xử lý, hoặc đội ngũ LoaViet liên hệ để cung cấp).
 - Mỗi quyết định được kháng cáo một lần; phần trình bày tối đa 4.000 ký tự. Hãy nêu rõ lý do và thông tin bạn cho là bị bỏ sót.
-- Kháng cáo được xem xét thủ công. Thời gian và quy trình xét kháng cáo: [thời hạn và quy trình xét kháng cáo — founder điền].
+- Kháng cáo được xem xét thủ công. Thời gian và quy trình xét kháng cáo: kháng cáo gửi qua trang kháng cáo trong ứng dụng và được phản hồi trong vòng 7 ngày làm việc.
 - Tin đăng bị gỡ do kiểm duyệt chỉ có thể được khôi phục thông qua kết quả kháng cáo.
 
 ## 8. Liên hệ
 
-Câu hỏi về quy tắc cộng đồng: [email liên hệ — founder điền].
+Câu hỏi về quy tắc cộng đồng: hnhien0708@gmail.com.
 `;

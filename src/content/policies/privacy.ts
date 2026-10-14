@@ -21,11 +21,11 @@ export const POLICY_TEXT = `# Chính sách bảo mật (BẢN NHÁP — chờ fo
 
 > Bản nháp do trợ lý soạn theo yêu cầu của founder; chưa có hiệu lực cho tới khi founder duyệt. Nên nhờ người có chuyên môn pháp lý rà soát Điều khoản và Chính sách quyền riêng tư.
 
-Ngày hiệu lực: [ngày hiệu lực — founder điền]
+Ngày hiệu lực: 14/10/2026
 
 ## 1. Phạm vi
 
-Chính sách này giải thích cách [tên pháp nhân — founder điền] ("LoaViet") thu thập, sử dụng và bảo vệ dữ liệu cá nhân của bạn khi bạn dùng LoaViet, theo Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân. LoaViet là bên kiểm soát và xử lý các dữ liệu cá nhân được mô tả dưới đây.
+Chính sách này giải thích cách Hoàng Ngọc Hiện ("LoaViet") thu thập, sử dụng và bảo vệ dữ liệu cá nhân của bạn khi bạn dùng LoaViet, theo Nghị định 13/2023/NĐ-CP về bảo vệ dữ liệu cá nhân. LoaViet là bên kiểm soát và xử lý các dữ liệu cá nhân được mô tả dưới đây.
 
 ## 2. Dữ liệu chúng tôi thu thập
 
@@ -60,10 +60,10 @@ Tin đăng (kể cả ảnh, giá, tỉnh/thành), tên hiển thị và hồ s�
 LoaViet chỉ chia sẻ dữ liệu khi:
 
 - bạn chủ động gửi cho người dùng khác (ví dụ tin nhắn);
-- cần thiết cho nhà cung cấp hạ tầng vận hành dịch vụ thay LoaViet: [nhà cung cấp hạ tầng/lưu trữ — founder điền];
+- cần thiết cho nhà cung cấp hạ tầng vận hành dịch vụ thay LoaViet: máy chủ do LoaViet tự vận hành (không chia sẻ dữ liệu với nhà cung cấp hạ tầng bên thứ ba);
 - cơ quan nhà nước có thẩm quyền yêu cầu theo quy định pháp luật.
 
-Dữ liệu được lưu trữ tại: [nơi lưu trữ dữ liệu — founder điền].
+Dữ liệu được lưu trữ tại: Việt Nam.
 
 ## 6. Ai trong LoaViet được truy cập
 
@@ -87,7 +87,7 @@ Theo Nghị định 13/2023/NĐ-CP, bạn có quyền:
 - rút lại sự đồng ý, yêu cầu hạn chế hoặc phản đối việc xử lý;
 - khiếu nại, tố cáo, khởi kiện theo quy định pháp luật.
 
-Hiện chưa có chức năng tự xóa tài khoản: yêu cầu xóa được bộ phận hỗ trợ xử lý thủ công. Gửi yêu cầu qua [email liên hệ — founder điền]; LoaViet sẽ phản hồi trong [thời hạn phản hồi — founder điền]. Việc rút lại sự đồng ý hoặc xóa dữ liệu có thể khiến bạn không dùng được một số tính năng, và không ảnh hưởng tới phần dữ liệu cần giữ lại theo mục 7.
+Hiện chưa có chức năng tự xóa tài khoản: yêu cầu xóa được bộ phận hỗ trợ xử lý thủ công. Gửi yêu cầu qua hnhien0708@gmail.com; LoaViet sẽ phản hồi trong 72 giờ. Việc rút lại sự đồng ý hoặc xóa dữ liệu có thể khiến bạn không dùng được một số tính năng, và không ảnh hưởng tới phần dữ liệu cần giữ lại theo mục 7.
 
 ## 9. Biện pháp bảo vệ
 
@@ -95,9 +95,9 @@ LoaViet áp dụng các biện pháp như băm mật khẩu và OTP, giới hạ
 
 ## 10. Người chưa đủ tuổi
 
-LoaViet không dành cho người dưới [độ tuổi tối thiểu — founder điền] tuổi.
+LoaViet không dành cho người dưới 16 tuổi.
 
 ## 11. Thay đổi và liên hệ
 
-Khi chính sách thay đổi, số phiên bản và ngày cập nhật ở đầu trang sẽ thay đổi theo. Mọi câu hỏi về dữ liệu cá nhân xin gửi tới [tên pháp nhân — founder điền], email: [email liên hệ — founder điền].
+Khi chính sách thay đổi, số phiên bản và ngày cập nhật ở đầu trang sẽ thay đổi theo. Mọi câu hỏi về dữ liệu cá nhân xin gửi tới Hoàng Ngọc Hiện, email: hnhien0708@gmail.com.
 `;
